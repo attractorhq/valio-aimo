@@ -17,7 +17,7 @@ def run_agent(settings, db, provider, actor, message):
         f"catalog, offer checks and policy engine. Next Monday is {monday.isoformat()} (Europe/Helsinki). "
         "No order has been placed."
     )
-    if not settings.deepseek_api_key:
+    if not settings.openrouter_api_key:
         return ChatOut(message=fallback, mode="guided")
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT + f"\nHelsinki today: {today}; next Monday: {monday}."},
@@ -28,11 +28,14 @@ def run_agent(settings, db, provider, actor, message):
     proposed = False
     try:
         with OpenAI(
-            api_key=settings.deepseek_api_key, base_url="https://api.deepseek.com", timeout=20, max_retries=0
+            api_key=settings.openrouter_api_key,
+            base_url="https://openrouter.ai/api/v1",
+            timeout=20,
+            max_retries=0,
         ) as client:
             for _step in range(6):
                 completion = client.chat.completions.create(
-                    model=settings.deepseek_model,
+                    model=settings.llm_model,
                     messages=messages,
                     tools=definitions(),
                     temperature=0,

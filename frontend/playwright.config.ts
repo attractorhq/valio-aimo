@@ -21,7 +21,7 @@ export default defineConfig({
       env: {
         DATABASE_URL: `sqlite:///${database}`,
         MOCK_MODE: 'true',
-        DEEPSEEK_API_KEY: '',
+        OPENROUTER_API_KEY: '',
         FRONTEND_ORIGINS: 'http://localhost:5175',
       },
     },

@@ -42,10 +42,10 @@ def test_missing_key_guided_fallback(context, monkeypatch):
 
 def test_provider_down_guided_fallback(context):
     _, provider, factory, settings = context
-    settings.deepseek_api_key = "not-a-real-key"
+    settings.openrouter_api_key = "not-a-real-key"
     with factory() as db, patch("app.agent.runner.OpenAI") as mock:
         mock.return_value.__enter__.return_value.chat.completions.create.side_effect = APIConnectionError(
-            request=httpx.Request("POST", "https://api.deepseek.com")
+            request=httpx.Request("POST", "https://openrouter.ai/api/v1")
         )
         result = run_agent(settings, db, provider, DEMO_IDENTITIES["demo-restaurant-a"], "Milk")
         assert result.mode == "guided"
@@ -54,7 +54,7 @@ def test_provider_down_guided_fallback(context):
 
 def test_tool_loop_is_bounded(context):
     _, provider, factory, settings = context
-    settings.deepseek_api_key = "not-a-real-key"
+    settings.openrouter_api_key = "not-a-real-key"
     call = MagicMock()
     call.id = "call_1"
     call.function.name = "search_products"
