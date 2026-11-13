@@ -12,7 +12,7 @@ from app.catalog.build import (
     build_catalog_from_records,
     load_catalog,
 )
-from tests.synthetic import synthetic_product_record
+from tests.synthetic.catalog_records import synthetic_product_record
 
 
 def test_synthetic_catalog_build_and_load_round_trip(tmp_path: Path):

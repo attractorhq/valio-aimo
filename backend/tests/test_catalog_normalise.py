@@ -26,7 +26,7 @@ from app.trust import (
     trust_summary,
     x99_proves_free_from,
 )
-from tests.synthetic import synthetic_product_record
+from tests.synthetic.catalog_records import synthetic_product_record
 
 
 def test_multilingual_names_and_ingredients_normalisation():
