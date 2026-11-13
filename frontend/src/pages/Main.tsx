@@ -7,13 +7,10 @@ import { MandatePanel } from '../components/flow/MandatePanel'
 import { RequestComposer } from '../components/flow/RequestComposer'
 import { ModeBadge } from '../components/flow/ModeBadge'
 import { Step, type StepStatus } from '../components/flow/Step'
-import {
-  ApprovalOutcome,
-  LookupSummary,
-  OrderProposal,
-  RequestCard,
-  approvalLabel,
-} from '../components/flow/StepContent'
+import { RequestCard, approvalLabel } from '../components/flow/StepContent'
+import { DecisionFooter } from '../components/order/DecisionFooter'
+import { ExcludedList } from '../components/order/ExcludedList'
+import { OrderProposalView } from '../components/order/OrderProposalView'
 
 function approvalStatus(proposal: Proposal): StepStatus {
   if (proposal.decision === 'BLOCK') return 'blocked'
@@ -103,7 +100,7 @@ export function Main() {
             status={done}
             summary="Static catalogue first, then live price + availability for the shortlist only"
           >
-            {proposal && <LookupSummary proposal={proposal} />}
+            {proposal && <ExcludedList proposal={proposal} />}
           </Step>
           <Step
             number={3}
@@ -115,7 +112,7 @@ export function Main() {
                 : 'Proposal at fixed price'
             }
           >
-            {proposal && <OrderProposal proposal={proposal} />}
+            {proposal && <OrderProposalView proposal={proposal} />}
           </Step>
           <Step
             number={4}
@@ -127,7 +124,7 @@ export function Main() {
             current={Boolean(proposal)}
             summary={proposal ? approvalLabel(proposal) : 'Agent decides, or a human signs off'}
           >
-            {proposal && <ApprovalOutcome proposal={proposal} mandate={mandate} />}
+            {proposal && <DecisionFooter proposal={proposal} mandate={mandate} />}
           </Step>
         </ol>
         <p className="visually-hidden" aria-live="polite">
