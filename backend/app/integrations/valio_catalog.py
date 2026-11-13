@@ -8,6 +8,8 @@ from decimal import Decimal
 from app.schemas import ProductOut
 
 # GS1 allergen identifiers present in Synkka classifications. Keep original codes as well.
+# Verified against the dataset (13 Nov): ML = lactose (milk chocolate, cheese), UM = molluscs
+# (clams, mussels, octopus), AW = cereals containing gluten (any gluten cereal), UW = wheat.
 ALLERGENS = {
     "AC": "crustaceans",
     "AE": "eggs",
@@ -17,11 +19,13 @@ ALLERGENS = {
     "AP": "peanuts",
     "AS": "sesame",
     "AU": "sulphites",
-    "AW": "wheat",
+    "AW": "gluten",
+    "UW": "wheat",
     "AY": "soy",
     "BC": "celery",
     "BM": "mustard",
-    "ML": "molluscs",
+    "ML": "lactose",
+    "UM": "molluscs",
     "NL": "lupin",
     "NR": "rye",
     "GB": "barley",

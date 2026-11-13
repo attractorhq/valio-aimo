@@ -244,3 +244,14 @@ def test_partial_allergen_data_does_not_imply_safety(context, payload):
         )
     assert decision == "NEEDS_APPROVAL"
     assert "ALLERGEN_DATA_UNKNOWN" in {r.code for r in reasons}
+
+
+@pytest.mark.parametrize(
+    ("code", "label"),
+    [("ML", "lactose"), ("UM", "molluscs"), ("UW", "wheat"), ("AW", "gluten"), ("AM", "milk")],
+)
+def test_gs1_allergen_codes_map_to_the_right_allergen(code, label):
+    # Regression: ML was mapped to molluscs and UM was unmapped, so a mollusc restriction missed mussels.
+    record = product_record()
+    record["synkkaData"]["classifications"][1]["values"] = [{"id": code, "unit": "CONTAINS"}]
+    assert label in normalize_product(record).allergens
