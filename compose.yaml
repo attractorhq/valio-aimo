@@ -1,0 +1,20 @@
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      MOCK_MODE: ${MOCK_MODE:-true}
+      DATABASE_URL: sqlite:////data/gateway.db
+      FRONTEND_ORIGINS: ${FRONTEND_ORIGINS:-http://localhost:5173}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-flash}
+      VALIO_API_KEY: ${VALIO_API_KEY:-}
+      VALIO_BASE_URL: ${VALIO_BASE_URL:-https://junction26.valioaimo.fi}
+    volumes:
+      - gateway-data:/data
+    restart: unless-stopped
+volumes:
+  gateway-data:
