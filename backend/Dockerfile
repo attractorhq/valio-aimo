@@ -24,8 +24,7 @@ RUN useradd --create-home gateway \
     && mkdir -p /data \
     && chown -R gateway /data /srv/data
 
-ENV DATABASE_URL=sqlite:////data/gateway.db \
-    MOCK_MODE=true
+ENV DATABASE_URL=sqlite:////data/gateway.db
 
 USER gateway
 WORKDIR /srv/backend

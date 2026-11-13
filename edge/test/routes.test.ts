@@ -32,7 +32,7 @@ test('only known, non-empty settings reach the container', () => {
   const env = containerEnv({
     VALIO_API_KEY: 'secret-value',
     LLM_MODEL: 'model',
-    MOCK_MODE: '',
+    VALIO_MODE: '',
     // @ts-expect-error bindings and unknown keys are never forwarded
     ASSETS: {},
   })
