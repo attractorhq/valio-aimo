@@ -1,5 +1,7 @@
 const configured = import.meta.env.VITE_API_BASE_URL as string | undefined
-export const API_BASE = (configured || 'http://localhost:8000').replace(/\/$/, '')
+// Production builds are served by the edge Worker on the same origin as the gateway (T17).
+const fallback = import.meta.env.PROD ? '' : 'http://localhost:8000'
+export const API_BASE = (configured ?? fallback).replace(/\/$/, '')
 export type Identity = 'demo-restaurant-a' | 'demo-hotel-b' | 'demo-manager'
 
 export class ApiError extends Error {

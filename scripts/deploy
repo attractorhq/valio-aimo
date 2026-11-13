@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# ARCHITECT MACHINE ONLY: build the catalogue, build the UI, then deploy Worker + Container on one origin.
+#   scripts/deploy                      full deploy (Worker + container image)
+#   scripts/deploy --containers-rollout=none   Worker/UI only, keep the running container image
+# Needs: data/raw (event data), Docker (builds and pushes the image), `wrangler login`, secrets set:
+#   (cd edge && npx wrangler secret put VALIO_API_KEY)        # and OPENROUTER_API_KEY, APPROVAL_SIGNING_KEY
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+fail() { echo "deploy: $*" >&2; exit 1; }
+
+[ -s data/raw/products.json ] || fail "data/raw/products.json is missing; deploy runs on the architect machine only."
+command -v docker >/dev/null || fail "Docker is required to build the container image."
+docker info >/dev/null 2>&1 || fail "the Docker daemon is not running."
+
+bash scripts/guard
+scripts/build-catalog
+[ -s data/catalog/catalog.json ] || fail "the catalogue artifact was not built (data/catalog/catalog.json)."
+
+(cd frontend && npm ci && npm run build)
+(cd edge && npm ci && npm run check && npx wrangler deploy "$@")
+
+echo "deploy: ok. Smoke test: curl -fsS https://valio-aimo.<account>.workers.dev/health"

@@ -46,6 +46,26 @@
 - **Developers** work locally and put remote steps under **"Architect runs:"** in the PR.
 - `scripts/check` is the gate on every machine. CI runs it too.
 
+## Deploy (architect machine only)
+
+One origin, `https://valio-aimo.<account>.workers.dev`:
+
+- **`edge/`** is the Worker. It serves `frontend/dist` with SPA fallback and forwards `/v0.1/*`, `/mcp`, `/health`, `/docs` and `/openapi.json` to one container (`standard-1`, `max_instances: 1`, `sleepAfter` 6 h).
+  - The agent channel `/v0.1/agent/*` is rate limited to 30 requests per minute per client IP.
+  - The path list lives in two places: `edge/src/routes.ts` and `assets.run_worker_first` in `edge/wrangler.jsonc`. A test keeps them in sync.
+- **`backend/Dockerfile`** is the container image, built from the repo root.
+  - It copies `data/catalog/` and `data/fixtures/` (gitignored, never committed) in at build time.
+  - `data/raw` stays out (`.dockerignore`).
+  - State resets on every restart and deploy (see Decisions).
+- **Secrets** are Worker secrets, passed to the container as env vars by name: `VALIO_API_KEY`, `OPENROUTER_API_KEY`, `APPROVAL_SIGNING_KEY`. Set them once:
+  ```bash
+  cd edge && npx wrangler secret put VALIO_API_KEY      # repeat for OPENROUTER_API_KEY, APPROVAL_SIGNING_KEY
+  ```
+  Non-secret settings (`MOCK_MODE`, `LLM_MODEL`, `VALIO_BASE_URL`) are `vars` in `edge/wrangler.jsonc`.
+- **Deploy:** `scripts/deploy` builds the catalogue, then the UI, then runs `wrangler deploy`, which builds and pushes the image with Docker.
+  - `scripts/deploy --containers-rollout=none` updates the Worker and UI only.
+- **Locally:** `docker compose up --build` runs the same image. `cd edge && npm run check` typechecks and tests the Worker.
+
 ## Getting started (each person)
 
 ```bash
