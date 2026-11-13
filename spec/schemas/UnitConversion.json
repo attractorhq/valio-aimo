@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:verified-or-ask:v0.1:UnitConversion",
+  "x-contract-version": "0.1",
+  "additionalProperties": false,
+  "properties": {
+    "unitId": {
+      "title": "Unitid",
+      "type": "string"
+    },
+    "sizeInBaseUnits": {
+      "pattern": "^\\d+(\\.\\d+)?$",
+      "title": "Sizeinbaseunits",
+      "type": "string"
+    }
+  },
+  "required": [
+    "unitId",
+    "sizeInBaseUnits"
+  ],
+  "title": "UnitConversion",
+  "type": "object"
+}

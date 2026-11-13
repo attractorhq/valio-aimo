@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:verified-or-ask:v0.1:Deposit",
+  "x-contract-version": "0.1",
+  "additionalProperties": false,
+  "properties": {
+    "productId": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Productid",
+      "type": "string"
+    },
+    "quantity": {
+      "pattern": "^\\d+(\\.\\d+)?$",
+      "title": "Quantity",
+      "type": "string"
+    },
+    "unitPriceExclVat": {
+      "anyOf": [
+        {
+          "pattern": "^\\d+\\.\\d{2}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Unitpriceexclvat"
+    }
+  },
+  "required": [
+    "productId",
+    "quantity"
+  ],
+  "title": "Deposit",
+  "type": "object"
+}

@@ -1,0 +1,63 @@
+{
+  "proposalId": "MOCK-P-A",
+  "customerId": "mock-hotels",
+  "mandateVersion": 1,
+  "offerId": "MOCK-O-A",
+  "offerVersion": 1,
+  "offerHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "state": "CONFIRMED_SIMULATED",
+  "decision": "AUTO",
+  "reasons": [],
+  "approverRole": null,
+  "request": {
+    "requestText": "1,000 litres of lactose-free milk drink by Monday.",
+    "requestedDate": "2026-11-16",
+    "items": [
+      {
+        "itemId": "I1",
+        "what": "milk drink",
+        "quantity": "1000",
+        "unit": "l",
+        "requirements": [{"kind": "CLAIM", "code": "FREE_FROM_LACTOSE"}],
+        "preferences": []
+      }
+    ],
+    "assumptions": ["Any fat percentage"]
+  },
+  "requestedDate": "2026-11-16",
+  "createdAt": "2026-11-13T21:50:00+02:00",
+  "validUntil": "2026-11-13T22:05:00+02:00",
+  "mode": "RECORDED",
+  "recordedAt": "2026-11-13T21:50:00+02:00",
+  "lines": [
+    {
+      "lineId": "L1",
+      "itemId": "I1",
+      "productId": "MOCK-MILK",
+      "name": "Synthetic lactose-free milk drink 1 l",
+      "salesUnit": "ST",
+      "salesUnitLabel": "pc",
+      "contentPerSalesUnit": {"value": "1", "unit": "l", "level": "DECLARED", "method": "synthetic declared pack"},
+      "quantitySalesUnits": "1000",
+      "deliveredQuantity": {"value": "1000", "unit": "l"},
+      "unitPriceExclVat": "1.01",
+      "lineTotalExclVat": "1010.00",
+      "vatRate": "13.5",
+      "deliveryDate": "2026-11-16",
+      "closingTime": "2026-11-15T17:00:00+02:00",
+      "facts": [
+        {"fact": "price.unit", "value": "1.01", "display": "€1.01 / pc excl. VAT", "level": "VERIFIED", "source": {"system": "valio-aimo.price-api", "field": "catalogPrice.value", "retrievedAt": "2026-11-13T21:50:00+02:00"}},
+        {"fact": "price.vatRate", "value": "13.5", "display": "VAT 13.5 %", "level": "VERIFIED", "source": {"system": "valio-aimo.price-api", "field": "tax.taxRate", "retrievedAt": "2026-11-13T21:50:00+02:00"}},
+        {"fact": "stock.quantity", "value": 2000, "display": "2,000 in stock", "level": "VERIFIED", "source": {"system": "valio-aimo.availability-api", "field": "scheduleLines[0].availableAmount", "retrievedAt": "2026-11-13T21:50:00+02:00"}},
+        {"fact": "delivery.date", "value": "2026-11-16", "display": "Mon 16 Nov", "level": "VERIFIED", "source": {"system": "valio-aimo.availability-api", "field": "scheduleLines[0].availableDate", "retrievedAt": "2026-11-13T21:50:00+02:00"}},
+        {"fact": "delivery.cutoff", "value": "2026-11-15T17:00:00+02:00", "display": "Sun 15 Nov 17:00", "level": "VERIFIED", "source": {"system": "valio-aimo.availability-api", "field": "closingTime", "retrievedAt": "2026-11-13T21:50:00+02:00"}},
+        {"fact": "claim.FREE_FROM_LACTOSE", "value": true, "display": "Lactose-free", "level": "DECLARED", "source": {"system": "valio-aimo.product-data", "field": "nutritionalClaim", "retrievedAt": null}},
+        {"fact": "allergen.AM", "value": "CONTAINS", "display": "Contains milk", "level": "DECLARED", "source": {"system": "valio-aimo.product-data", "field": "allergen.AM", "retrievedAt": null}}
+      ],
+      "reasons": []
+    }
+  ],
+  "excluded": [],
+  "totals": {"exclVat": "1010.00", "vat": "136.35", "inclVat": "1146.35", "currency": "EUR"},
+  "simulationNotice": "Simulated order — mock environment"
+}

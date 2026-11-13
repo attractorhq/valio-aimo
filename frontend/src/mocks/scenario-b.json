@@ -1,0 +1,90 @@
+{
+  "proposalId": "MOCK-P-B",
+  "customerId": "mock-school",
+  "mandateVersion": 1,
+  "offerId": "MOCK-O-B",
+  "offerVersion": 1,
+  "offerHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "state": "PENDING_APPROVAL",
+  "decision": "ASK",
+  "reasons": ["OVER_AUTO_LIMIT"],
+  "approverRole": "Head Chef (demo)",
+  "request": {
+    "requestText": "90 kg of gluten-free macaroni and 80 litres of gluten-free oat drink by Monday.",
+    "requestedDate": "2026-11-16",
+    "items": [
+      {"itemId": "I1", "what": "macaroni", "quantity": "90", "unit": "kg", "requirements": [{"kind": "CLAIM", "code": "FREE_FROM_GLUTEN"}], "preferences": []},
+      {"itemId": "I2", "what": "oat drink", "quantity": "80", "unit": "l", "requirements": [{"kind": "CLAIM", "code": "FREE_FROM_GLUTEN"}], "preferences": []}
+    ],
+    "assumptions": []
+  },
+  "requestedDate": "2026-11-16",
+  "createdAt": "2026-11-13T21:50:00+02:00",
+  "validUntil": "2026-11-13T22:05:00+02:00",
+  "mode": "RECORDED",
+  "recordedAt": "2026-11-13T21:50:00+02:00",
+  "lines": [
+    {
+      "lineId": "L1",
+      "itemId": "I1",
+      "productId": "MOCK-PASTA",
+      "name": "Synthetic gluten-free macaroni 5 kg",
+      "salesUnit": "ST",
+      "salesUnitLabel": "bag",
+      "contentPerSalesUnit": {"value": "5", "unit": "kg", "level": "DECLARED", "method": "synthetic declared pack"},
+      "quantitySalesUnits": "18",
+      "deliveredQuantity": {"value": "90", "unit": "kg"},
+      "unitPriceExclVat": "22.92",
+      "lineTotalExclVat": "412.56",
+      "vatRate": "13.5",
+      "deliveryDate": "2026-11-16",
+      "closingTime": "2026-11-15T17:00:00+02:00",
+      "facts": [
+        {"fact": "price.unit", "value": "22.92", "display": "€22.92 / bag excl. VAT", "level": "VERIFIED", "source": {"system": "valio-aimo.price-api", "field": "catalogPrice.value", "retrievedAt": "2026-11-13T21:50:00+02:00"}},
+        {"fact": "price.vatRate", "value": "13.5", "display": "VAT 13.5 %", "level": "VERIFIED", "source": {"system": "valio-aimo.price-api", "field": "tax.taxRate", "retrievedAt": "2026-11-13T21:50:00+02:00"}},
+        {"fact": "stock.quantity", "value": 19, "display": "19 in stock", "level": "VERIFIED", "source": {"system": "valio-aimo.availability-api", "field": "scheduleLines[0].availableAmount", "retrievedAt": "2026-11-13T21:50:00+02:00"}},
+        {"fact": "delivery.date", "value": "2026-11-16", "display": "Mon 16 Nov", "level": "VERIFIED", "source": {"system": "valio-aimo.availability-api", "field": "scheduleLines[0].availableDate", "retrievedAt": "2026-11-13T21:50:00+02:00"}},
+        {"fact": "delivery.cutoff", "value": "2026-11-15T17:00:00+02:00", "display": "Sun 15 Nov 17:00", "level": "VERIFIED", "source": {"system": "valio-aimo.availability-api", "field": "closingTime", "retrievedAt": "2026-11-13T21:50:00+02:00"}},
+        {"fact": "claim.FREE_FROM_GLUTEN", "value": true, "display": "Gluten-free", "level": "DECLARED", "source": {"system": "valio-aimo.product-data", "field": "nutritionalClaim", "retrievedAt": null}},
+        {"fact": "allergen.AE", "value": "FREE_FROM", "display": "Egg-free", "level": "DECLARED", "source": {"system": "valio-aimo.product-data", "field": "nonAllergen.AE", "retrievedAt": null}}
+      ],
+      "reasons": []
+    },
+    {
+      "lineId": "L2",
+      "itemId": "I2",
+      "productId": "MOCK-OAT",
+      "name": "Synthetic gluten-free oat drink 1 l",
+      "salesUnit": "ST",
+      "salesUnitLabel": "pc",
+      "contentPerSalesUnit": {"value": "1", "unit": "l", "level": "DECLARED", "method": "synthetic declared pack"},
+      "quantitySalesUnits": "80",
+      "deliveredQuantity": {"value": "80", "unit": "l"},
+      "unitPriceExclVat": "1.17",
+      "lineTotalExclVat": "93.60",
+      "vatRate": "13.5",
+      "deliveryDate": "2026-11-16",
+      "closingTime": "2026-11-15T17:00:00+02:00",
+      "facts": [
+        {"fact": "price.unit", "value": "1.17", "display": "€1.17 / pc excl. VAT", "level": "VERIFIED", "source": {"system": "valio-aimo.price-api", "field": "catalogPrice.value", "retrievedAt": "2026-11-13T21:50:00+02:00"}},
+        {"fact": "price.vatRate", "value": "13.5", "display": "VAT 13.5 %", "level": "VERIFIED", "source": {"system": "valio-aimo.price-api", "field": "tax.taxRate", "retrievedAt": "2026-11-13T21:50:00+02:00"}},
+        {"fact": "stock.quantity", "value": 200, "display": "200 in stock", "level": "VERIFIED", "source": {"system": "valio-aimo.availability-api", "field": "scheduleLines[0].availableAmount", "retrievedAt": "2026-11-13T21:50:00+02:00"}},
+        {"fact": "delivery.date", "value": "2026-11-16", "display": "Mon 16 Nov", "level": "VERIFIED", "source": {"system": "valio-aimo.availability-api", "field": "scheduleLines[0].availableDate", "retrievedAt": "2026-11-13T21:50:00+02:00"}},
+        {"fact": "delivery.cutoff", "value": "2026-11-15T17:00:00+02:00", "display": "Sun 15 Nov 17:00", "level": "VERIFIED", "source": {"system": "valio-aimo.availability-api", "field": "closingTime", "retrievedAt": "2026-11-13T21:50:00+02:00"}},
+        {"fact": "claim.FREE_FROM_GLUTEN", "value": true, "display": "Gluten-free", "level": "DECLARED", "source": {"system": "valio-aimo.product-data", "field": "nutritionalClaim", "retrievedAt": null}},
+        {"fact": "allergen.GO", "value": "CONTAINS", "display": "Contains oats", "level": "DECLARED", "source": {"system": "valio-aimo.product-data", "field": "allergen.GO", "retrievedAt": null}},
+        {"fact": "substitute.valio", "value": "MOCK-REJECTED", "display": "Listed substitute fails the gluten-free requirement; never swap", "level": "VERIFIED", "source": {"system": "valio-aimo.substitution-rules", "field": "substitutions", "retrievedAt": null}}
+      ],
+      "reasons": []
+    }
+  ],
+  "excluded": [
+    {"productId": "MOCK-REJECTED", "name": "Synthetic non-gluten-free oat drink", "itemId": "I2", "substituteFor": "MOCK-OAT", "reasons": ["CLAIM_MISSING", "SUBSTITUTE_REJECTED"], "facts": []},
+    {"productId": "MOCK-UNDECLARED", "name": "Synthetic pasta with no allergen declaration", "itemId": "I1", "reasons": ["ALLERGEN_UNKNOWN"], "facts": []},
+    {"productId": "MOCK-SOLD-OUT", "name": "Synthetic out-of-stock pasta", "itemId": "I1", "reasons": ["NOT_AVAILABLE"], "facts": []},
+    {"productId": "MOCK-CONFLICT", "name": "Synthetic conflicting oat drink", "itemId": "I2", "reasons": ["NOT_AVAILABLE", "DATA_CONFLICT"], "facts": []},
+    {"productId": "MOCK-LATE-CUTOFF", "name": "Synthetic supplier-stock pasta", "itemId": "I1", "reasons": ["CUTOFF_PASSED"], "facts": []}
+  ],
+  "totals": {"exclVat": "506.16", "vat": "68.33", "inclVat": "574.49", "currency": "EUR"},
+  "simulationNotice": "Simulated order — mock environment"
+}

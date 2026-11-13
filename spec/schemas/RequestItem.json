@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:verified-or-ask:v0.1:RequestItem",
+  "x-contract-version": "0.1",
+  "$defs": {
+    "Preference": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "BRAND",
+            "ORGANIC",
+            "ORIGIN",
+            "LABEL",
+            "FAT_PERCENT",
+            "PACK_SIZE",
+            "OTHER"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "title": "Preference",
+      "type": "object"
+    },
+    "Requirement": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "CLAIM",
+            "AVOID_ALLERGEN"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "code": {
+          "minLength": 1,
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "code"
+      ],
+      "title": "Requirement",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "itemId": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Itemid",
+      "type": "string"
+    },
+    "what": {
+      "minLength": 1,
+      "title": "What",
+      "type": "string"
+    },
+    "quantity": {
+      "pattern": "^\\d+(\\.\\d+)?$",
+      "title": "Quantity",
+      "type": "string"
+    },
+    "unit": {
+      "enum": [
+        "l",
+        "kg",
+        "pcs",
+        "cases"
+      ],
+      "title": "Unit",
+      "type": "string"
+    },
+    "productId": {
+      "anyOf": [
+        {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Productid"
+    },
+    "requirements": {
+      "items": {
+        "$ref": "#/$defs/Requirement"
+      },
+      "title": "Requirements",
+      "type": "array"
+    },
+    "preferences": {
+      "items": {
+        "$ref": "#/$defs/Preference"
+      },
+      "title": "Preferences",
+      "type": "array"
+    }
+  },
+  "required": [
+    "itemId",
+    "what",
+    "quantity",
+    "unit"
+  ],
+  "title": "RequestItem",
+  "type": "object"
+}

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:verified-or-ask:v0.1:Totals",
+  "x-contract-version": "0.1",
+  "additionalProperties": false,
+  "properties": {
+    "exclVat": {
+      "pattern": "^\\d+\\.\\d{2}$",
+      "title": "Exclvat",
+      "type": "string"
+    },
+    "vat": {
+      "pattern": "^\\d+\\.\\d{2}$",
+      "title": "Vat",
+      "type": "string"
+    },
+    "inclVat": {
+      "pattern": "^\\d+\\.\\d{2}$",
+      "title": "Inclvat",
+      "type": "string"
+    },
+    "currency": {
+      "const": "EUR",
+      "default": "EUR",
+      "title": "Currency",
+      "type": "string"
+    }
+  },
+  "required": [
+    "exclVat",
+    "vat",
+    "inclVat"
+  ],
+  "title": "Totals",
+  "type": "object"
+}

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:verified-or-ask:v0.1:TrustSource",
+  "x-contract-version": "0.1",
+  "additionalProperties": false,
+  "properties": {
+    "system": {
+      "enum": [
+        "valio-aimo.price-api",
+        "valio-aimo.availability-api",
+        "valio-aimo.product-data",
+        "valio-aimo.substitution-rules",
+        "valio-aimo.delivery-reliability",
+        "valio-aimo.carbon-footprint",
+        "derived",
+        "agent"
+      ],
+      "title": "System",
+      "type": "string"
+    },
+    "field": {
+      "title": "Field",
+      "type": "string"
+    },
+    "retrievedAt": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Retrievedat"
+    }
+  },
+  "required": [
+    "system",
+    "field",
+    "retrievedAt"
+  ],
+  "title": "TrustSource",
+  "type": "object"
+}

@@ -1,0 +1,16 @@
+{
+  "customerId": "mock-hotels",
+  "version": 1,
+  "organisationName": "Synthetic Harbour Hotels (demo mock)",
+  "segment": "hotel chain",
+  "allergenMode": "STANDARD",
+  "autoApproveLimitEur": "1500.00",
+  "hardLimitEur": "5000.00",
+  "autoAcceptValioSubstitutes": true,
+  "autoAcceptAgentSubstitutes": false,
+  "autoAcceptSupplierStock": false,
+  "minReliability": "0.80",
+  "enforceCutoff": true,
+  "forbiddenAllergens": [],
+  "approver": {"name": "Demo Purchasing Manager", "role": "Purchasing Manager (demo)"}
+}
