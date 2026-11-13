@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Run developer agents in a loop: one fresh agent process per ticket, so context stays small.
+#   scripts/agent-loop codex [max_iterations]     (Codex CLI: codex exec)
+#   scripts/agent-loop claude [max_iterations]    (Claude Code headless; interactive `/loop /developer` is usually nicer)
+# Env: IDLE_SLEEP (s, default 300), CODEX_ARGS, CLAUDE_ARGS.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+agent="${1:-codex}"; max="${2:-100}"; idle="${IDLE_SLEEP:-300}"
+
+PROMPT='Read AGENTS.md and CLAUDE.md, then act as a developer following .claude/skills/developer/SKILL.md, section "Loop mode": first fix review feedback on your own open PRs; otherwise claim exactly ONE ticket with scripts/ticket (next -> claim), implement it in .worktrees/ticket-<N> (run scripts/worktree-setup there first), run scripts/check, push and open the PR with scripts/ticket pr. Stop after that single PR is open. Never deploy, never merge, never run scripts/judge or edit judging/.'
+
+has_work() {
+  scripts/ticket next | grep -q '^#' && return 0
+  [ -n "$(gh pr list -R attractorhq/valio-aimo --author @me --state open --search 'review:changes-requested' --json number --jq '.[].number' 2>/dev/null)" ]
+}
+
+for i in $(seq 1 "$max"); do
+  git fetch -q origin main && git merge -q --ff-only origin/main 2>/dev/null || true
+  if [ -z "$(gh issue list -R attractorhq/valio-aimo --label ticket --state open --json number --jq '.[].number')" ]; then
+    echo "[agent-loop] all tickets closed – done"; exit 0
+  fi
+  if ! has_work; then
+    echo "[agent-loop] $(date +%H:%M) nothing claimable, waiting ${idle}s"; sleep "$idle"; continue
+  fi
+  echo "[agent-loop] $(date +%H:%M) iteration $i ($agent)"
+  case "$agent" in
+    codex)
+      # workspace-write keeps writes inside the repo (.worktrees/); network is needed for gh/npm/git push.
+      # If git commit/push is blocked by the sandbox on your machine, use CODEX_ARGS="-s danger-full-access".
+      # shellcheck disable=SC2086
+      codex exec ${CODEX_ARGS:--s workspace-write -c sandbox_workspace_write.network_access=true} "$PROMPT" || echo "[agent-loop] codex exited with $?"
+      ;;
+    claude)
+      # shellcheck disable=SC2086
+      claude -p "$PROMPT" ${CLAUDE_ARGS:---permission-mode acceptEdits --allowedTools "Bash(git *)" "Bash(gh *)" "Bash(npm *)" "Bash(npx *)" "Bash(scripts/*)" "Bash(node *)" "Bash(python3 *)" "Bash(.venv/bin/*)" "Bash(../../.venv/bin/*)" "Bash(cat *)" "Bash(ls *)"} || echo "[agent-loop] claude exited with $?"
+      ;;
+    *) echo "usage: scripts/agent-loop codex|claude [max]"; exit 2 ;;
+  esac
+done

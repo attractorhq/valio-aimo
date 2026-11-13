@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# One-time setup for a clone or a ticket worktree (.worktrees/ticket-N):
+# Python venv, frontend deps, and .env + data pointing at the main clone's gitignored files.
+set -euo pipefail
+here="$(git rev-parse --show-toplevel)"
+main="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
+cd "$here"
+
+if [ "$here" != "$main" ]; then
+  # Worktree: reuse the main clone's .env (secrets) and data (gitignored, never copied into git).
+  [ -f "$main/.env" ] && [ ! -e .env ] && ln -s "$main/.env" .env
+  for f in "$main"/data/raw/*; do
+    [ -e "$f" ] || continue
+    [ -e "data/raw/$(basename "$f")" ] || ln -s "$f" "data/raw/$(basename "$f")"
+  done
+fi
+[ -f .env ] || { cp .env.example .env; echo "worktree-setup: created .env from .env.example. Fill in VALIO_API_KEY (ask the team)."; }
+
+[ -x .venv/bin/python ] || python3 -m venv .venv
+.venv/bin/pip install -q -e 'backend[test]'
+(cd frontend && npm ci --silent)
+echo "worktree-setup: ok ($here)"

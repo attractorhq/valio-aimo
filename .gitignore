@@ -17,3 +17,12 @@ dist/
 .wrangler/
 data/raw/*
 !data/raw/.gitkeep
+
+# multi-agent
+.worktrees/
+judging/runs/
+data/catalog/
+data/fixtures/
+*BRIEF*.txt
+*BRIEF*.md
+VALIO_AIMO_*

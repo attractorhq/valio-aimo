@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Local quality guard: refuse data files, the build brief, env files and anything key-like.
+# Runs as part of scripts/check on developer and architect machines (and in CI).
+# Secrets are never written into this script: it reads the real values from .env at runtime.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+files=$(git ls-files --cached --others --exclude-standard)
+
+bad=$(grep -E '(^|/)\.env$|(^|/)\.env\.[^e]|\.(db|sqlite|db-wal|db-shm|duckdb|zip)$|(^|/)[^/]*BRIEF[^/]*$|(^|/)VALIO_AIMO_[^/]*$|^data/(raw|catalog|fixtures)/[^.]' <<<"$files" || true)
+if [ -n "$bad" ]; then
+  echo "guard: data, brief or env files would be committed:"; echo "$bad"; exit 1
+fi
+
+big=$(while read -r f; do [ -f "$f" ] && [ "$(stat -c %s "$f")" -gt 1500000 ] && echo "$f"; done <<<"$files" | grep -v 'package-lock.json' || true)
+if [ -n "$big" ]; then
+  echo "guard: file over 1.5 MB (dataset copy?):"; echo "$big"; exit 1
+fi
+
+# Pattern of the Valio Aimo challenge key, plus the literal values from .env if present.
+patterns=('junct_[A-Za-z0-9_-]{20,}' 'sk-or-v1-[A-Za-z0-9]{20,}' 'sk-ant-[A-Za-z0-9_-]{20,}' 'sk-[A-Za-z0-9]{32,}')
+if [ -f .env ]; then
+  for var in VALIO_API_KEY VALIO_PORTAL_PASSWORD OPENROUTER_API_KEY ANTHROPIC_API_KEY DEEPSEEK_API_KEY APPROVAL_SIGNING_KEY; do
+    val=$(grep -E "^${var}=" .env | head -1 | cut -d= -f2- | tr -d '"' || true)
+    [ -n "$val" ] && [ "${#val}" -ge 8 ] && patterns+=("$(printf '%s' "$val" | sed 's/[][\.*^$/]/\\&/g')")
+  done
+fi
+for p in "${patterns[@]}"; do
+  if git grep --untracked -qE -- "$p" -- ':!scripts/guard' ':!package-lock.json' ':!frontend/package-lock.json' 2>/dev/null; then
+    echo "guard: a secret or key-like string is in the repo:"
+    git grep --untracked -nE -- "$p" -- ':!scripts/guard' ':!package-lock.json' ':!frontend/package-lock.json' | cut -d: -f1,2
+    exit 1
+  fi
+done
+echo "guard: ok (no data files, no brief, no secrets)"

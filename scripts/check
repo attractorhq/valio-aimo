@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# The merge gate: guard + ruff + pytest + frontend typecheck/build. Must pass before every PR and merge.
+#   scripts/check            full gate
+#   scripts/check --fast     skip the frontend build (backend-only tickets, while iterating)
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+PY="${PYTHON:-.venv/bin/python}"
+[ -x "$PY" ] || { echo "check: no venv. Run scripts/worktree-setup first."; exit 1; }
+
+bash scripts/guard
+"$PY" -m ruff check backend
+"$PY" -m pytest backend/tests -q
+if [ "${1:-}" != "--fast" ]; then
+  (cd frontend && npm run build --silent)
+fi
+echo "check: ok"

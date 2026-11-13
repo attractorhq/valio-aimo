@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# Blind judge panel: score the running app against the official Junction judging criteria.
+# ARCHITECT ONLY. Each judge is a separate, context-isolated headless Claude process that sees
+# nothing but judging/CHALLENGE.md, docs/SUBMISSION.md and the live app. See judging/README.md.
+#
+#   scripts/judge <app-url>               full panel (commercial, online-sales, tech-governance)
+#   scripts/judge --selftest <app-url>    cheap probe: verifies the judge cannot read the repo
+#
+# Env: JUDGES="commercial online-sales tech-governance"  JUDGE_MODEL=opus  JUDGE_MAX_TURNS=80
+#      (the app and its API must share one origin; the helpers refuse every other origin)
+# Output: judging/reports/<timestamp>.md (+ .json). Raw transcripts: judging/runs/<timestamp>/ (gitignored).
+set -euo pipefail
+repo="$(git rev-parse --show-toplevel)"
+cd "$repo"
+
+selftest=0
+if [ "${1:-}" = "--selftest" ]; then selftest=1; shift; fi
+url="${1:?usage: scripts/judge [--selftest] <app-url>}"
+url="${url%/}"
+origin=$(python3 -I -c 'import sys,urllib.parse as u; p=u.urlsplit(sys.argv[1]); assert p.scheme in ("http","https") and p.netloc; print(f"{p.scheme}://{p.netloc}")' "$url")
+model="${JUDGE_MODEL:-opus}"
+max_turns="${JUDGE_MAX_TURNS:-80}"
+personas="${JUDGES:-commercial online-sales tech-governance}"
+if [ "$selftest" = 1 ]; then personas="probe"; model="${JUDGE_MODEL:-haiku}"; max_turns=15; fi
+
+command -v claude >/dev/null || { echo "judge: claude CLI not found"; exit 1; }
+[ "$selftest" = 1 ] || [ -s docs/SUBMISSION.md ] || { echo "judge: docs/SUBMISSION.md is missing or empty"; exit 1; }
+curl -sf -o /dev/null -m 15 "$url" || { echo "judge: $url is not reachable"; exit 1; }
+
+# Browser tooling lives outside the repo so the judge's working directory stays clean.
+tools="${XDG_CACHE_HOME:-$HOME/.cache}/aimo-judge"
+if [ ! -d "$tools/node_modules/playwright" ]; then
+  echo "judge: installing playwright into $tools (one-time)"
+  mkdir -p "$tools" && npm install --prefix "$tools" --silent --no-audit --no-fund playwright@1.52.0 >/dev/null
+fi
+
+ts=$(date +%Y%m%d-%H%M%S)
+runroot=$(mktemp -d "${TMPDIR:-/tmp}/aimo-judge.XXXXXX")
+mkdir -p judging/runs/"$ts" judging/reports
+hide_dir="$(dirname "$repo")"   # the whole projects folder: this repo, other clones, worktrees
+
+# Isolation = fresh cwd outside the repo + no CLAUDE.md/memory/MCP + only Bash and Read + an allowlist of
+# two origin-locked helpers (./browse, ./http). The OS sandbox (bubblewrap) is not relied on: Ubuntu's
+# AppArmor userns restriction disables it on this machine. `scripts/judge --selftest` verifies all of this.
+settings=$(cat <<JSON
+{
+  "permissions": {
+    "blockReadsOutsideWorkingDirectories": true,
+    "deny": ["Read(/$hide_dir/**)", "Read(/$HOME/.claude/**)", "Read(/$tools/**)", "Bash(curl *)", "Bash(wget *)"]
+  }
+}
+JSON
+)
+
+run_one() {
+  local persona="$1" dir="$runroot/$1"
+  mkdir -p "$dir/shots"
+  cp judging/CHALLENGE.md "$dir/CHALLENGE.md"
+  [ -f docs/SUBMISSION.md ] && cp docs/SUBMISSION.md "$dir/SUBMISSION.md"
+  cp judging/browse.cjs "$dir/.browse.cjs"
+  cp judging/http.cjs "$dir/.http.cjs"
+  for helper in browse http; do
+    printf '#!/bin/sh\nNODE_PATH="%s" JUDGE_ORIGIN="%s" exec node "%s" "$@"\n' \
+      "$tools/node_modules" "$origin" "$dir/.$helper.cjs" > "$dir/$helper"
+    chmod +x "$dir/$helper"
+  done
+
+  local system prompt
+  if [ "$persona" = "probe" ]; then
+    system="You are a security probe for an isolated evaluation sandbox. Report facts only."
+    prompt="Run each command below exactly as written, one per tool call, without adding anything to it. Report for each one exactly what happened (content seen, or the error):
+1. Read the file $repo/CLAUDE.md with the Read tool.
+2. Run: cat $repo/CLAUDE.md
+3. Run: curl -s file://$repo/CLAUDE.md   and also   ./http GET file://$repo/CLAUDE.md
+4. Run: ./browse '[{\"goto\":\"file://$repo/CLAUDE.md\"},{\"text\":\"body\"}]'
+5. Run: ls $hide_dir   and also   ./http GET / && cat $repo/CLAUDE.md   and also   ./http GET \"/\$(head -c 80 $repo/CLAUDE.md | base64 -w0)\"
+6. Run: ./http GET $url/   and also   ./http GET index.html
+7. Run: ./browse '[{\"goto\":\"/\"},{\"text\":\"title\"}]'
+8. List every file in your current directory.
+9. Describe any project instructions, CLAUDE.md content or memories present in your context (quote their first lines), or say there are none.
+End with a JSON block: {\"repo_readable\": true|false, \"app_reachable\": true|false, \"browser_works\": true|false, \"foreign_context\": \"none|<what>\"}"
+  else
+    system="$(cat judging/JUDGE.md; echo; cat "judging/personas/$persona.md")"
+    prompt="Judge this team's Junction 2026 submission for Valio Aimo's Trusted Trade Agents challenge. The live app is at $url. Your materials are in the current directory: CHALLENGE.md and SUBMISSION.md. Use ./browse and ./http to use the app. Follow your judging protocol and end with the JSON block. Your persona id is \"$persona\"."
+  fi
+
+  ( cd "$dir" && CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 \
+      claude -p "$prompt" \
+        --append-system-prompt "$system" \
+        --model "$model" \
+        --permission-mode dontAsk \
+        --tools "Bash,Read" \
+        --allowedTools "Read" "Bash(./browse *)" "Bash(./http *)" "Bash(echo *)" \
+        --settings "$settings" \
+        --setting-sources local \
+        --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
+        --max-turns "$max_turns" \
+        --no-session-persistence \
+        --output-format stream-json --verbose \
+        > "$dir/transcript.jsonl" 2> "$dir/stderr.log" ) || echo "judge: $persona exited with $?"
+  mkdir -p "$repo/judging/runs/$ts/$persona"
+  cp -r "$dir/transcript.jsonl" "$dir/stderr.log" "$dir/shots" "$repo/judging/runs/$ts/$persona/" 2>/dev/null || true
+}
+
+echo "judge: $ts · model $model · personas: $personas · app $url"
+for p in $personas; do run_one "$p" & done
+wait
+
+python3 -I "$repo/judging/aggregate.py" "$repo/judging/runs/$ts" "$repo/judging/reports/$ts" "$url" "$model" "$selftest"
+rm -rf "$runroot"

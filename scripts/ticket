@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+# Work-queue helper for multi-agent development. See docs/WORKFLOW.md.
+#
+# The queue is GitHub Issues labelled `ticket`. A ticket is claimed by atomically
+# creating the git ref `refs/heads/ticket/<N>` through the GitHub API: the API
+# returns 422 if the ref already exists, so two sessions can never own the same ticket.
+#
+#   scripts/ticket next              list claimable tickets (deps closed, not taken), P0 first
+#   scripts/ticket claim <N>         atomically claim ticket N (creates branch ticket/N)
+#   scripts/ticket pr <N> [file]     open PR for ticket N (body from file or stdin), mark for review
+#   scripts/ticket release <N> [why] give ticket N back to the queue
+#   scripts/ticket status            table of all tickets
+#   scripts/ticket refresh           (architect) recompute ready/blocked labels from dependencies
+#   scripts/ticket show <N>          print the ticket
+set -euo pipefail
+
+REPO="${TICKET_REPO:-attractorhq/valio-aimo}"
+cmd="${1:-help}"; shift || true
+
+die() { echo "ticket: $*" >&2; exit 1; }
+need() { command -v "$1" >/dev/null || die "missing dependency: $1"; }
+need gh; need jq
+
+session_id() {
+  local f
+  f="$(git rev-parse --git-common-dir 2>/dev/null || echo .)/ticket-session-$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")"
+  [ -f "$f" ] || echo "$(whoami)@$(hostname -s)-$(date +%s)-$RANDOM" > "$f"
+  cat "$f"
+}
+
+all_tickets() {
+  gh issue list -R "$REPO" --label ticket --state all --limit 200 \
+    --json number,title,state,labels,body,assignees,updatedAt
+}
+
+# jq helper: deps of an issue body ("Depends on: #3, #4" line)
+JQ_DEPS='def deps: ((.body // "") | [scan("(?im)^depends on:.*$")] | (.[0] // "") | [scan("#([0-9]+)")] | map(.[0] | tonumber));
+         def labelnames: [.labels[].name];
+         def prio: (if (labelnames | index("P0")) then 0 elif (labelnames | index("P1")) then 1 else 2 end);'
+
+case "$cmd" in
+  next)
+    all_tickets | jq -r "$JQ_DEPS
+      (map(select(.state==\"CLOSED\") | .number)) as \$closed
+      | ([.[] | select(.state==\"OPEN\" and prio==0)] | length) as \$p0open
+      | ([.[] | select(.state==\"OPEN\" and prio==1)] | length) as \$p1open
+      | map(select(.state==\"OPEN\"))
+      | map(select(prio==0 or (labelnames | index(\"unlocked\")) or (prio==1 and \$p0open==0) or (prio==2 and \$p0open==0 and \$p1open==0)))
+      | map(select((labelnames | index(\"status:in-progress\") | not) and (labelnames | index(\"status:review\") | not)))
+      | map(. + {missing: [deps[] | select(. as \$d | \$closed | index(\$d) | not)]})
+      | map(select(.missing | length == 0))
+      | sort_by(prio, .number)
+      | if length == 0 then \"No claimable tickets right now (all taken, in review, blocked by dependencies, or P1/P2 waiting for all P0 to close).\"
+        else (.[] | \"#\(.number)\t\((labelnames | map(select(test(\"^P[0-9]\"))) | join(\",\")))\t\(.title)\") end"
+    ;;
+
+  show)
+    n="${1:?usage: ticket show <N>}"
+    gh issue view "$n" -R "$REPO"
+    ;;
+
+  claim)
+    n="${1:?usage: ticket claim <N>}"
+    info="$(gh issue view "$n" -R "$REPO" --json state,labels,title,body)"
+    [ "$(jq -r .state <<<"$info")" = "OPEN" ] || die "#$n is not open"
+    jq -e '[.labels[].name] | index("ticket")' <<<"$info" >/dev/null || die "#$n is not a ticket"
+    if jq -e '[.labels[].name] | (index("status:in-progress") or index("status:review"))' <<<"$info" >/dev/null; then
+      die "#$n is already in progress or in review"
+    fi
+    if [ "${FORCE:-0}" != "1" ]; then
+      # P0 first (patch P6 / AC18): P1 waits for every P0 to close, P2 for every P0+P1. Label `unlocked` overrides.
+      prio_n=$(jq -r '[.labels[].name] | if index("P0") then 0 elif index("P1") then 1 else 2 end' <<<"$info")
+      if [ "$prio_n" != "0" ] && ! jq -e '[.labels[].name] | index("unlocked")' <<<"$info" >/dev/null; then
+        open_higher=$(gh issue list -R "$REPO" --label ticket --state open --json labels \
+          --jq "[.[] | [.labels[].name] | select(index(\"P0\") or ($prio_n == 2 and index(\"P1\")))] | length")
+        [ "$open_higher" = "0" ] || die "#$n is P$prio_n but $open_higher higher-priority ticket(s) are still open (P0 first). Ask the architect to add label 'unlocked'."
+      fi
+      deps=$(jq -r '(.body // "") | [scan("(?im)^depends on:.*$")] | (.[0] // "") | [scan("#([0-9]+)")] | map(.[0]) | join(" ")' <<<"$info")
+      for d in $deps; do
+        st=$(gh issue view "$d" -R "$REPO" --json state --jq .state)
+        [ "$st" = "CLOSED" ] || die "#$n depends on #$d which is not done yet (use FORCE=1 to override)"
+      done
+    fi
+    sha=$(gh api "repos/$REPO/git/ref/heads/main" --jq .object.sha)
+    if ! out=$(gh api -X POST "repos/$REPO/git/refs" -f ref="refs/heads/ticket/$n" -f sha="$sha" 2>&1); then
+      if grep -qi "already exists" <<<"$out"; then
+        die "#$n was just claimed by another session (branch ticket/$n exists). Pick another ticket."
+      fi
+      die "could not create branch ticket/$n: $out"
+    fi
+    me=$(gh api user --jq .login)
+    sid=$(session_id)
+    gh issue edit "$n" -R "$REPO" --add-label "status:in-progress" --remove-label "status:ready" --add-assignee "$me" >/dev/null || true
+    # A ticket claimed right after its deps closed may still carry status:blocked (refresh not run yet).
+    gh issue edit "$n" -R "$REPO" --remove-label "status:blocked" >/dev/null 2>&1 || true
+    gh issue comment "$n" -R "$REPO" --body "🔒 Claimed by @$me (session \`$sid\`) at $(date -u +%FT%TZ). Branch: \`ticket/$n\`." >/dev/null
+    echo "✅ Claimed #$n: $(jq -r .title <<<"$info")"
+    echo "   Next: git fetch origin ticket/$n && git worktree add .worktrees/ticket-$n ticket/$n && cd .worktrees/ticket-$n && scripts/worktree-setup"
+    ;;
+
+  pr)
+    n="${1:?usage: ticket pr <N> [body-file]}"
+    bodyfile="${2:-}"
+    title=$(gh issue view "$n" -R "$REPO" --json title --jq .title)
+    if [ -n "$bodyfile" ]; then body="$(cat "$bodyfile")"; elif [ ! -t 0 ]; then body="$(cat)"; else body=""; fi
+    url=$(gh pr create -R "$REPO" --base main --head "ticket/$n" --title "$title" \
+      --body "Closes #$n
+
+$body")
+    gh issue edit "$n" -R "$REPO" --add-label "status:review" --remove-label "status:in-progress" >/dev/null || true
+    echo "✅ PR opened: $url"
+    ;;
+
+  release)
+    n="${1:?usage: ticket release <N> [reason]}"
+    reason="${2:-no reason given}"
+    main_sha=$(gh api "repos/$REPO/git/ref/heads/main" --jq .object.sha)
+    br_sha=$(gh api "repos/$REPO/git/ref/heads/ticket/$n" --jq .object.sha 2>/dev/null || echo "")
+    if [ -n "$br_sha" ]; then
+      ahead=$(gh api "repos/$REPO/compare/$main_sha...$br_sha" --jq .ahead_by 2>/dev/null || echo 0)
+      if [ "$ahead" = "0" ] || [ "${FORCE:-0}" = "1" ]; then
+        if [ "$ahead" != "0" ]; then
+          # Keep pushed work: back it up before deleting the ticket branch (the next claim recreates it).
+          gh api -X POST "repos/$REPO/git/refs" -f ref="refs/heads/wip/ticket-$n" -f sha="$br_sha" >/dev/null 2>&1 \
+            || gh api -X PATCH "repos/$REPO/git/refs/heads/wip/ticket-$n" -f sha="$br_sha" -F force=true >/dev/null
+          echo "   kept $ahead commit(s) on wip/ticket-$n"
+        fi
+        gh api -X DELETE "repos/$REPO/git/refs/heads/ticket/$n" >/dev/null
+      else
+        die "branch ticket/$n has $ahead commit(s). Push WIP and mention it in the issue, then FORCE=1 to delete, or keep it for the next owner."
+      fi
+    fi
+    gh issue edit "$n" -R "$REPO" --remove-label "status:in-progress" --remove-label "status:review" --add-label "status:ready" >/dev/null || true
+    for a in $(gh issue view "$n" -R "$REPO" --json assignees --jq '.assignees[].login'); do
+      gh issue edit "$n" -R "$REPO" --remove-assignee "$a" >/dev/null || true
+    done
+    gh issue comment "$n" -R "$REPO" --body "🔓 Released at $(date -u +%FT%TZ): $reason" >/dev/null
+    echo "✅ Released #$n"
+    ;;
+
+  status)
+    prs=$(gh pr list -R "$REPO" --state all --limit 200 --json number,headRefName,state,url)
+    all_tickets | jq -r --argjson prs "$prs" "$JQ_DEPS
+      sort_by(.number) | .[] |
+      (labelnames | map(select(startswith(\"status:\"))) | join(\",\")) as \$st |
+      (\"ticket/\(.number)\") as \$br |
+      ([\$prs[] | select(.headRefName==\$br)] | map(\"PR#\(.number)(\(.state|ascii_downcase))\") | join(\" \")) as \$pr |
+      \"#\(.number)\t\(if .state==\"CLOSED\" then \"done\" else (if \$st==\"\" then \"open\" else \$st end) end)\t\((.assignees|map(.login)|join(\",\")) | if .==\"\" then \"-\" else . end)\t\(if \$pr==\"\" then \"-\" else \$pr end)\t\(.title)\"" | column -t -s $'\t'
+    ;;
+
+  refresh)
+    tickets=$(all_tickets)
+    closed=$(jq '[.[] | select(.state=="CLOSED") | .number]' <<<"$tickets")
+    jq -c "$JQ_DEPS .[] | select(.state==\"OPEN\") | {n: .number, deps: deps, labels: labelnames}" <<<"$tickets" |
+    while read -r row; do
+      n=$(jq -r .n <<<"$row")
+      if jq -e '.labels | (index("status:in-progress") or index("status:review"))' <<<"$row" >/dev/null; then continue; fi
+      missing=$(jq --argjson closed "$closed" '[.deps[] | select(. as $d | $closed | index($d) | not)] | length' <<<"$row")
+      if [ "$missing" = "0" ]; then
+        jq -e '.labels | index("status:ready")' <<<"$row" >/dev/null || { gh issue edit "$n" -R "$REPO" --add-label status:ready --remove-label status:blocked >/dev/null; echo "#$n -> ready"; }
+      else
+        jq -e '.labels | index("status:blocked")' <<<"$row" >/dev/null || { gh issue edit "$n" -R "$REPO" --add-label status:blocked --remove-label status:ready >/dev/null; echo "#$n -> blocked"; }
+      fi
+    done
+    echo "refresh done"
+    ;;
+
+  help|*)
+    sed -n '2,15p' "$0"
+    ;;
+esac
