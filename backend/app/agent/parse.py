@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from app.agent.injection import IgnoredInstruction, detect_instructions
 from app.agent.llm import LlmInterpreter, call_with_deadline
+from app.catalog.vocab import FI_SV_TO_EN_SYNONYMS
 from app.contracts import (
     Preference,
     ReasonCode,
@@ -63,8 +64,10 @@ _UNIT_GROUPS: tuple[tuple[str, str], ...] = (
     ("kg", r"kgs?|kilos?|kilograms?|kilogrammes?|kilogramm\w*|kilo(?:a|n)"),
     ("g", r"grams?|grammes?|gramm\w*|g"),
     ("pcs", r"pcs|pc|pieces?|packs?|packets?|packages?|bags?|bottles?|cans?|cartons?|tins?|jars?|units?|"
-            r"kpl|kappale\w*|pussi\w*|pullo\w*|paketti\w*|pakkau\w*|purkki\w*|purkk\w*|tölk\w*"),
-    ("cases", r"cases?|boxes|box|crates?|trays?|laatikko\w*|laatiko\w*|kotelo\w*|kartonki\w*|kartongi\w*"),
+            r"kpl|kappale\w*|pussi\w*|pullo\w*|paketti\w*|pakkau\w*|purkki\w*|purkk\w*|tölk\w*|tlk|"
+            r"säkki\w*|säki\w*|säkk\w*|rasia\w*|rasio\w*|pötkö\w*"),
+    ("cases", r"cases?|boxes|box|crates?|trays?|laatikko\w*|laatiko\w*|ltk|kotelo\w*|kartonki\w*|kartongi\w*|"
+              r"tarjotin\w*|tarjottim\w*"),
     ("portions", r"portions?|servings?|meals?|annos\w*|annok\w*|ateri\w*"),
 )
 _UNIT = "(?:" + "|".join(f"(?P<u_{name}>{pattern})" for name, pattern in _UNIT_GROUPS) + r")(?!\w)"
@@ -156,8 +159,13 @@ _WEEKDAYS_FI = ("maanantai", "tiistai", "keskiviik", "torstai", "perjantai", "la
 _MONTHS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
 _MONTH_RE = r"(?P<mon>jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?"
 _DAY_PREFIX = r"(?:(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?,?\s+)?"
+_MONTHS_FI = ("tammi", "helmi", "maalis", "huhti", "touko", "kesä", "heinä", "elo", "syys", "loka", "marras",
+              "joulu")
 _DATE_RES: tuple[tuple[str, re.Pattern], ...] = (
     ("iso", re.compile(r"\b(?P<y>\d{4})-(?P<m>\d{2})-(?P<d>\d{2})\b")),
+    # "16. marraskuuta", "16 marraskuuta 2026"
+    ("dfi", re.compile(r"(?<![\w.,])(?P<d>\d{1,2})\.?\s+(?P<fimon>" + "|".join(_MONTHS_FI) + r")kuu\w*"
+                       r"(?:\s+(?P<y>\d{4}))?", re.IGNORECASE)),
     ("dmy", re.compile(r"(?<![\w.,])(?P<d>\d{1,2})\.(?P<m>\d{1,2})\.(?P<y>\d{4})?(?![\d])")),
     ("dmon", re.compile(_DAY_PREFIX + r"\b(?P<d>\d{1,2})(?:st|nd|rd|th)?\s+" + _MONTH_RE + r"(?!\w)", re.IGNORECASE)),
     ("mond", re.compile(_DAY_PREFIX + r"\b" + _MONTH_RE + r"\s+(?P<d>\d{1,2})(?:st|nd|rd|th)?\b", re.IGNORECASE)),
@@ -178,6 +186,8 @@ _STOPWORDS = {
     "myös", "kaikki", "ole", "on", "se", "ne", "jota", "joka", "mikä",
     "as", "usual", "thanks", "thank", "you", "hi", "hello", "hey", "kiitos", "moi", "hei", "kuten", "yleensä",
     "tavallista", "aina", "tehty", "tehtyä", "tehtyjä", "valmistettu", "valmistettua",
+    "ensi", "seuraavaksi", "vähintään", "yhteensä", "olisi", "tarvittaisiin", "tilataan", "haluaisimme",
+    "tilaisimme", "toimittakaa", "lähettäkää", "kiitti", "tällä", "kertaa",
 }
 # Core Finnish product vocabulary (§7.2). Wider Finnish polish is T25.
 _FINNISH_NOUNS: tuple[tuple[str, str], ...] = (
@@ -201,13 +211,15 @@ _FINNISH_NOUNS: tuple[tuple[str, str], ...] = (
     ("jauho", "flour"),
     ("kananmun", "eggs"),
     ("peruna", "potatoes"),
+    ("peruno", "potatoes"),
     ("leipä", "bread"),
     ("leivä", "bread"),
     ("kevyt", "light"),
 )
 _MILK_RE = re.compile(r"\bmilk\b", re.IGNORECASE)
 _PLANT_RE = re.compile(r"\b(?:oat|soy|soya|almond|coconut|rice|pea|plant|vegan|vegetable)\b", re.IGNORECASE)
-_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+(?!\d)|\n+")  # "product no. 465039" stays one sentence
+# "product no. 465039" and the Finnish ordinal date "20. marraskuuta" stay one sentence.
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])(?<!\d\.)\s+(?!\d)|\n+")
 _CHUNK_SPLIT = re.compile(r",\s+|;\s*|\s+(?:and|ja|sekä|plus|\+|&)\s+", re.IGNORECASE)
 _PUNCTUATION = re.compile(r"[()\[\]{}.,:;!?\"“”«»—–/]+")
 
@@ -252,11 +264,17 @@ def _find_dates(text: str, today: date) -> list[_DatePhrase]:
             try:
                 if kind == "iso":
                     value = date(int(m["y"]), int(m["m"]), int(m["d"]))
-                elif kind in ("dmy", "dmon", "mond"):
-                    month = int(m["m"]) if kind == "dmy" else _MONTHS.index(m["mon"].lower()[:3]) + 1
-                    year = int(m["y"]) if kind == "dmy" and m["y"] else today.year
+                elif kind in ("dmy", "dmon", "mond", "dfi"):
+                    if kind == "dmy":
+                        month = int(m["m"])
+                    elif kind == "dfi":
+                        month = _MONTHS_FI.index(m["fimon"].lower()) + 1
+                    else:
+                        month = _MONTHS.index(m["mon"].lower()[:3]) + 1
+                    explicit_year = kind in ("dmy", "dfi") and bool(m["y"])
+                    year = int(m["y"]) if explicit_year else today.year
                     value = date(year, month, int(m["d"]))
-                    if not (kind == "dmy" and m["y"]) and value < today:
+                    if not explicit_year and value < today:
                         value = date(year + 1, month, int(m["d"]))
                 elif kind == "today":
                     value = today
@@ -281,11 +299,18 @@ def _fi_len(word: str) -> int:
 
 
 def _translate(token: str) -> str:
-    """Finnish product noun (any inflection) -> English; anything else (brands, names) as written."""
+    """Finnish product noun (any inflection) -> English; anything else (brands, names) as written.
+
+    The parser's core nouns win; the catalogue's FI/SV stem table (T04) covers the rest, so the request and
+    the search speak the same vocabulary.
+    """
     lower = token.lower()
     for stem, english in _FINNISH_NOUNS:
         if lower.startswith(stem):
             return english
+    for stem, english_terms in FI_SV_TO_EN_SYNONYMS:
+        if len(stem) >= 4 and lower.startswith(stem):
+            return english_terms[0]
     return token
 
 
@@ -384,6 +409,7 @@ def _fallback(text: str, today: date, ignored: list[IgnoredInstruction]) -> _Fal
     clean = text
     for finding in sorted(ignored, key=lambda f: f.start, reverse=True):
         clean = clean[: finding.start] + ", " + clean[finding.end :]
+    clean = _normalise_words(clean)
 
     dates = _find_dates(clean, today)
     explicit = dates[0] if dates else None
@@ -501,10 +527,104 @@ def _fallback(text: str, today: date, ignored: list[IgnoredInstruction]) -> _Fal
     return _Fallback(request, question, safety_question, explicit.value if explicit else None, items)
 
 
+# Number words (EN/FI) directly before a unit: "ten cases", "kaksikymmentä litraa", "tuhat litraa".
+_EN_NUMBERS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+    "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16,
+    "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50,
+    "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90,
+}
+_FI_UNITS = {
+    "yksi": 1, "kaksi": 2, "kolme": 3, "neljä": 4, "viisi": 5, "kuusi": 6, "seitsemän": 7, "kahdeksan": 8,
+    "yhdeksän": 9,
+}
+_FI_MORPHEMES = sorted([*_FI_UNITS, "kymmenen", "kymmentä", "toista", "sataa", "sata", "tuhatta", "tuhat"],
+                       key=len, reverse=True)
+_EN_WORD = "|".join(sorted([*_EN_NUMBERS, "hundred", "thousand"], key=len, reverse=True))
+_FI_WORD = "(?:" + "|".join(_FI_MORPHEMES) + ")+"
+_NUMERAL = rf"(?:{_EN_WORD}|{_FI_WORD})"
+# One or more numeral words, then (lookahead) a unit: only then is it a quantity.
+_NUMERAL_RUN = re.compile(
+    rf"\b(?:a\s+)?(?:{_NUMERAL}[\s-]+(?:and[\s-]+)?)*{_NUMERAL}\b(?=\s*{_UNIT})", re.IGNORECASE
+)
+
+
+def _finnish_number(word: str) -> int | None:
+    """Parse one Finnish numeral word ("kaksikymmentäviisi", "satakaksikymmentä", "kaksikymmentätuhatta")."""
+    total = acc = pending = 0
+    rest = word.lower()
+    if not rest:
+        return None
+    while rest:
+        morpheme = next((m for m in _FI_MORPHEMES if rest.startswith(m)), None)
+        if morpheme is None:
+            return None
+        rest = rest[len(morpheme):]
+        if morpheme in _FI_UNITS:
+            pending += _FI_UNITS[morpheme]
+        elif morpheme == "toista":
+            acc, pending = acc + pending + 10, 0
+        elif morpheme == "kymmenen":
+            acc += 10
+        elif morpheme == "kymmentä":
+            acc, pending = acc + (pending or 1) * 10, 0
+        elif morpheme == "sata":
+            acc += 100
+        elif morpheme == "sataa":
+            acc, pending = acc + (pending or 1) * 100, 0
+        elif morpheme == "tuhat":
+            total, acc, pending = total + 1000, 0, 0
+        else:  # tuhatta
+            total, acc, pending = total + (acc + pending or 1) * 1000, 0, 0
+    value = total + acc + pending
+    return value or None
+
+
+def _english_number(words: list[str]) -> int | None:
+    total = group = 0
+    seen = False
+    for raw in words:
+        word = raw.lower()
+        if word == "and" and seen:
+            continue
+        if word in _EN_NUMBERS:
+            group += _EN_NUMBERS[word]
+        elif word == "hundred":
+            group = (group or 1) * 100
+        elif word == "thousand":
+            total, group = total + (group or 1) * 1000, 0
+        elif word == "a" and not seen:
+            group = 0
+        else:
+            return None
+        seen = True
+    value = total + group
+    return value or None
+
+
+def _number_value(phrase: str) -> int | None:
+    words = re.split(r"[\s-]+", phrase.strip())
+    if len(words) == 1 and (fi := _finnish_number(words[0])) is not None:
+        return fi
+    return _english_number(words)
+
+
+def _normalise_words(text: str) -> str:
+    """Write number words before a unit as digits, and split "luomumaitoa" into "luomu maitoa"."""
+    text = re.sub(r"\b(luomu)(?=[^\W\d_]{3,})", r"\1 ", text, flags=re.IGNORECASE)
+
+    def as_digits(match: re.Match) -> str:
+        value = _number_value(match.group(0))
+        return str(value) if value is not None else match.group(0)
+
+    return _NUMERAL_RUN.sub(as_digits, text)
+
+
 def _strip_lead(text: str) -> str:
     return re.sub(
         r"^.*?\b(?:we need|i need|we'd like|i'd like|we want|i want|please send|send us|order|"
-        r"tarvitsemme|tarvitsen|tarvitaan|haluamme|tilaamme)\b",
+        r"tarvitsemme|tarvitsen|tarvitaan|tarvitsisimme|haluamme|haluaisimme|tilaamme|tilaisimme|tilataan|"
+        r"toimittakaa|lähettäkää)\b",
         " ",
         text,
         flags=re.IGNORECASE,
