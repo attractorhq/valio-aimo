@@ -39,9 +39,7 @@ export function OrderProposalView({ proposal }: { proposal: Proposal }) {
           </thead>
           <tbody>
             {proposal.lines.map((line) => {
-              const priceFact = line.facts.find((f) => f.fact === 'price.unit')
               const stockFact = line.facts.find((f) => f.fact === 'stock.quantity')
-              const dateFact = line.facts.find((f) => f.fact === 'delivery.date')
               return (
                 <tr key={line.lineId}>
                   <th scope="row">
@@ -50,7 +48,7 @@ export function OrderProposalView({ proposal }: { proposal: Proposal }) {
                       <small className="muted"> · {line.productId}</small>
                     </div>
                     {stockFact && (
-                      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs font-normal">
+                      <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs font-normal">
                         <span className="muted">{stockFact.display}</span>
                         <TrustBadge level={stockFact.level} conflict={stockFact.conflict} />
                       </div>
@@ -65,14 +63,7 @@ export function OrderProposalView({ proposal }: { proposal: Proposal }) {
                     </span>
                   </td>
                   <td className="num" data-label="Unit price">
-                    <span>
-                      {formatMoney(line.unitPriceExclVat)}
-                      {priceFact && (
-                        <small className="mt-1 block">
-                          <TrustBadge level={priceFact.level} conflict={priceFact.conflict} />
-                        </small>
-                      )}
-                    </span>
+                    <span>{formatMoney(line.unitPriceExclVat)}</span>
                   </td>
                   <td className="num" data-label="Line total">
                     {formatMoney(line.lineTotalExclVat)}
@@ -83,11 +74,6 @@ export function OrderProposalView({ proposal }: { proposal: Proposal }) {
                       {line.closingTime && (
                         <small className="muted block">
                           order by {formatTime(line.closingTime)}
-                        </small>
-                      )}
-                      {dateFact && (
-                        <small className="mt-1 block">
-                          <TrustBadge level={dateFact.level} conflict={dateFact.conflict} />
                         </small>
                       )}
                     </span>
@@ -119,7 +105,7 @@ export function OrderProposalView({ proposal }: { proposal: Proposal }) {
         bound to mandate v{proposal.mandateVersion}
       </p>
 
-      <div className="mt-3 grid gap-3" aria-label="Order line trust cards">
+      <div className="mt-2 grid gap-2" aria-label="Order line trust cards">
         {proposal.lines.map((line) => {
           const item = itemsById.get(line.itemId)
           const excludedSubstitutes = excluded.filter(

@@ -179,7 +179,7 @@ main {
 .main-flow {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
   min-width: 0;
 }
 @media (max-width: 900px) {
@@ -432,7 +432,7 @@ main {
 .steps {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 }
 .step {
   display: grid;
@@ -468,7 +468,7 @@ main {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 14px 16px;
+  padding: 10px 14px;
   min-width: 0;
 }
 .step-header {
@@ -493,7 +493,7 @@ main {
   font-weight: 400;
 }
 .step-content {
-  margin-top: 12px;
+  margin-top: 8px;
 }
 .status-pill {
   display: inline-flex;
@@ -558,7 +558,7 @@ main {
 .data-table th,
 .data-table td {
   text-align: left;
-  padding: 8px;
+  padding: 5px 8px;
   border-bottom: 1px solid var(--line);
   vertical-align: top;
 }
@@ -621,7 +621,7 @@ main {
   grid-template-columns: minmax(100px, 160px) minmax(0, 1fr) auto;
   gap: 8px;
   font-size: 14px;
-  padding: 8px 0;
+  padding: 4px 0;
   border-bottom: 1px solid var(--line);
 }
 @media (max-width: 640px) {
@@ -634,12 +634,12 @@ main {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
-  margin: 12px 0 8px;
+  margin: 8px 0 4px;
 }
 .totals > div {
   background: var(--bg);
   border-radius: 8px;
-  padding: 8px 10px;
+  padding: 6px 10px;
 }
 .totals dt {
   font-size: 12px;

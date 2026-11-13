@@ -91,3 +91,33 @@ test('has no horizontal page scroll', async ({ page }) => {
   )
   expect(overflow).toBeLessThanOrEqual(0)
 })
+
+test('collapsible trust cards keep step 4 reachable within one viewport scroll and expand on demand', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await runScenario(page, 'B')
+
+  // Trust cards start collapsed, showing summary counts, hard requirements and the Valio-substitute check.
+  const toggles = page.getByRole('button', { name: /Show facts/ })
+  await expect(toggles).toHaveCount(2)
+  await expect(toggles.first()).toHaveAttribute('aria-expanded', 'false')
+  await expect(page.getByRole('note', { name: 'Valio-substitute check' })).toBeVisible()
+
+  // At 1440x900, the Approval outcome is reachable within at most one viewport (900 px) of scrolling.
+  const approvalTop = await step(page, 'Approval').evaluate(
+    (el) => el.getBoundingClientRect().top + window.scrollY,
+  )
+  expect(approvalTop).toBeLessThanOrEqual(1800)
+
+  // Expanding a trust card reveals every fact with its badge, source and timestamp.
+  await toggles.first().click()
+  const hideBtn = page.getByRole('button', { name: 'Hide facts' })
+  await expect(hideBtn).toHaveAttribute('aria-expanded', 'true')
+  const pastaCard = page.getByRole('article', {
+    name: /Trust card for Synthetic gluten-free macaroni 5 kg/,
+  })
+  await expect(pastaCard).toContainText('valio-aimo.price-api · catalogPrice.value')
+  await expect(pastaCard).toContainText('valio-aimo.availability-api · closingTime')
+  await expect(pastaCard).toContainText('Fri 13 Nov 21:50')
+})
