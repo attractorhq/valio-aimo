@@ -25,20 +25,25 @@ export const MOCK_LOGS: LogSource[] = [
 
 export class LogNotFound extends Error {}
 
+/**
+ * The mock log for a proposal. The mock gateway mints ids like "MOCK-P-B-1a2b3c4d" from the scenario's
+ * base id, so the longest base id that prefixes the requested one is that scenario's log.
+ */
+export function findMockLog(proposalId: string): LogSource | undefined {
+  return (
+    MOCK_LOGS.find((log) => log.proposalId === proposalId) ??
+    MOCK_LOGS.filter((log) => proposalId.startsWith(`${log.proposalId}-`)).sort(
+      (a, b) => b.proposalId.length - a.proposalId.length,
+    )[0]
+  )
+}
+
 export async function loadAuditTrail(proposalId: string): Promise<AuditTrail> {
-  const found = MOCK_LOGS.find((log) => log.proposalId === proposalId)
+  const found = findMockLog(proposalId)
   if (!found) throw new LogNotFound(`No decision log for proposal ${proposalId}.`)
   return found.trail
 }
 
-export const LOG_ROOT = '/log'
-
 export function logPath(proposalId: string): string {
-  return `${LOG_ROOT}/${encodeURIComponent(proposalId)}`
-}
-
-/** "/log/MOCK-P-B" → "MOCK-P-B"; "/log" → undefined. */
-export function proposalIdFromPath(pathname: string): string | undefined {
-  const match = pathname.match(/^\/log\/([^/]+)\/?$/)
-  return match ? decodeURIComponent(match[1]) : undefined
+  return `/log/${encodeURIComponent(proposalId)}`
 }

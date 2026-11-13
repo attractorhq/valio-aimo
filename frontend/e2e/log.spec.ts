@@ -57,8 +57,22 @@ test('the main view links to the decision log of the shown proposal', async ({ p
   await page.goto('/')
   await page.getByRole('button', { name: /^Scenario B:/ }).click()
   await page.getByRole('link', { name: 'Open the decision log for this proposal' }).click()
-  await expect(page).toHaveURL(/\/log\/MOCK-P-B$/)
+  await expect(page).toHaveURL(/\/log\/MOCK-P-B(-\w+)?$/)
   await expect(entries(page).first()).toContainText('Request structured')
   await page.getByRole('link', { name: 'Back to the purchasing flow' }).click()
   await expect(page).toHaveURL(/\/$/)
+})
+
+test('the approver panel links to the decision log', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: /^Scenario B:/ }).click()
+  await expect(page.getByRole('listitem', { name: /Approval/ })).toContainText(
+    'Waiting for approver',
+  )
+  await page.goto('/approver')
+  await page.getByRole('link', { name: 'Decision log' }).first().click()
+  await expect(page).toHaveURL(/\/log\/MOCK-P-B/)
+  await expect(entries(page).filter({ hasText: 'Gateway decision' })).toContainText(
+    'OVER_AUTO_LIMIT',
+  )
 })
