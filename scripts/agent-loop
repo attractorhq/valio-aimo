@@ -11,7 +11,8 @@ PROMPT='Read AGENTS.md and CLAUDE.md, then act as a developer following .claude/
 
 has_work() {
   scripts/ticket next | grep -q '^#' && return 0
-  [ -n "$(gh pr list -R attractorhq/valio-aimo --author @me --state open --search 'review:changes-requested' --json number --jq '.[].number' 2>/dev/null)" ]
+  [ -n "$(gh pr list -R attractorhq/valio-aimo --author @me --state open --search 'review:changes-requested' --json number --jq '.[].number' 2>/dev/null)" ] \
+    || [ -n "$(gh pr list -R attractorhq/valio-aimo --author @me --state open --label changes-requested --json number --jq '.[].number' 2>/dev/null)" ]
 }
 
 for i in $(seq 1 "$max"); do
