@@ -12,7 +12,7 @@ You are one of several developer agents building **Verified or Ask** in parallel
 - **Only work on a ticket you have claimed** with `scripts/ticket claim <N>`. The claim atomically creates branch `ticket/<N>` on GitHub. If it fails, someone else owns the ticket; pick another.
 - **Stay inside the ticket's scope** (its `Touches:` paths).
   - Shared contracts are `backend/app/contracts/**`, `spec/schemas/**` and `docs/API.md`. If you must change one, keep the change minimal, **add the `contract-change` label to the PR** and include a short "Contract change:" section.
-- **Never commit data or secrets.** That includes nothing from `data/`, no `.env`, no `*.db`, no build brief and no API keys or passwords. `scripts/guard` enforces this.
+- **Never commit data or secrets.** That includes nothing from `data/`, no `.env`, no `*.db`, no original (unsanitised) brief and no API keys or passwords. `scripts/guard` enforces this.
 - **Never merge, never deploy, never run `scripts/judge`, never edit `judging/`.** The architect does those.
 - **Never touch Cloudflare.** That means no `wrangler deploy`, `wrangler secret` or rollbacks. Work locally (uvicorn + vite, or `docker compose up`). If your ticket needs a remote step, write the exact command under **"Architect runs:"** in the PR body.
 - **Domain rules** (CLAUDE.md):
@@ -53,7 +53,7 @@ Make all edits inside that worktree. Keep `main` in your primary clone untouched
 
 Read, in this order:
 1. The ticket: goal, scope, acceptance criteria, references.
-2. The referenced sections: `§x` in `data/raw/BRIEF.txt`, `Px` in `data/raw/BRIEF_PATCH_v2.txt` (the patch wins). If you do not have them, ask the team; never guess the rules.
+2. The referenced sections: `§x` in `docs/brief/brief.txt`, `Px` in `docs/brief/patch-v2.txt` (the patch wins). The brief copy is incomplete after §8.6 until the architect appends the rest. If a section you need is missing, ask the team; never guess the rules.
 3. `docs/API.md` and the contracts.
 4. The existing code you will touch.
 

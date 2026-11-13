@@ -1,0 +1,462 @@
+[Repository copy. Team decision 13 Nov 2026: this patch and the sanitised brief (docs/brief/brief.txt)
+ are kept in the private repository so every developer machine and agent has them. They contain no
+ API key or password. P7 still applies to everything else: never commit the API key, the product JSON,
+ the CSVs or recorded API responses. Remove docs/brief/ (and its history) before any public release.]
+
+================================================================================
+VALIO AIMO · TRUSTED TRADE AGENTS · JUNCTION 2026
+PATCH v2 TO THE BUILD BRIEF — "VERIFIED OR ASK"
+================================================================================
+Team Attractor · 13 Nov 2026.
+
+This file SUPPLEMENTS
+  VALIO_AIMO_VERIFIED_OR_ASK_BRIEF_FOR_CLAUDE_CODE.txt
+Read the brief first, then apply this patch.
+  - Where the two conflict, THIS FILE WINS.
+  - Everything the patch does not mention stays as written in the brief.
+  - Section numbers (§) refer to the brief.
+
+WHAT THIS PATCH DOES
+  It sharpens the product around the strongest possible demo. One interface:
+    · orders on its own (AUTO),
+    · asks a human at exactly the right point (ASK),
+    · refuses to break a hard limit (BLOCK).
+  "Working end-to-end demo" (30 %) + "Autonomy and controls" (20 %) = 50 % of
+  Valio's score. Everything below serves those 50 % first.
+
+CONTENTS
+  P1 Proposal before confirmation
+  P2 What a human may approve
+  P3 The approval link never reaches the agent
+  P4 X99 interpretation
+  P5 Deterministic tests on fixtures + live pre-flight
+  P6 Build priorities
+  P7 Publication & data handling
+  P8 Updated demo set
+  P9 Updated evaluation rows
+  P10 Updated UI points
+  P11 Updated acceptance criteria
+  P12 Updated pitch lines
+
+--------------------------------------------------------------------------------
+P1. PROPOSAL BEFORE CONFIRMATION
+    Replaces §6.7, §8.2 createOrder, §8.3, §8.6. Updates §7.9 and §11.3 S1.
+--------------------------------------------------------------------------------
+P1.1 Principle
+  Nothing is confirmed before the server has checked the authority. The flyer's
+  step 3 "Order — commit at a fixed price" is an ORDER PROPOSAL that fixes the
+  price and the terms. Step 4 "Approval" is the decision, followed by the
+  simulated confirmation.
+
+P1.2 The order proposal binds, immutably:
+  - the buyer: customerId + mandateVersion;
+  - the structured request: items, quantities, requestedDate, hard
+    requirements, assumptions;
+  - the offer version: offerId + offerVersion + offerHash, where the hash
+    covers lines, unit prices, VAT rate, quantities, delivery dates, cut-offs
+    and trust labels;
+  - the totals.
+
+P1.3 Server-side sequence (the gateway enforces it; agents cannot skip steps)
+  1 getOffer
+      Live price + availability for the shortlist → offer v1.
+  2 createProposal(customerId, offerId, offerVersion, request)
+      → proposal bound as in P1.2.
+  3 Policy evaluation on the server
+      → decision AUTO | ASK | BLOCK + reason codes.
+  4 Confirmation gate
+      AUTO  The server re-checks immediately, then confirms (simulated).
+      ASK   The server waits for the approver's decision on THIS proposal
+            version. On approval it re-checks, then confirms (simulated).
+      BLOCK Never confirmable.
+  5 Re-check before every confirmation. Re-fetch live price + availability for
+    the proposal lines. Verify all of these:
+      a. mandateVersion unchanged (authority);
+      b. unit prices unchanged (price);
+      c. verified quantity still sufficient (quantity);
+      d. availableDate ≤ requestedDate, the cut-off not passed, no sales
+         block (delivery);
+      e. hard requirements still proven.
+    Anything different → the proposal becomes SUPERSEDED. A new offer version
+    and a new proposal are created and decided from scratch. Any approval of
+    the old version is void.
+  6 An approval always applies to exactly the proposal version the human saw,
+    identified by proposalId + offerVersion + offerHash.
+
+P1.4 States (replaces §8.3)
+  OFFERED → PROPOSED → AUTO_APPROVED → RECHECKED → CONFIRMED_SIMULATED
+  PROPOSED → PENDING_APPROVAL → APPROVED → RECHECKED → CONFIRMED_SIMULATED
+  PROPOSED → BLOCKED
+  PENDING_APPROVAL → REJECTED | EXPIRED
+  any state before CONFIRMED_SIMULATED → SUPERSEDED (when the re-check fails)
+  Every transition is an audit entry. Offer validity stays 15 minutes, never
+  beyond price validTo. An expired proposal → EXPIRED.
+
+P1.5 Operations (replaces the order part of §8.2)
+  Agent-facing tools:
+    getOffer(customerId, requestedDate, items[]) → Offer {offerId, offerVersion,
+        offerHash, validUntil, lines[], totals}
+    createProposal(customerId, offerId, offerVersion, request)
+        → {proposalId, state, decision, reasons[], lines[], excluded[], totals}
+    getProposal(proposalId) → the same shape, current state
+    getAuditTrail(proposalId | customerId)
+    getMandate(customerId) (read-only)
+  Approver channel ONLY — never an agent tool:
+    decideApproval(proposalId, offerVersion, approvalToken, APPROVE | REJECT,
+        comment?)
+  Internal (server only):
+    recheckAndConfirm(proposalId)
+
+P1.6 Agent behaviour (amends §7.9)
+  The agent calls getOffer → createProposal → getProposal. It reports the
+  state. It never confirms, approves or computes the decision.
+
+--------------------------------------------------------------------------------
+P2. WHAT A HUMAN MAY APPROVE
+    Replaces the effects in §6.3, §6.4, §6.8 and §6.9.
+--------------------------------------------------------------------------------
+P2.1 Rule
+  A human may approve business trade-offs. A human may NEVER approve:
+    - missing evidence for a hard requirement;
+    - a delivery the system knows it cannot promise;
+    - a hard-limit breach.
+  The gateway never asks for an approval it would have to refuse.
+
+P2.2 APPROVABLE reasons (decision ASK)
+  OVER_AUTO_LIMIT ........ total above the auto-approve limit, below the hard
+                           limit
+  DATE_LATER ............. a VERIFIED later delivery date than requested; the
+                           human accepts the new date
+  PARTIAL_AVAILABILITY ... only as an explicitly offered partial-delivery
+                           proposal (its own version, quantities shown)
+  SUPPLIER_STOCK_UNKNOWN . Terminal product with its cut-off NOT passed
+  VALIO_SUBSTITUTE ....... a Valio-listed substitute that proves every hard
+                           requirement, when the mandate does not auto-accept
+  AGENT_SUBSTITUTE ....... an agent-proposed substitute that proves every hard
+                           requirement
+  LOW_RELIABILITY ........ historical reliability below minReliability
+  QUANTITY_BASIS_WEAK .... pack size known only from the product name
+
+P2.3 NOT APPROVABLE — the line is EXCLUDED, never shown as approvable.
+     The order-level ones BLOCK.
+  CLAIM_MISSING .......... a required claim (gluten-free, lactose-free, vegan, …)
+                           is not declared
+  ALLERGEN_CONTAINS ...... contains an allergen the buyer must avoid
+  ALLERGEN_MAY_CONTAIN ... may contain an allergen the buyer must avoid (BOTH
+                           modes)
+  ALLERGEN_UNKNOWN ....... no allergen evidence for an allergen the buyer must
+                           avoid (BOTH modes). In STRICT also: no allergen
+                           declaration at all (§6.3).
+  ALLERGEN_IMPLICIT ...... STRICT: the allergen is not listed but not explicitly
+                           declared free
+  DATA_CONFLICT .......... any CONFLICT on a decisive fact (K1, K2, K5)
+  CUTOFF_PASSED .......... the order cut-off has passed (K3). The delivery
+                           cannot be promised. Re-quote instead.
+  UNIT_MISMATCH .......... not exactly convertible (K4)
+  NOT_AVAILABLE · SALES_BLOCKED · PRICE_UNAVAILABLE
+  OVER_HARD_LIMIT ........ BLOCK, order level
+  named product with a mandate-forbidden allergen ... BLOCK, that line
+
+P2.4 Hard allergen requirement "avoid X" (replaces the STANDARD/STRICT table
+     in §6.3)
+  Proven free (OK):
+    · an explicit nonAllergen FREE_FROM X;
+    · X99 for EU-declarable codes (P4);
+    · STANDARD mode only: a declaration exists and X is not listed.
+  Everything else → EXCLUDED (not approvable):
+    CONTAINS · MAY_CONTAIN · no declaration · UNDECLARED
+    in STRICT also: not listed without an explicit FREE_FROM
+
+P2.5 Approval actions (replaces §6.8 options)
+  APPROVE  the exact proposal version shown (proposalId + offerVersion).
+  REJECT   with an optional comment.
+  "Approve verified lines only" is REMOVED. When the full need cannot be met,
+  the gateway produces separate proposal versions instead (e.g. "partial
+  delivery: 95 kg of 120 kg on Mon 16 Nov"). Each version gets its own decision
+  and its own approval.
+
+P2.6 Reason-code effects (§6.9)
+  The chip texts and templates stay. Change the effect column per P2.2–P2.3.
+  For CUTOFF_PASSED use the template:
+    "Order cut-off was {closingTime}, so {availableDate} delivery can't be
+     promised. Re-quoting."
+
+--------------------------------------------------------------------------------
+P3. THE APPROVAL LINK NEVER REACHES THE AGENT
+    Replaces approvalUrl in §8.2 and §8.6. Updates §11.3 S2/S3.
+--------------------------------------------------------------------------------
+  - Agent-facing responses carry NO approval URL, NO token, NO QR payload. The
+    agent sees only:
+      state = PENDING_APPROVAL, the reason codes, and the approver role.
+  - The approval link and QR exist only in the approver channel: the separate
+    Approver panel or view, and the phone page.
+  - Demo: link-based approval is a SINGLE-USE DEMO PERMISSION.
+      · bound to proposalId + offerVersion;
+      · expires with the offer;
+      · labelled in the UI "Demo approval link — single use";
+      · documented in the README.
+  - Production (README, roadmap): the named approver authenticates (SSO/OIDC)
+    before approving. The audit records the authenticated identity.
+  - Demo audit actor: "human:Head Chef (demo, link-based)".
+
+--------------------------------------------------------------------------------
+P4. X99 INTERPRETATION (replaces X99 in §5.2 and Appendix A1)
+--------------------------------------------------------------------------------
+  - GS1 "No Declaration Obligatory Allergens" (AllergenTypeCode
+    NO_DECLARED_ALLERGENS, short code X99) means the product contains none of
+    the allergens that are declaration-obligatory in the TARGET MARKET.
+  - Target market here = Finland/EU: the 14 allergen groups of Regulation (EU)
+    No 1169/2011, Annex II.
+  - X99 proves "free from" ONLY for these codes:
+      AC · AE · AF · AM · AP · AS · AU · AY · BC · BM · NL · UM
+      AN tree nuts, incl. SA SH SC SP SR ST SW SM
+      AW cereals containing gluten, incl. UW GB NR GO GS GK
+  - For every other code X99 proves nothing → UNKNOWN. Examples:
+      ML lactose, NM corn, NE peas, NP pulses, NC cocoa, CM chicken, BF beef,
+      PO pork, NW carrot, NK coriander, BP linalool, PN, SO, UN.
+  - Lactose-free is proven only by the claim FREE_FROM_LACTOSE.
+
+--------------------------------------------------------------------------------
+P5. DETERMINISTIC TESTS ON FIXTURES + LIVE PRE-FLIGHT
+    Replaces the §13 intro. Amends §15 AC10/AC11.
+--------------------------------------------------------------------------------
+P5.1 Fixtures
+  - Record the raw API responses for every product ID the brief and this patch
+    mention, each with its own timeNow.
+  - Freeze "now" = the recorded timeNow.
+  - The evaluation set runs on these fixtures with exact expected product IDs,
+    quantities, totals and reason codes. It is repeatable at any time.
+  - The decision logic is real; only the input data is frozen. Outcomes are
+    never hardcoded.
+
+P5.2 Live pre-flight (run right before presenting; one command / one button)
+  - Runs scenarios A, B, C (and B2) against the live API.
+  - Prints a table:
+      scenario · expected decision · live decision · differences (price,
+      stock, date, cut-off)
+  - Green = present live. Red = present in recorded mode (clearly labelled,
+    capture time shown) and say so openly.
+
+P5.3 Cut-off reality
+  Most Stock cut-offs for Mon 16 Nov are Sun 15 Nov 17:00 EET. If judging
+  happens later and Valio has not confirmed that the mock cut-offs are static
+  (§17 Q1), live A and B turn into "cannot be promised". Then run the demo in
+  recorded mode and show the live pre-flight result honestly. That honesty is
+  itself on-concept.
+
+--------------------------------------------------------------------------------
+P6. BUILD PRIORITIES (new §18; scope, not schedule)
+--------------------------------------------------------------------------------
+P0 — THE WINNING CORE. Build first and polish until flawless.
+  1  ONE main view: buyer request → structured request → shortlist from
+     static data → Valio Aimo price + availability (batched, shortlist only) →
+     order proposal at fixed price → server decision AUTO / ASK / BLOCK →
+     simulated confirmation.
+  2  Trust badges + sources on the decisive facts: price, stock, delivery date
+     & cut-off, each hard requirement.
+  3  Excluded list with reason chips, including the Valio-listed-substitute
+     check (P8 B).
+  4  A separate Approver panel, visibly not the agent: "Approver — Head Chef
+     (demo)", with Approve / Reject for the exact proposal version.
+  5  A readable decision log per proposal: what happened, who/what decided,
+     which rule, which facts.
+  6  Mandates M1 and M2, displayed.
+  7  Scenarios A, B and C working live; evaluation on fixtures; live
+     pre-flight; recorded mode.
+  8  Openness minimum: a machine-readable OpenAPI description of the gateway,
+     plus one example call from a second client (curl or a small script) that
+     gets the identical decision.
+P1 — AFTER P0 WORKS END-TO-END
+  - Phone approval via QR (single-use demo link, P3).
+  - Mandate controls (auto-approve limit, allergen mode) that re-decide live.
+  - Good / Better / Best alternatives.
+  - Scenario B2.
+  - Editable assumption chips.
+  - Finnish input polish.
+P2 — ONLY WHEN P0 + P1 ARE SOLID
+  - MCP agent interface.
+  - Valio Aimo readiness view (§11.3 S5, §14).
+  - Hash-chain tamper evidence.
+  - Open-spec page (S7).
+  - Audit export.
+
+--------------------------------------------------------------------------------
+P7. PUBLICATION & DATA HANDLING (amends §1.8, §1.10)
+--------------------------------------------------------------------------------
+  Never commit or publish:
+    - the brief or this patch;
+    - the API key;
+    - the product JSON or either CSV;
+    - recorded API responses (fixtures derive from event-restricted data).
+  Keep them local/private and ignored by version control. The repository
+  holds code, schemas and the README. The README explains how to fetch the data
+  with your own event access.
+
+--------------------------------------------------------------------------------
+P8. UPDATED DEMO SET (replaces §12 B; A and C unchanged)
+--------------------------------------------------------------------------------
+The three main demos = one interface, three outcomes:
+  A AUTO · B ASK at exactly the right point · C BLOCK.
+
+SCENARIO A — unchanged (AUTO)
+  464306 × 1,000 = €1,010.00 excl. VAT.
+
+SCENARIO B (NEW MAIN) — ASK, single reason (M2 Northbay School Kitchen, STRICT)
+  Request: "We need 90 kg of gluten-free macaroni and 80 litres of gluten-free
+  oat drink by Monday."
+  1 REQUEST
+    2 items · by Mon 16 Nov · gluten-free required · STRICT
+  2 LOOKUP
+    Live price + availability for the gluten-free shortlist.
+  3 ORDER PROPOSAL (offer v1, fixed price)
+    L1 474235 SamMills Pasta D'oro 5kg macaroni glutenfree pasta
+       18 bags = 90 kg (19 in stock) · €22.92 / bag (€4.58/kg) · €412.56
+       verified stock · Mon 16 Nov (order by Sun 15 Nov 17:00)
+       FREE_FROM_GLUTEN declared
+    L2 468465 Oddlygood® oat drink 1l UHT gluten free
+       80 pcs = 80 l · €1.17 (customer price; list €1.50) · €93.60
+       plenty in stock · Mon 16 Nov · FREE_FROM_GLUTEN declared
+    Totals: €506.16 excl. VAT · VAT 13.5 % €68.33 · €574.49 incl. VAT
+  4 APPROVAL
+    ASK with ONE reason: OVER_AUTO_LIMIT (€506.16 > €500).
+    Everything else is proven.
+    The approver approves version 1 → re-check → CONFIRMED_SIMULATED.
+  Shown in Excluded (proves precision and the trust model):
+    460825 Oatly Luomu, 470863 Oatly Kevyt ... CLAIM_MISSING (not declared
+                                               gluten-free; declare AW cereals
+                                               containing gluten)
+    470699, 460302 URTEKRAM gluten-free pasta  ALLERGEN_UNKNOWN (no allergen
+                                               declaration; STRICT)
+    475795 Semper gluten-free macaroni ....... NOT_AVAILABLE
+    471881 Oddlygood Barista 0.5 l ........... NOT_AVAILABLE + DATA_CONFLICT
+                                               (AW CONTAINS + FREE_FROM_GLUTEN)
+    473895, 471108 Rummo; 469040, 474136 Elovena
+                                               CUTOFF_PASSED (supplier stock;
+                                               cut-offs 12 Nov 13:30–14:00)
+  Valio-substitute check — a row on L2's trust card AND an Excluded entry:
+    "Valio Aimo lists 470863 Oatly Kevyt 1L as the substitute for 468465. It
+     fails 'gluten-free' for this buyer, so the agent will never swap to it."
+    → SUBSTITUTE_REJECTED
+  Story line: "Everything is proven; it's just above the school's €500 limit,
+  so one human tap — and only for that."
+
+SCENARIO C — unchanged (BLOCK)
+  464306 × 20,000 = €20,200.00 > €5,000 hard limit
+  → BLOCK + INSTRUCTION_IGNORED.
+
+SCENARIO B2 (OPTIONAL, P1) — exceptions; replaces the old §12 B
+  Request: "Unexpected event: we need 120 kg of gluten-free macaroni and 60
+  litres of gluten-free oat drink today."
+  - Nothing is deliverable today; the earliest date is Mon 16 Nov (verified)
+    → DATE_LATER.
+  - 474235 has only 19 bags = 95 kg verified.
+  - The remaining 25 kg exists only as Terminal stock with passed cut-offs:
+      473895 CUTOFF_PASSED (12 Nov 14:00) → not approvable, excluded
+      471108 CUTOFF_PASSED (12 Nov 14:00) → not approvable, excluded
+  - The gateway offers a PARTIAL-DELIVERY proposal (its own version):
+      474235 × 19 = 95 kg €435.48
+      468465 × 60 = 60 l €70.20
+      Mon 16 Nov · €505.68 excl. VAT · VAT €68.27 · €573.95
+  - Decision ASK: DATE_LATER + PARTIAL_AVAILABILITY (95 of 120 kg, offered
+    explicitly) + OVER_AUTO_LIMIT.
+  - The approval screen states plainly: "Approving means 95 kg instead of
+    120 kg, on Monday instead of today."
+
+--------------------------------------------------------------------------------
+P9. UPDATED EVALUATION ROWS (§13; all other rows unchanged)
+--------------------------------------------------------------------------------
+  4   M2  "We need 90 kg of gluten-free macaroni and 80 litres of gluten-free
+          oat drink by Monday."
+          → ASK · reasons exactly [OVER_AUTO_LIMIT]
+          · 474235 × 18 (€412.56) + 468465 × 80 (€93.60) = €506.16
+          · Excluded includes 470863 with SUBSTITUTE_REJECTED
+  8   M1  "10 cases of Valio Eila lactose-free light milk drink 1 l (465039)
+          by Monday."
+          → 465039 excluded: CUTOFF_PASSED (12 Nov 15:00); supplier stock
+          → proposes 464306 × 50 = 50 l · €50.50 · ASK · AGENT_SUBSTITUTE
+  21  M2  Scenario B2 text
+          → ASK · [DATE_LATER, PARTIAL_AVAILABILITY, OVER_AUTO_LIMIT]
+          · partial proposal 474235 × 19 + 468465 × 60 = €505.68
+          · 473895 and 471108 excluded: CUTOFF_PASSED
+  22  any Any ASK result
+          → the agent-facing response contains no approval URL, token or QR
+          payload
+  23  M2  Approve proposal v1 of row 4, after the fixture price of 474235 is
+          changed by +€0.01 before the re-check
+          → SUPERSEDED · the approval is void · a new proposal v2 is decided
+          from scratch
+  24  M2  A request that would need an approval for ALLERGEN_UNKNOWN
+          (e.g. "40 packs of URTEKRAM gluten-free fusilli 250 g by Monday")
+          → never offered for approval; the product is excluded; a compliant
+          alternative is proposed
+  Report "N/24" (on fixtures) in the README and the UI.
+
+--------------------------------------------------------------------------------
+P10. UPDATED UI POINTS (§11.3)
+--------------------------------------------------------------------------------
+  S1 step labels — exactly the flyer's flow:
+    1 REQUEST
+    2 LOOKUP
+    3 ORDER — "Proposal at fixed price · offer v1 · €506.16 excl. VAT"
+    4 APPROVAL — "Agent decided → Confirmed (simulated)"
+                 · "Waiting for approver"
+                 · "Blocked by mandate"
+  S2 footer, ASK:
+    "Waiting for Head Chef (demo)". There is NO approve button in the agent
+    view. The Approver panel opens separately.
+  Approver panel (P0) and phone page S3 (P1):
+    - Title: "You are approving version 1 of this proposal".
+    - Exact lines, quantities, date and total.
+    - The single reason in plain language: "€506.16 is above your €500
+      auto-approve limit. Everything else is verified or declared."
+    - Buttons: "Approve €506.16" · "Reject".
+    - Label: "Demo approval link — single use".
+    - After approval:
+        "Approved · re-checked live · Confirmed (simulated) · logged 21:58".
+  REMOVE everywhere:
+    - "Approve verified lines only";
+    - any approval URL or QR in agent-facing output.
+  Excluded panel:
+    The Valio-substitute check line stays visible in Scenario B.
+
+--------------------------------------------------------------------------------
+P11. UPDATED ACCEPTANCE CRITERIA (§15)
+--------------------------------------------------------------------------------
+  AC1  (replaces) A = AUTO, B = ASK with exactly [OVER_AUTO_LIMIT], C = BLOCK.
+       All three run live end-to-end through Request → Lookup → Order proposal
+       → Approval → confirmation (simulated).
+  AC4  (replaces) The approval binds to proposalId + offerVersion + offerHash.
+       It is single-use. A re-check failure → SUPERSEDED and the approval is
+       void.
+  AC5  (replaces) No confirmation without a server-side re-check of mandate,
+       price, quantity and delivery (P1.3).
+  AC10 (replaces) The evaluation set (rows 1–24) passes on fixtures. The live
+       pre-flight report exists and is run before presenting.
+  AC15 (new) Agent-facing outputs never contain an approval URL, token or QR
+       payload.
+  AC16 (new) No reason in P2.3 is ever offered for human approval.
+  AC17 (new) X99 is interpreted per P4.
+  AC18 (new) P0 (P6) is complete and polished before any P1/P2 item starts.
+
+--------------------------------------------------------------------------------
+P12. UPDATED PITCH LINES (§16)
+--------------------------------------------------------------------------------
+  Core line:
+    "Same interface, three outcomes: it orders on its own, asks a human at
+     exactly the right point, and refuses to break a hard limit."
+  Demo order: A (AUTO) → B (ASK; the approver approves version 1) → C (BLOCK).
+  B line:
+    "Everything is proven — gluten-free declared, stock verified, Monday
+     confirmed. It's €6.16 over the school's €500 limit, so one tap from the
+     head chef. And look: Valio's own listed substitute would have broken the
+     gluten-free rule, so the agent will never swap to it."
+  Controls line:
+    "A human approves trade-offs, never missing evidence. Unknown allergens
+     and passed cut-offs are never up for approval."
+  Openness line:
+    "Here's the OpenAPI spec. Here's a second client getting the exact same
+     decision."
+
+================================================================================
+END OF PATCH v2 — apply on top of the brief; this file wins on conflicts.
+================================================================================

@@ -11,7 +11,7 @@ You do **not** implement tickets yourself. You may make small integration fixes 
 
 Read `CLAUDE.md`, `docs/WORKFLOW.md`, `docs/TICKETS.md` and `judging/README.md` at the start of the session.
 
-The build brief is `data/raw/BRIEF.txt` and the patch is `data/raw/BRIEF_PATCH_v2.txt`; both are gitignored, and the patch wins on conflicts. They are the source of truth for product behaviour, but Valio's official texts win over both.
+The build brief is `docs/brief/brief.txt` and the patch is `docs/brief/patch-v2.txt`, both sanitised copies without the key or the password. The patch wins on conflicts. The brief copy ends inside §8.6; append the missing sections from the original file when you get it, without the key or the password. Remove `docs/brief/` before any public release. They are the source of truth for product behaviour, but Valio's official texts win over both.
 
 **P0 first (AC18):** keep P1 and P2 locked until every P0 is merged and polished. Add the label `unlocked` to a P1 ticket only as a deliberate exception.
 
@@ -40,7 +40,7 @@ gh pr list -R attractorhq/valio-aimo --state open
 
 1. Run `gh pr view <PR> --comments` and `gh pr diff <PR>`, and read the ticket (`scripts/ticket show N`).
 2. **Scope check.** Changes stay inside the ticket's `Touches:` paths, or the extra changes are justified.
-   - Nothing from `data/`, no `.env`, no brief.
+   - Nothing from `data/`, no `.env`, no unsanitised brief.
    - `scripts/guard` passes.
    - Nothing under `judging/` is changed by a developer.
 3. **Contract check.** A PR touching `backend/app/contracts/**`, `spec/schemas/**` or `docs/API.md`:

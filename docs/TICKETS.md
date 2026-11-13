@@ -7,8 +7,8 @@ This file is the **seed**. `scripts/ticket-bootstrap` creates one issue per `###
 - labels come from the `Lane:` / `Priority:` line.
 
 References:
-- `§x` points to the brief: `data/raw/BRIEF.txt`, gitignored.
-- `Px` points to Patch v2: `data/raw/BRIEF_PATCH_v2.txt`, gitignored. **The patch wins on conflicts.**
+- `§x` points to the brief: `docs/brief/brief.txt` (sanitised; currently §0–§8.6).
+- `Px` points to Patch v2: `docs/brief/patch-v2.txt`. **The patch wins on conflicts.**
 
 **Priorities follow patch P6 and AC18: P0 must be complete and polished before any P1 or P2 work starts.**
 - `scripts/ticket` enforces this. P1 cannot be claimed while any P0 is open, and P2 waits for every P0 and P1.

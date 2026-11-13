@@ -17,7 +17,7 @@ Everything else goes to a named human. The human signs off with one tap and sees
 | Plan | `docs/PLAN.md` (Finnish, team-internal) |
 | Tickets | `docs/TICKETS.md` + GitHub issues labelled `ticket` |
 | Workflow | `docs/WORKFLOW.md` |
-| Build brief | `data/raw/BRIEF.txt` + **`data/raw/BRIEF_PATCH_v2.txt`**. Where they conflict, the patch wins. Both are **gitignored and contain the API key.** Ask the team for them. Never commit them. Never paste them into issues or PRs. Never quote them to the judge. |
+| Build brief | `docs/brief/brief.txt` + **`docs/brief/patch-v2.txt`**. Where they conflict, the patch wins. These are **sanitised copies** with the API key and portal password removed. The brief copy ends inside §8.6 until the rest is appended. Never quote them to the judge. Remove `docs/brief/` before any public release. |
 | Challenge data | `data/raw/products.json`, `delivery-reliability.csv`, `carbon-footprint.csv`, `product-schema.json` (gitignored). Fetch with `.venv/bin/python scripts/download_valio_data.py` |
 | Existing live Valio adapter | `backend/app/integrations/real_valio.py`, `valio_catalog.py` (commit 0e74e98): the base for T02/T03. See `docs/TICKETS.md` → "Starting point" |
 | Blind judge | `judging/` (see "Multi-agent workflow" below) |
@@ -147,7 +147,7 @@ scripts/judge <public-url>   # architect only: blind judge panel → judging/rep
   - `VALIO_API_KEY` and LLM keys live only in `.env` (gitignored) and server env. Never in browser code, logs, screenshots, issues, PRs or the README.
   - `scripts/guard` blocks them.
 - **Data licence** (brief §1.10, patch P7): the dataset may only be used for Junction 2026.
-  - Never commit or publish the brief, the patch, the key, `products.json`, the CSVs, the catalogue artifact or **recorded API responses**.
+  - Never commit or publish the key, the portal password, the original unsanitised brief, `products.json`, the CSVs, the catalogue artifact or **recorded API responses**. Team decision 13 Nov: the sanitised brief and patch in `docs/brief/` are the one exception to P7, and only while the repo is private.
   - All of these live in `data/` (gitignored).
   - Committed tests use **synthetic** hand-made records (`backend/tests/synthetic/`). Tests that need real fixtures skip when `data/fixtures/` is absent.
   - Aggregate numbers are fine in docs and PRs.

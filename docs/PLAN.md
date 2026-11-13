@@ -2,8 +2,8 @@
 
 Päivitetty pe 13.11.2026 klo ~23. Lähteet ovat seuraavat. Jos ne ovat ristiriidassa, myöhempi voittaa.
 
-1. Build brief (`data/raw/BRIEF.txt`).
-2. **Patch v2** (`data/raw/BRIEF_PATCH_v2.txt`).
+1. Build brief (`docs/brief/brief.txt`, siivottu kopio, jossa on tällä hetkellä §0–§8.6).
+2. **Patch v2** (`docs/brief/patch-v2.txt`).
 3. Live-API-testit 13.11.
 4. Datatiedostot.
 

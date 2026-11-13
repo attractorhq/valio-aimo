@@ -50,7 +50,7 @@ def issue_body(t: dict, numbers: dict[str, int] | None) -> str:
     deps = ", ".join(f"#{numbers[d]}" if numbers and d in numbers else d for d in t["deps"]) or "–"
     return (f"**Ticket:** {t['tid']} · **Lane:** {t['lane']} · **Priority:** {t['prio']}\n"
             f"Depends on: {deps}\n{t['touches']}\n\n{t['body']}\n\n"
-            f"_References: § = `data/raw/BRIEF.txt`, P = `data/raw/BRIEF_PATCH_v2.txt` (both gitignored; ask the team). The patch wins on conflicts._")
+            f"_References: § = `docs/brief/brief.txt`, P = `docs/brief/patch-v2.txt` (sanitised copies in the repo). The patch wins on conflicts._")
 
 
 def main() -> None:

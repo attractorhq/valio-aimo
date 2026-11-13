@@ -10,7 +10,7 @@ This repo is built by several agents in parallel. Claude Code users run the `dev
    - `scripts/check` must pass.
    - `git push origin ticket/<N>` → `scripts/ticket pr <N> <body-file>`.
 3. Never merge and never deploy; the architect session does that. Never commit:
-   - data: `data/`, `*.db`, the build brief;
+   - data: `data/`, `*.db`, the original unsanitised brief (the sanitised copy lives in `docs/brief/`);
    - secrets: `.env`, API keys, the portal password.
 4. **Never run the judge** (`scripts/judge`) and never edit `judging/`. Only the architect does.
    **Never touch Cloudflare:** no `wrangler deploy`, no `wrangler secret`, no rollbacks. Work locally (uvicorn + vite, or `docker compose up`). Put any remote steps into the PR body under "Architect runs:".

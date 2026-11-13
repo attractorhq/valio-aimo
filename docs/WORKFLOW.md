@@ -51,8 +51,8 @@
 ```bash
 gh repo clone attractorhq/valio-aimo && cd valio-aimo
 cp .env.example .env              # VALIO_API_KEY etc.: ask in the team chat, never commit
-# Copy the brief + patch to data/raw/BRIEF.txt and data/raw/BRIEF_PATCH_v2.txt, the recorded fixtures to data/fixtures/,
-# and the challenge files to data/raw/ (ask in chat, or download):
+# The sanitised brief + patch are in git (docs/brief/). Copy the recorded fixtures to data/fixtures/ (ask in chat),
+# and download the challenge files to data/raw/:
 scripts/worktree-setup
 .venv/bin/python scripts/download_valio_data.py      # products.json + 2 CSVs via the API key (skips existing files)
 claude                            # then: /developer   (or /architect on the architect machine)
@@ -90,5 +90,5 @@ Labels:
 - Contracts change only with a `contract-change` PR label.
 - UI work never waits for the backend: use `frontend/src/mocks/*.json` that match `docs/API.md`.
 - Domain work never waits for the network: use synthetic records in `backend/tests/synthetic/` (committed) and recorded responses in `data/fixtures/` (gitignored).
-- No data, brief or secrets in git. Ever.
+- No data, fixtures, unsanitised brief or secrets in git. Ever. (The sanitised brief in `docs/brief/` is the deliberate exception; remove it before any public release.)
 - The judge's view is the jury's view. Fix what it saw, never how it judges.
