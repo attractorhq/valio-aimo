@@ -36,8 +36,10 @@
 
   // Non-secret settings. Secrets (VALIO_API_KEY, OPENROUTER_API_KEY, APPROVAL_SIGNING_KEY) are set
   // with `wrangler secret put` on the architect machine only.
+  // MOCK_MODE stays "true" until T08 replaces the legacy app: the legacy lifespan refuses MOCK_MODE=false
+  // without an imported SQLite catalogue (architect review of #47). T08 switches to the T02 artifact + T03 provider.
   "vars": {
-    "MOCK_MODE": "false",
+    "MOCK_MODE": "true",
     "LLM_MODEL": "z-ai/glm-5.3-flash",
     "VALIO_BASE_URL": "https://junction26.valioaimo.fi"
   }
