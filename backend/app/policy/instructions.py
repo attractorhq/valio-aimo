@@ -13,7 +13,7 @@ _PATTERNS = (
     r"\bapproved\s+(by|in advance)\b",
     r"\b(raise|increase|lift|remove)\b.{0,30}\blimit",
     r"\b(override|bypass|disable)\b",
-    r"\b(skip|without|no)\b.{0,20}\bapproval\b",
+    r"\b(skip|without|no)\s+(the\s+|any\s+)?approvals?\b",
     r"\bauto-?approve\b",
     r"\b(system prompt|you are now|new instructions?)\b",
     # Finnish

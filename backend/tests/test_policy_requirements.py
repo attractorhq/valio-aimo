@@ -36,8 +36,9 @@ def avoid(code: str) -> Requirement:
         ({"X99": "CONTAINS"}, None, "AM", "FREE_FROM"),
         ({"X99": "FREE_FROM"}, None, "AW", "FREE_FROM"),
         ({"X99": "FREE_FROM"}, None, "SA", "FREE_FROM"),
-        ({"X99": "FREE_FROM"}, None, "ML", "NOT_LISTED"),  # lactose is not EU-14
-        ({"X99": "FREE_FROM"}, None, "NM", "NOT_LISTED"),
+        ({"X99": "FREE_FROM"}, None, "ML", "UNKNOWN"),  # lactose is not EU-14: X99 proves nothing (P4)
+        ({"X99": "FREE_FROM"}, None, "NM", "UNKNOWN"),
+        ({"X99": "FREE_FROM", "NM": "FREE_FROM"}, None, "NM", "FREE_FROM"),  # an explicit status still counts
         ({"X99": "FREE_FROM", "AM": "CONTAINS"}, None, "AM", "CONTAINS"),  # explicit wins
         # Group/subcode relations.
         ({"UW": "CONTAINS"}, None, "AW", "CONTAINS"),
@@ -82,6 +83,15 @@ def test_avoid_allergen_by_mode(allergens, declared, standard, strict):
         found = check_requirements(p, [MILK_FREE], mandate)
         assert [f.code for f in found] == ([expected] if expected else [])
         assert all(f.effect == "EXCLUDE" and f.rule == "L4" for f in found)
+
+
+@pytest.mark.parametrize("code", ["ML", "NM"])
+def test_x99_only_never_proves_a_non_eu14_allergen_in_either_mode(code):
+    # AC17 / P4: a product whose only declaration is X99 is UNKNOWN for non-EU-14 codes -> EXCLUDE.
+    p = product(allergens={"X99": "FREE_FROM"})
+    for mandate in (STANDARD, STRICT):
+        found = check_requirements(p, [avoid(code)], mandate)
+        assert [(f.code, f.effect) for f in found] == [("ALLERGEN_UNKNOWN", "EXCLUDE")]
 
 
 def test_lactose_free_is_not_milk_free():

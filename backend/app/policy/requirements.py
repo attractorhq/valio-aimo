@@ -55,8 +55,10 @@ def allergen_status(product: Product, code: str) -> Status:
     if parent is not None and parent in explicit:
         # Free from the group proves free from its members; a positive group leaves the member open.
         return "FREE_FROM" if explicit[parent] == "FREE_FROM" else "UNKNOWN"
-    if X99 in explicit and code in X99_PROVES:
-        return "FREE_FROM"
+    if X99 in explicit:
+        # P4: X99 proves only the EU-14 codes; for every other code it proves nothing, so UNKNOWN,
+        # never NOT_LISTED (which STANDARD mode would accept as proven free).
+        return "FREE_FROM" if code in X99_PROVES else "UNKNOWN"
     return "NOT_LISTED" if product.hasAllergenDeclaration else "UNKNOWN"
 
 
