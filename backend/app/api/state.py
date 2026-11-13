@@ -49,6 +49,15 @@ class GatewayState:
             self.proposal_ids.append(proposal_id)
 
 
+def latest_capture(fixtures: Path) -> Path | None:
+    """The capture to replay: `fixtures` itself if it holds a manifest, else its newest
+    `<capture-ts>/` subdirectory (the layout `scripts/record-fixtures` writes)."""
+    if (fixtures / "manifest.json").is_file():
+        return fixtures
+    captures = sorted(p.parent for p in fixtures.glob("*/manifest.json"))
+    return captures[-1] if captures else None
+
+
 def build_state() -> GatewayState:
     settings = get_settings()
     try:
@@ -57,13 +66,15 @@ def build_state() -> GatewayState:
         raise GatewayUnavailable(
             "The catalogue artifact is not built (data/catalog/catalog.json). Run scripts/build-catalog."
         ) from exc
-    fixtures = Path(os.environ.get("VALIO_FIXTURES_DIR") or DEFAULT_FIXTURES_DIR)
+    capture = latest_capture(Path(os.environ.get("VALIO_FIXTURES_DIR") or DEFAULT_FIXTURES_DIR))
+    # VALIO_MODE=recorded forces the recorded capture even when a key is set (P5.3 demo fallback).
+    force_recorded = os.environ.get("VALIO_MODE", "").strip().lower() == "recorded"
     mode: Mode
-    if settings.valio_api_key:
+    if settings.valio_api_key and not force_recorded:
         provider = LiveValioProvider()
         mode = "LIVE"
-    elif (fixtures / "manifest.json").is_file():
-        provider = RecordedValioProvider(fixtures)
+    elif capture is not None:
+        provider = RecordedValioProvider(capture)
         mode = "RECORDED"
     else:
         raise GatewayUnavailable(
