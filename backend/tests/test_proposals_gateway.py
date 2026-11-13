@@ -479,6 +479,32 @@ def test_idempotent_create_proposal_returns_existing_without_duplicate_logs():
         gateway.create_proposal(M2.customerId, offer.offerId, offer.offerVersion, different_req)
 
 
+def test_two_identical_get_offer_and_create_proposal_flows_for_b_give_distinct_proposals():
+    """Repeat getOffer -> createProposal flows for B must create distinct proposals so a prior approval is not reused."""
+    provider = MutableSyntheticProvider()
+    gateway = ProposalGateway(products=PRODUCTS, provider=provider)
+    offer_req, struct_req = request_b()
+
+    offer1 = gateway.get_offer(offer_req).offer
+    p1 = gateway.create_proposal(M2.customerId, offer1.offerId, offer1.offerVersion, struct_req)
+    assert p1.decision == "ASK"
+    assert p1.state == "PENDING_APPROVAL"
+    view1 = gateway.get_approver_view(p1.proposalId)
+    p1_confirmed = gateway.decide_approval(p1.proposalId, p1.offerVersion, view1.approvalToken, "APPROVE")
+    assert p1_confirmed.state == "CONFIRMED_SIMULATED"
+
+    # Second identical getOffer -> createProposal flow with unchanged prices/stock:
+    offer2 = gateway.get_offer(offer_req).offer
+    p2 = gateway.create_proposal(M2.customerId, offer2.offerId, offer2.offerVersion, struct_req)
+
+    assert offer2.offerId != offer1.offerId
+    assert offer2.offerHash == offer1.offerHash
+    assert p2.proposalId != p1.proposalId
+    assert p2.offerId == offer2.offerId
+    assert p2.decision == "ASK"
+    assert p2.state == "PENDING_APPROVAL"
+
+
 # --------------------------------------------------------------------------- 2. Eval Row 23 (+€0.01 before re-check)
 
 

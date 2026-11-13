@@ -15,6 +15,7 @@ Implements patch P1, P2 and P3:
   and a new offer version (`offerVersion + 1`) and proposal version are created and decided from scratch.
 """
 
+import uuid
 from collections import OrderedDict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -253,8 +254,13 @@ def _merge_excluded(*groups: Sequence[ExcludedProduct]) -> list[ExcludedProduct]
     return merged
 
 
+def _default_offer_id(request: GetOfferRequest) -> str:
+    return f"OF-{request.requestedDate.isoformat()}-{uuid.uuid4().hex[:12]}"
+
+
 def _default_proposal_id(offer: Offer) -> str:
-    return f"PR-{offer.createdAt.date().isoformat()}-{offer.offerHash[:8]}-v{offer.offerVersion}"
+    stem = offer.offerId.removeprefix("OF-")
+    return f"PR-{stem}-v{offer.offerVersion}"
 
 
 class ProposalGateway:
@@ -407,12 +413,13 @@ class ProposalGateway:
         if self.provider is None:
             raise ProposalError("No lookup provider configured on ProposalGateway")
         mandate = self.mandates.get(request.customerId)
+        resolved_offer_id = offer_id or _default_offer_id(request)
         result = get_offer(
             request,
             products=self.products,
             provider=self.provider,
             mandate=mandate,
-            offer_id=offer_id,
+            offer_id=resolved_offer_id,
             offer_version=offer_version,
             force_refresh=force_refresh,
         )
