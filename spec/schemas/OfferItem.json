@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:verified-or-ask:v0.1:OfferItem",
+  "x-contract-version": "0.1",
+  "additionalProperties": false,
+  "properties": {
+    "itemId": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Itemid",
+      "type": "string"
+    },
+    "productId": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Productid",
+      "type": "string"
+    },
+    "quantity": {
+      "pattern": "^\\d+(\\.\\d+)?$",
+      "title": "Quantity",
+      "type": "string"
+    },
+    "unit": {
+      "enum": [
+        "l",
+        "kg",
+        "pcs",
+        "cases"
+      ],
+      "title": "Unit",
+      "type": "string"
+    }
+  },
+  "required": [
+    "itemId",
+    "productId",
+    "quantity",
+    "unit"
+  ],
+  "title": "OfferItem",
+  "type": "object"
+}

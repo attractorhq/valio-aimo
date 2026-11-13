@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:verified-or-ask:v0.1:Quantity",
+  "x-contract-version": "0.1",
+  "additionalProperties": false,
+  "properties": {
+    "value": {
+      "pattern": "^\\d+(\\.\\d+)?$",
+      "title": "Value",
+      "type": "string"
+    },
+    "unit": {
+      "enum": [
+        "l",
+        "kg",
+        "pcs",
+        "cases"
+      ],
+      "title": "Unit",
+      "type": "string"
+    }
+  },
+  "required": [
+    "value",
+    "unit"
+  ],
+  "title": "Quantity",
+  "type": "object"
+}

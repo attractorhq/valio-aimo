@@ -1,0 +1,392 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:verified-or-ask:v0.1:AuditEntry",
+  "x-contract-version": "0.1",
+  "$defs": {
+    "Conflict": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "K1",
+            "K2",
+            "K3",
+            "K4",
+            "K5"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "Conflict",
+      "type": "object"
+    },
+    "FactValue": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/FactValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/FactValue"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "ReasonCode": {
+      "enum": [
+        "DATE_LATER",
+        "CUTOFF_PASSED",
+        "SUPPLIER_STOCK_UNKNOWN",
+        "PARTIAL_AVAILABILITY",
+        "SPLIT",
+        "DATA_CONFLICT",
+        "AGENT_SUBSTITUTE",
+        "VALIO_SUBSTITUTE",
+        "SUBSTITUTE_REJECTED",
+        "QUANTITY_BASIS_WEAK",
+        "QUANTITY_BASIS_UNKNOWN",
+        "LOW_RELIABILITY",
+        "UNIT_MISMATCH",
+        "OVER_AUTO_LIMIT",
+        "OVER_HARD_LIMIT",
+        "ALLERGEN_CONTAINS",
+        "ALLERGEN_MAY_CONTAIN",
+        "ALLERGEN_IMPLICIT",
+        "ALLERGEN_UNKNOWN",
+        "CLAIM_MISSING",
+        "NOT_AVAILABLE",
+        "SALES_BLOCKED",
+        "PRICE_UNAVAILABLE",
+        "INSTRUCTION_IGNORED",
+        "NO_CANDIDATE",
+        "CLARIFICATION_NEEDED",
+        "REQUOTED",
+        "DEPOSIT_COST_UNVERIFIED",
+        "VARIABLE_WEIGHT_UNVERIFIED"
+      ],
+      "title": "ReasonCode",
+      "type": "string"
+    },
+    "TrustLabel": {
+      "additionalProperties": false,
+      "properties": {
+        "fact": {
+          "title": "Fact",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/FactValue"
+        },
+        "display": {
+          "title": "Display",
+          "type": "string"
+        },
+        "level": {
+          "enum": [
+            "VERIFIED",
+            "DECLARED",
+            "ESTIMATE",
+            "UNKNOWN"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/TrustSource"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Method"
+        },
+        "conflict": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Conflict"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "fact",
+        "value",
+        "display",
+        "level",
+        "source"
+      ],
+      "title": "TrustLabel",
+      "type": "object"
+    },
+    "TrustSource": {
+      "additionalProperties": false,
+      "properties": {
+        "system": {
+          "enum": [
+            "valio-aimo.price-api",
+            "valio-aimo.availability-api",
+            "valio-aimo.product-data",
+            "valio-aimo.substitution-rules",
+            "valio-aimo.delivery-reliability",
+            "valio-aimo.carbon-footprint",
+            "derived",
+            "agent"
+          ],
+          "title": "System",
+          "type": "string"
+        },
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "retrievedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Retrievedat"
+        }
+      },
+      "required": [
+        "system",
+        "field",
+        "retrievedAt"
+      ],
+      "title": "TrustSource",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "entryId": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Entryid",
+      "type": "string"
+    },
+    "customerId": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Customerid",
+      "type": "string"
+    },
+    "proposalId": {
+      "anyOf": [
+        {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Proposalid"
+    },
+    "offerId": {
+      "anyOf": [
+        {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Offerid"
+    },
+    "offerVersion": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Offerversion"
+    },
+    "offerHash": {
+      "anyOf": [
+        {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Offerhash"
+    },
+    "mandateVersion": {
+      "minimum": 1,
+      "title": "Mandateversion",
+      "type": "integer"
+    },
+    "timestamp": {
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "actor": {
+      "title": "Actor",
+      "type": "string"
+    },
+    "event": {
+      "title": "Event",
+      "type": "string"
+    },
+    "fromState": {
+      "anyOf": [
+        {
+          "enum": [
+            "OFFERED",
+            "PROPOSED",
+            "AUTO_APPROVED",
+            "PENDING_APPROVAL",
+            "APPROVED",
+            "RECHECKED",
+            "CONFIRMED_SIMULATED",
+            "BLOCKED",
+            "REJECTED",
+            "EXPIRED",
+            "SUPERSEDED"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Fromstate"
+    },
+    "toState": {
+      "anyOf": [
+        {
+          "enum": [
+            "OFFERED",
+            "PROPOSED",
+            "AUTO_APPROVED",
+            "PENDING_APPROVAL",
+            "APPROVED",
+            "RECHECKED",
+            "CONFIRMED_SIMULATED",
+            "BLOCKED",
+            "REJECTED",
+            "EXPIRED",
+            "SUPERSEDED"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Tostate"
+    },
+    "reasons": {
+      "items": {
+        "$ref": "#/$defs/ReasonCode"
+      },
+      "title": "Reasons",
+      "type": "array"
+    },
+    "rule": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rule"
+    },
+    "facts": {
+      "items": {
+        "$ref": "#/$defs/TrustLabel"
+      },
+      "title": "Facts",
+      "type": "array"
+    },
+    "summary": {
+      "title": "Summary",
+      "type": "string"
+    },
+    "comment": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Comment"
+    }
+  },
+  "required": [
+    "entryId",
+    "customerId",
+    "mandateVersion",
+    "timestamp",
+    "actor",
+    "event",
+    "summary"
+  ],
+  "title": "AuditEntry",
+  "type": "object"
+}

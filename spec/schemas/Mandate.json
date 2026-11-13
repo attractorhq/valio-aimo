@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:verified-or-ask:v0.1:Mandate",
+  "x-contract-version": "0.1",
+  "$defs": {
+    "Approver": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "role"
+      ],
+      "title": "Approver",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "customerId": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Customerid",
+      "type": "string"
+    },
+    "version": {
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "organisationName": {
+      "title": "Organisationname",
+      "type": "string"
+    },
+    "segment": {
+      "title": "Segment",
+      "type": "string"
+    },
+    "allergenMode": {
+      "enum": [
+        "STANDARD",
+        "STRICT"
+      ],
+      "title": "Allergenmode",
+      "type": "string"
+    },
+    "autoApproveLimitEur": {
+      "pattern": "^\\d+\\.\\d{2}$",
+      "title": "Autoapprovelimiteur",
+      "type": "string"
+    },
+    "hardLimitEur": {
+      "pattern": "^\\d+\\.\\d{2}$",
+      "title": "Hardlimiteur",
+      "type": "string"
+    },
+    "autoAcceptValioSubstitutes": {
+      "title": "Autoacceptvaliosubstitutes",
+      "type": "boolean"
+    },
+    "autoAcceptAgentSubstitutes": {
+      "const": false,
+      "default": false,
+      "title": "Autoacceptagentsubstitutes",
+      "type": "boolean"
+    },
+    "autoAcceptSupplierStock": {
+      "title": "Autoacceptsupplierstock",
+      "type": "boolean"
+    },
+    "minReliability": {
+      "pattern": "^\\d+(\\.\\d+)?$",
+      "title": "Minreliability",
+      "type": "string"
+    },
+    "enforceCutoff": {
+      "default": true,
+      "title": "Enforcecutoff",
+      "type": "boolean"
+    },
+    "forbiddenAllergens": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Forbiddenallergens",
+      "type": "array"
+    },
+    "approver": {
+      "$ref": "#/$defs/Approver"
+    }
+  },
+  "required": [
+    "customerId",
+    "version",
+    "organisationName",
+    "segment",
+    "allergenMode",
+    "autoApproveLimitEur",
+    "hardLimitEur",
+    "autoAcceptValioSubstitutes",
+    "autoAcceptSupplierStock",
+    "minReliability",
+    "approver"
+  ],
+  "title": "Mandate",
+  "type": "object"
+}

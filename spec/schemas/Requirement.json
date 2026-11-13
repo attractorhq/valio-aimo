@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:verified-or-ask:v0.1:Requirement",
+  "x-contract-version": "0.1",
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "enum": [
+        "CLAIM",
+        "AVOID_ALLERGEN"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "code": {
+      "minLength": 1,
+      "title": "Code",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "code"
+  ],
+  "title": "Requirement",
+  "type": "object"
+}

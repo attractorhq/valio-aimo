@@ -1,0 +1,428 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:verified-or-ask:v0.1:OfferLine",
+  "x-contract-version": "0.1",
+  "$defs": {
+    "Conflict": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "K1",
+            "K2",
+            "K3",
+            "K4",
+            "K5"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "Conflict",
+      "type": "object"
+    },
+    "ContentPerSalesUnit": {
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "pattern": "^\\d+(\\.\\d+)?$",
+          "title": "Value",
+          "type": "string"
+        },
+        "unit": {
+          "enum": [
+            "l",
+            "kg",
+            "pcs",
+            "cases"
+          ],
+          "title": "Unit",
+          "type": "string"
+        },
+        "level": {
+          "enum": [
+            "VERIFIED",
+            "DECLARED",
+            "ESTIMATE",
+            "UNKNOWN"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Method"
+        }
+      },
+      "required": [
+        "value",
+        "unit",
+        "level"
+      ],
+      "title": "ContentPerSalesUnit",
+      "type": "object"
+    },
+    "FactValue": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/FactValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/FactValue"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "Quantity": {
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "pattern": "^\\d+(\\.\\d+)?$",
+          "title": "Value",
+          "type": "string"
+        },
+        "unit": {
+          "enum": [
+            "l",
+            "kg",
+            "pcs",
+            "cases"
+          ],
+          "title": "Unit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value",
+        "unit"
+      ],
+      "title": "Quantity",
+      "type": "object"
+    },
+    "ReasonCode": {
+      "enum": [
+        "DATE_LATER",
+        "CUTOFF_PASSED",
+        "SUPPLIER_STOCK_UNKNOWN",
+        "PARTIAL_AVAILABILITY",
+        "SPLIT",
+        "DATA_CONFLICT",
+        "AGENT_SUBSTITUTE",
+        "VALIO_SUBSTITUTE",
+        "SUBSTITUTE_REJECTED",
+        "QUANTITY_BASIS_WEAK",
+        "QUANTITY_BASIS_UNKNOWN",
+        "LOW_RELIABILITY",
+        "UNIT_MISMATCH",
+        "OVER_AUTO_LIMIT",
+        "OVER_HARD_LIMIT",
+        "ALLERGEN_CONTAINS",
+        "ALLERGEN_MAY_CONTAIN",
+        "ALLERGEN_IMPLICIT",
+        "ALLERGEN_UNKNOWN",
+        "CLAIM_MISSING",
+        "NOT_AVAILABLE",
+        "SALES_BLOCKED",
+        "PRICE_UNAVAILABLE",
+        "INSTRUCTION_IGNORED",
+        "NO_CANDIDATE",
+        "CLARIFICATION_NEEDED",
+        "REQUOTED",
+        "DEPOSIT_COST_UNVERIFIED",
+        "VARIABLE_WEIGHT_UNVERIFIED"
+      ],
+      "title": "ReasonCode",
+      "type": "string"
+    },
+    "TrustLabel": {
+      "additionalProperties": false,
+      "properties": {
+        "fact": {
+          "title": "Fact",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/FactValue"
+        },
+        "display": {
+          "title": "Display",
+          "type": "string"
+        },
+        "level": {
+          "enum": [
+            "VERIFIED",
+            "DECLARED",
+            "ESTIMATE",
+            "UNKNOWN"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/TrustSource"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Method"
+        },
+        "conflict": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Conflict"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "fact",
+        "value",
+        "display",
+        "level",
+        "source"
+      ],
+      "title": "TrustLabel",
+      "type": "object"
+    },
+    "TrustSource": {
+      "additionalProperties": false,
+      "properties": {
+        "system": {
+          "enum": [
+            "valio-aimo.price-api",
+            "valio-aimo.availability-api",
+            "valio-aimo.product-data",
+            "valio-aimo.substitution-rules",
+            "valio-aimo.delivery-reliability",
+            "valio-aimo.carbon-footprint",
+            "derived",
+            "agent"
+          ],
+          "title": "System",
+          "type": "string"
+        },
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "retrievedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Retrievedat"
+        }
+      },
+      "required": [
+        "system",
+        "field",
+        "retrievedAt"
+      ],
+      "title": "TrustSource",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "lineId": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Lineid",
+      "type": "string"
+    },
+    "itemId": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Itemid",
+      "type": "string"
+    },
+    "productId": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Productid",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "nameFi": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Namefi"
+    },
+    "salesUnit": {
+      "title": "Salesunit",
+      "type": "string"
+    },
+    "salesUnitLabel": {
+      "title": "Salesunitlabel",
+      "type": "string"
+    },
+    "contentPerSalesUnit": {
+      "$ref": "#/$defs/ContentPerSalesUnit"
+    },
+    "quantitySalesUnits": {
+      "pattern": "^\\d+(\\.\\d+)?$",
+      "title": "Quantitysalesunits",
+      "type": "string"
+    },
+    "deliveredQuantity": {
+      "$ref": "#/$defs/Quantity"
+    },
+    "unitPriceExclVat": {
+      "pattern": "^\\d+(\\.\\d+)?$",
+      "title": "Unitpriceexclvat",
+      "type": "string"
+    },
+    "lineTotalExclVat": {
+      "pattern": "^\\d+\\.\\d{2}$",
+      "title": "Linetotalexclvat",
+      "type": "string"
+    },
+    "vatRate": {
+      "pattern": "^\\d+(\\.\\d+)?$",
+      "title": "Vatrate",
+      "type": "string"
+    },
+    "deliveryDate": {
+      "format": "date",
+      "title": "Deliverydate",
+      "type": "string"
+    },
+    "closingTime": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Closingtime"
+    },
+    "facts": {
+      "items": {
+        "$ref": "#/$defs/TrustLabel"
+      },
+      "title": "Facts",
+      "type": "array"
+    },
+    "reasons": {
+      "items": {
+        "$ref": "#/$defs/ReasonCode"
+      },
+      "title": "Reasons",
+      "type": "array"
+    },
+    "substituteFor": {
+      "anyOf": [
+        {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Substitutefor"
+    },
+    "substitutionSource": {
+      "anyOf": [
+        {
+          "enum": [
+            "VALIO",
+            "AGENT"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Substitutionsource"
+    }
+  },
+  "required": [
+    "lineId",
+    "itemId",
+    "productId",
+    "name",
+    "salesUnit",
+    "salesUnitLabel",
+    "contentPerSalesUnit",
+    "quantitySalesUnits",
+    "deliveredQuantity",
+    "unitPriceExclVat",
+    "lineTotalExclVat",
+    "vatRate",
+    "deliveryDate",
+    "closingTime",
+    "facts"
+  ],
+  "title": "OfferLine",
+  "type": "object"
+}

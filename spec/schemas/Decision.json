@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:verified-or-ask:v0.1:Decision",
+  "x-contract-version": "0.1",
+  "$defs": {
+    "ReasonCode": {
+      "enum": [
+        "DATE_LATER",
+        "CUTOFF_PASSED",
+        "SUPPLIER_STOCK_UNKNOWN",
+        "PARTIAL_AVAILABILITY",
+        "SPLIT",
+        "DATA_CONFLICT",
+        "AGENT_SUBSTITUTE",
+        "VALIO_SUBSTITUTE",
+        "SUBSTITUTE_REJECTED",
+        "QUANTITY_BASIS_WEAK",
+        "QUANTITY_BASIS_UNKNOWN",
+        "LOW_RELIABILITY",
+        "UNIT_MISMATCH",
+        "OVER_AUTO_LIMIT",
+        "OVER_HARD_LIMIT",
+        "ALLERGEN_CONTAINS",
+        "ALLERGEN_MAY_CONTAIN",
+        "ALLERGEN_IMPLICIT",
+        "ALLERGEN_UNKNOWN",
+        "CLAIM_MISSING",
+        "NOT_AVAILABLE",
+        "SALES_BLOCKED",
+        "PRICE_UNAVAILABLE",
+        "INSTRUCTION_IGNORED",
+        "NO_CANDIDATE",
+        "CLARIFICATION_NEEDED",
+        "REQUOTED",
+        "DEPOSIT_COST_UNVERIFIED",
+        "VARIABLE_WEIGHT_UNVERIFIED"
+      ],
+      "title": "ReasonCode",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "decision": {
+      "enum": [
+        "AUTO",
+        "ASK",
+        "BLOCK"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "reasons": {
+      "items": {
+        "$ref": "#/$defs/ReasonCode"
+      },
+      "title": "Reasons",
+      "type": "array"
+    },
+    "approverRole": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Approverrole"
+    }
+  },
+  "required": [
+    "decision",
+    "reasons"
+  ],
+  "title": "Decision",
+  "type": "object"
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:verified-or-ask:v0.1:GetMandateRequest",
+  "x-contract-version": "0.1",
+  "additionalProperties": false,
+  "properties": {
+    "customerId": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Customerid",
+      "type": "string"
+    }
+  },
+  "required": [
+    "customerId"
+  ],
+  "title": "GetMandateRequest",
+  "type": "object"
+}

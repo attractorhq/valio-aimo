@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:verified-or-ask:v0.1:Preference",
+  "x-contract-version": "0.1",
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "enum": [
+        "BRAND",
+        "ORGANIC",
+        "ORIGIN",
+        "LABEL",
+        "FAT_PERCENT",
+        "PACK_SIZE",
+        "OTHER"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "value": {
+      "title": "Value",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "value"
+  ],
+  "title": "Preference",
+  "type": "object"
+}

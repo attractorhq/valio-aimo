@@ -1,0 +1,16 @@
+{
+  "customerId": "mock-school",
+  "version": 1,
+  "organisationName": "Synthetic School Kitchen (demo mock)",
+  "segment": "school kitchen",
+  "allergenMode": "STRICT",
+  "autoApproveLimitEur": "500.00",
+  "hardLimitEur": "3000.00",
+  "autoAcceptValioSubstitutes": false,
+  "autoAcceptAgentSubstitutes": false,
+  "autoAcceptSupplierStock": false,
+  "minReliability": "0.80",
+  "enforceCutoff": true,
+  "forbiddenAllergens": [],
+  "approver": {"name": "Demo Head Chef", "role": "Head Chef (demo)"}
+}
