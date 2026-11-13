@@ -183,7 +183,9 @@ export function OrderProposal({ proposal }: { proposal: Proposal }) {
 export function approvalLabel(proposal: Proposal): string {
   switch (proposal.state) {
     case 'CONFIRMED_SIMULATED':
-      return 'Agent decided → Confirmed (simulated)'
+      return proposal.decision === 'ASK'
+        ? `Approved by ${proposal.approverRole ?? 'the approver'} → Confirmed (simulated)`
+        : 'Agent decided → Confirmed (simulated)'
     case 'PENDING_APPROVAL':
       return 'Waiting for approver'
     case 'BLOCKED':

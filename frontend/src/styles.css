@@ -786,3 +786,218 @@ main {
     white-space: normal;
   }
 }
+
+/* App navigation between the buyer view and the separate Approver panel */
+.app-nav a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 8px 12px;
+  border: 1px solid rgb(255 255 255 / 0.5);
+  border-radius: 10px;
+  text-decoration: none;
+}
+.app-nav a:hover {
+  background: rgb(255 255 255 / 0.12);
+}
+
+/* Approver panel: a different person's channel, so a different colour, icon and wording */
+.app-approver .app-header {
+  background: #2b2f5c;
+}
+.approver-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.approver-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: #ecedf8;
+  border: 1px solid #c9cbe6;
+  color: #23264a;
+}
+.approver-header > div {
+  flex: 1 1 320px;
+}
+.approver-header h1 {
+  font-size: 22px;
+  letter-spacing: -0.3px;
+}
+.approver-header p {
+  font-size: 14px;
+  margin-top: 2px;
+}
+.approver-switch {
+  display: grid;
+  gap: 2px;
+  font-size: 12px;
+  flex: 1 1 240px;
+  min-width: 0;
+  max-width: 100%;
+}
+.approver-switch select {
+  width: 100%;
+  min-width: 0;
+  font: inherit;
+  font-size: 14px;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid #c9cbe6;
+  background: #fff;
+  min-height: 44px;
+}
+.approver-grid {
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .approver-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.approver-queue {
+  display: grid;
+  gap: 8px;
+}
+.queue-item {
+  width: 100%;
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  cursor: pointer;
+  min-height: 44px;
+}
+.queue-item.selected {
+  border-color: #2b2f5c;
+  box-shadow: inset 3px 0 0 #2b2f5c;
+  background: #f4f4fb;
+}
+.queue-state {
+  justify-self: start;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+}
+.queue-state-pending_approval {
+  color: var(--ask);
+  background: var(--ask-bg);
+}
+.queue-state-confirmed_simulated {
+  color: var(--auto);
+  background: var(--auto-bg);
+}
+.queue-state-rejected,
+.queue-state-expired,
+.queue-state-superseded {
+  color: var(--block);
+  background: var(--block-bg);
+}
+.approval-card {
+  background: var(--surface);
+  border: 2px solid #2b2f5c;
+  border-radius: var(--radius);
+  padding: 18px;
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+.approval-card-header h2 {
+  font-size: 20px;
+  letter-spacing: -0.3px;
+}
+.approval-why {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--ask-bg);
+  color: var(--ink);
+  border: 1px solid #e9cf8f;
+}
+.approval-reason {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+  font-size: 16px;
+  font-weight: 600;
+}
+.approval-reason .chip {
+  color: var(--ask);
+  background: #fff;
+}
+.approval-reason-info {
+  font-size: 14px;
+  font-weight: 400;
+}
+.approval-reason-info .chip {
+  color: var(--info);
+}
+.approval-actions textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  resize: vertical;
+}
+.approval-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+.btn-approve {
+  background: var(--auto);
+  border-color: var(--auto);
+  color: #fff;
+  font-weight: 700;
+  font-size: 16px;
+  padding: 10px 18px;
+}
+.btn-reject {
+  color: var(--block);
+  border-color: var(--block);
+  font-weight: 600;
+}
+.approval-state {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 12px;
+  border-radius: 10px;
+  font-weight: 600;
+  border: 1px solid currentColor;
+}
+.approval-state-done {
+  color: var(--auto);
+  background: var(--auto-bg);
+}
+.approval-state-rejected,
+.approval-state-void {
+  color: var(--block);
+  background: var(--block-bg);
+}
+.permission-notice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #23264a;
+}
