@@ -113,7 +113,7 @@ scripts/ticket pr <N> /tmp/pr-<N>.md
 
 Run as `/loop /developer` (Claude Code) or `scripts/agent-loop codex` (Codex). Each iteration:
 
-1. **Fix review feedback first.** Run `gh pr list -R attractorhq/valio-aimo --author @me --state open` and look for changes requested. If there are any, fix them on that PR's branch, run `scripts/check`, push, and end the iteration.
+1. **Fix review feedback first.** Run `gh pr list -R attractorhq/valio-aimo --author @me --state open` and look for changes requested: a review with "changes requested" **or** the label `changes-requested` with a `## 🔧 Changes requested (architect)` comment. The label is used when the architect and the developer share a GitHub account. After pushing the fix, remove the label: `gh api -X DELETE repos/attractorhq/valio-aimo/issues/<PR>/labels/changes-requested` (`gh pr edit` fails in this repo with a Projects-classic GraphQL error). If there are any, fix them on that PR's branch, run `scripts/check`, push, and end the iteration.
 2. Otherwise, take **one** new ticket (steps 1–6) and end the iteration when its PR is open.
 3. If nothing is claimable, remove worktrees of merged tickets, report "idle — waiting for dependencies" and end the iteration.
 4. Stop when every ticket is closed, or when the user says stop.

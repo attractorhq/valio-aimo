@@ -5,71 +5,15 @@ The supplier contract has no order endpoint. Never silently fall back to local f
 """
 
 import json
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from decimal import Decimal
-from zoneinfo import ZoneInfo
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import ValidationError
 
 from app.config import Settings, get_settings
 from app.integrations.provider import AvailabilityCheck, IntegrationError, PriceCheck
-
-HELSINKI = ZoneInfo("Europe/Helsinki")
-Amount = Field(ge=0, allow_inf_nan=False)
-
-
-class VendorModel(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-
-class VendorPrice(VendorModel):
-    value: Decimal = Amount
-    valueWithTax: Decimal = Amount
-    validFrom: datetime
-    validTo: datetime
-    currency: str
-
-
-class VendorProductPrice(VendorModel):
-    productId: str
-    quantity: Decimal = Field(gt=0, allow_inf_nan=False)
-    catalogPrice: VendorPrice | None = None
-    netPriceFound: bool
-    error: bool
-
-
-class PriceResponse(VendorModel):
-    customerId: str
-    currency: str
-    pricingDate: datetime
-    products: list[VendorProductPrice]
-
-
-class ScheduleLine(VendorModel):
-    salesBlock: bool
-    availableAmount: Decimal = Amount
-    availableDate: date | None = None
-    salesUnit: str
-
-
-class VendorAvailability(VendorModel):
-    productId: str
-    closingTime: datetime | None = None
-    salesBlock: bool
-    logisticModel: str | None = None
-    scheduleLines: list[ScheduleLine]
-
-
-class AvailabilityResponse(VendorModel):
-    timeNow: datetime
-    requestedDate: datetime
-    products: list[VendorAvailability]
-
-
-def aware(value: datetime) -> datetime:
-    # Contract explicitly defines server times as Europe/Helsinki.
-    return value.replace(tzinfo=HELSINKI) if value.tzinfo is None else value
+from app.valio.vendor import AvailabilityResponse, PriceResponse, aware
 
 
 class RealValioProvider:
