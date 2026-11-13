@@ -252,10 +252,7 @@ export function ApprovalCard({
               aria-label="Phone approval QR code"
             >
               <QrCode
-                value={
-                  view.data?.qrPayload ??
-                  `${typeof window !== 'undefined' ? window.location.origin : ''}/approve/${encodeURIComponent(activeToken)}`
-                }
+                value={`${window.location.origin}/approve/${encodeURIComponent(activeToken)}`}
               />
               <div className="min-w-[200px] flex-1 text-xs">
                 <div className="inline-flex items-center gap-1.5 font-bold text-[var(--ink)]">

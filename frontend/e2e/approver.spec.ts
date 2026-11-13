@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import jsQR from 'jsqr'
 
 const STORE = 'verified-or-ask.mock-gateway.v1'
 const step = (page: Page, name: string) => page.getByRole('listitem', { name: new RegExp(name) })
@@ -163,11 +164,47 @@ test('phone approval via QR (/approve/:token) at 390 px and across separate devi
     .getByRole('link', { name: 'Open mobile approval page' })
     .getAttribute('href')
   expect(mobileHref).toMatch(/^\/approve\/tk-B-/)
+  const expectedAbsoluteUrl = new URL(mobileHref!, page.url()).href
+
+  // Rasterize the rendered QR SVG onto a canvas and decode it with jsQR to prove a real phone camera can scan it.
+  const imageData = await qr.evaluate(async (svgEl) => {
+    const xml = new XMLSerializer().serializeToString(svgEl)
+    const blob = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' })
+    const blobUrl = URL.createObjectURL(blob)
+    try {
+      const img = new Image()
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve()
+        img.onerror = () => reject(new Error('Failed to load SVG image'))
+        img.src = blobUrl
+      })
+      const scale = 512
+      const canvas = document.createElement('canvas')
+      canvas.width = scale
+      canvas.height = scale
+      const ctx = canvas.getContext('2d')!
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, scale, scale)
+      ctx.imageSmoothingEnabled = false
+      ctx.drawImage(img, 0, 0, scale, scale)
+      const pixels = ctx.getImageData(0, 0, scale, scale)
+      return {
+        data: Array.from(pixels.data),
+        width: pixels.width,
+        height: pixels.height,
+      }
+    } finally {
+      URL.revokeObjectURL(blobUrl)
+    }
+  })
+  const decoded = jsQR(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height)
+  expect(decoded).not.toBeNull()
+  expect(decoded!.data).toBe(expectedAbsoluteUrl)
 
   // Open on a separate browser context (simulating a judge's phone on mobile data, 390 px wide).
   const phoneContext = await browser.newContext({ viewport: { width: 390, height: 844 } })
   const phone = await phoneContext.newPage()
-  await phone.goto(mobileHref!)
+  await phone.goto(decoded!.data)
 
   await expect(phone.getByRole('heading', { name: 'Approver — Head Chef (demo)' })).toBeVisible()
   const card = phone.getByRole('article')
