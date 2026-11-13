@@ -11,12 +11,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 from jsonschema import validate as validate_json_schema
 from sqlalchemy import select
 
+from app.catalog.build import load_csv_floats
 from app.config import get_settings
 from app.db.models import Base, Product
 from app.db.seed import seed
 from app.db.session import SessionLocal, engine
-from app.schemas import ProductOut
 from app.integrations.valio_catalog import normalize_product
+from app.schemas import ProductOut
 
 
 def field(data, path):
@@ -28,24 +29,7 @@ def field(data, path):
 
 
 def csv_values(path, code_column, value_column):
-    if not path.exists():
-        return {}
-    with path.open(encoding="utf-8-sig", newline="") as handle:
-        sample = handle.read(4096)
-        handle.seek(0)
-        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
-        reader = csv.DictReader(handle, dialect=dialect)
-        if not reader.fieldnames or not {code_column, value_column} <= set(reader.fieldnames):
-            raise ValueError(f"{path}: configure exact code/value column names; found {reader.fieldnames}")
-        result = {}
-        for row in reader:
-            code, value = row[code_column].strip(), row[value_column].strip()
-            if not value:
-                continue  # Missing is unknown, never zero.
-            if code in result:
-                raise ValueError(f"Duplicate code in {path}: {code}")
-            result[code] = float(value)
-        return result
+    return load_csv_floats(path, code_column, value_column)
 
 
 def import_catalog(
