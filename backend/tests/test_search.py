@@ -326,3 +326,17 @@ def test_real_catalog_gluten_free_oat_drink_strict_pasta_and_latency():
     milk_cand_ids = [c.productId for c in milk_res.candidates]
     assert "464306" in milk_cand_ids
     assert "465039" in milk_cand_ids
+
+    # T33: 'cheese' + avoid AM in STANDARD and STRICT excludes 471304 (DATA_CONFLICT)
+    # and 473013 (ALLERGEN_CONTAINS), while plant-based alternatives 473985 and 466836 remain candidates.
+    avoid_am = [Requirement(kind="AVOID_ALLERGEN", code="AM")]
+    for mandate in (M1, M2):
+        cheese_res = search_products("cheese", requirements=avoid_am, mandate=mandate, products=catalog)
+        cheese_cand_ids = {c.productId for c in cheese_res.candidates}
+        cheese_ex = {e.productId: e.reasons for e in cheese_res.excluded}
+        assert "471304" not in cheese_cand_ids
+        assert "473013" not in cheese_cand_ids
+        assert ReasonCode.DATA_CONFLICT in cheese_ex["471304"]
+        assert ReasonCode.ALLERGEN_CONTAINS in cheese_ex["473013"]
+        assert "473985" in cheese_cand_ids
+        assert "466836" in cheese_cand_ids
