@@ -64,7 +64,7 @@ gh pr list -R attractorhq/valio-aimo --state open
    - ✅ **Good:** `gh pr merge <PR> --squash --delete-branch`. The `Closes #N` in the PR closes the ticket.
    - 🔧 **Small fixable issue:** fix it on the branch, push, merge.
    - ❌ **Needs work:** `gh pr review <PR> --request-changes -b "<concrete list>"`. The ticket stays in `status:review`.
-     - If GitHub refuses ("Can not request changes on your own pull request": the architect and the developer share a GitHub account), post the list as a PR comment headed `## 🔧 Changes requested (architect)` and add the label `changes-requested`: `gh pr edit <PR> --add-label changes-requested`. The developer removes the label after pushing the fix.
+     - If GitHub refuses ("Can not request changes on your own pull request": the architect and the developer share a GitHub account), post the list as a PR comment headed `## 🔧 Changes requested (architect)` and add the label `changes-requested` with `gh api -X POST repos/attractorhq/valio-aimo/issues/<PR>/labels -f 'labels[]=changes-requested'` (`gh pr edit --add-label` fails in this repo with a Projects-classic GraphQL error). The developer removes the label after pushing the fix.
    - **Conflicts:** ask the developer to rebase, or resolve them yourself if trivial.
 
 ### 2. After every merge
