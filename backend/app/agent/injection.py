@@ -18,8 +18,9 @@ Category = Literal["APPROVAL_CLAIM", "LIMIT_CHANGE", "RULE_CHANGE", "SYSTEM_INST
 # ordinary purchasing text ("approved supplier", "limit the fat to 1.5 %") does not trigger them.
 _PATTERNS: tuple[tuple[Category, str], ...] = (
     ("APPROVAL_CLAIM", r"\b(?:already|pre|previously|has been|have been|was|is|been)[\s-]+approved\b"),
-    ("APPROVAL_CLAIM", r"\bapproved\s+by\s+(?:the\s+)?(?:manager|head chef|chef|boss|director|approver|ceo|"
-                       r"cfo|owner|admin|management|valio)\b"),
+    ("APPROVAL_CLAIM", r"\b(?:approved|approval|sign[\s-]?off|ok)\s+(?:by|from)\s+(?:the\s+|our\s+)?"
+                       r"(?:manager|head chef|chef|boss|director|approver|ceo|cfo|owner|admin|management|valio)\b"
+                       r"(?:\s+as\s+usual)?"),
     ("APPROVAL_CLAIM", r"\b(?:manager|head chef|boss|director|approver|management)\s+(?:has\s+)?(?:already\s+)?"
                        r"(?:approved|signed off|okayed|ok'd)\b"),
     ("APPROVAL_CLAIM", r"\b(?:approval|sign[\s-]?off)\s+(?:is\s+|was\s+)?(?:already\s+)?"

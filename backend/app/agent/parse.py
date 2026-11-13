@@ -12,6 +12,7 @@ The parser never decides AUTO / ASK / BLOCK and never invents product facts. Pur
 optional LLM call: `now` is passed in.
 """
 
+import logging
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
@@ -31,7 +32,9 @@ from app.contracts import (
     StructuredRequest,
     format_date,
 )
+from app.policy.instructions import detect_instruction
 
+logger = logging.getLogger("app.agent.injection")
 HELSINKI = ZoneInfo("Europe/Helsinki")
 LLM_DEADLINE_S = 2.5  # the whole parse, fallback included, stays under 3 s
 MAX_TEXT_LENGTH = 4000
@@ -70,27 +73,77 @@ _QUANTITY_RE = re.compile(_NUMBER + r"\s*" + _UNIT, re.IGNORECASE)
 _PRODUCT_ID_RE = re.compile(r"\((\d{6})\)|\b(?:product|tuote|id|no\.?|nr\.?|#)\s*:?\s*#?(\d{6})\b", re.IGNORECASE)
 _FAT_RE = re.compile(r"(?<![\w.,])(\d+(?:[.,]\d+)?)\s*%(?:\s*(?:fat|rasva\w*))?", re.IGNORECASE)
 
-_REQUIREMENTS: tuple[tuple[str, Requirement], ...] = (
-    (r"lactose[\s-]?free|laktoosit(?:on|tom)\w*", Requirement(kind="CLAIM", code="FREE_FROM_LACTOSE")),
-    (r"gluten[\s-]?free|gluteenit(?:on|tom)\w*", Requirement(kind="CLAIM", code="FREE_FROM_GLUTEN")),
-    (r"(?:milk|dairy)[\s-]?free|non[\s-]?dairy|maido(?:ton|ttom)\w*", Requirement(kind="AVOID_ALLERGEN", code="AM")),
-    (r"eggs?[\s-]?free|muna(?:ton|ttom)\w*", Requirement(kind="AVOID_ALLERGEN", code="AE")),
-    (r"peanut[\s-]?free|maapähkinä(?:tön|ttöm)\w*", Requirement(kind="AVOID_ALLERGEN", code="AP")),
-    (r"(?:tree[\s-]?)?nut[\s-]?free|pähkinä(?:tön|ttöm)\w*", Requirement(kind="AVOID_ALLERGEN", code="AN")),
-    (r"soy[\s-]?free|soya[\s-]?free|soija(?:ton|ttom)\w*", Requirement(kind="AVOID_ALLERGEN", code="AY")),
-    (r"fish[\s-]?free|kala(?:ton|ttom)\w*", Requirement(kind="AVOID_ALLERGEN", code="AF")),
-    (r"sesame[\s-]?free|seesami(?:ton|ttom)\w*", Requirement(kind="AVOID_ALLERGEN", code="AS")),
-    (r"celery[\s-]?free|selleri(?:ton|ttom)\w*", Requirement(kind="AVOID_ALLERGEN", code="BC")),
-    (r"mustard[\s-]?free|sinappi?(?:ton|ttom)\w*", Requirement(kind="AVOID_ALLERGEN", code="BM")),
-    (r"vegan|vegaani\w*", Requirement(kind="CLAIM", code="VEGAN")),
-    (r"vegetarian", Requirement(kind="CLAIM", code="VEGETARIAN")),
+# Hard requirements: (requirement, English words, Finnish stems). Every phrasing below maps to the same
+# requirement: "X-free", "no X", "without X", "free of X", "X allergy", Finnish "X-ton/-tön",
+# "ilman X", "ei X", "X-allergia". Order matters: peanut before nut, kananmuna before muna.
+_ALLERGEN_VOCAB: tuple[tuple[Requirement, str, str], ...] = (
+    (Requirement(kind="CLAIM", code="FREE_FROM_LACTOSE"), r"lactose", r"laktoosi"),
+    (Requirement(kind="CLAIM", code="FREE_FROM_GLUTEN"), r"gluten", r"gluteeni"),
+    (Requirement(kind="AVOID_ALLERGEN", code="AM"), r"milk|dairy", r"maido|maito|maitotuottee"),
+    (Requirement(kind="AVOID_ALLERGEN", code="AP"), r"peanuts?", r"maapähkinä|maapähkinö"),
+    (Requirement(kind="AVOID_ALLERGEN", code="AN"), r"(?:tree[\s-]?)?nuts?", r"pähkinä|pähkinö"),
+    (Requirement(kind="AVOID_ALLERGEN", code="AE"), r"eggs?", r"kananmuna|kananmuni|muna|muni"),
+    (Requirement(kind="AVOID_ALLERGEN", code="AF"), r"fish", r"kala"),
+    (Requirement(kind="AVOID_ALLERGEN", code="AC"), r"crustaceans?|shellfish", r"äyriäise|äyriäi"),
+    (Requirement(kind="AVOID_ALLERGEN", code="UM"), r"molluscs?|mollusks?", r"nilviäise|nilviäi"),
+    (Requirement(kind="AVOID_ALLERGEN", code="AY"), r"soy|soya", r"soija"),
+    (Requirement(kind="AVOID_ALLERGEN", code="AS"), r"sesame", r"seesami"),
+    (Requirement(kind="AVOID_ALLERGEN", code="BC"), r"celery", r"selleri"),
+    (Requirement(kind="AVOID_ALLERGEN", code="BM"), r"mustard", r"sinappi|sinapi"),
+    (Requirement(kind="AVOID_ALLERGEN", code="NL"), r"lupin", r"lupiini"),
+    (Requirement(kind="AVOID_ALLERGEN", code="AU"), r"sulphites?|sulfites?", r"sulfiiti|sulfiit"),
+    (Requirement(kind="AVOID_ALLERGEN", code="UW"), r"wheat", r"vehnä"),
 )
-_REQUIREMENT_RES = tuple((re.compile(rf"\b(?:{p})\b", re.IGNORECASE), r) for p, r in _REQUIREMENTS)
+_NEGATION_EN = (r"(?:no|without|free\s+(?:of|from)|not\s+containing|contains?\s+no|zero|avoid(?:ing)?|"
+                r"excluding|exclude)\s+(?:any\s+|added\s+|traces\s+of\s+)?")
+_NEGATION_FI = r"(?:ilman|ei)\s+"
+
+
+def _requirement_pattern(en: str, fi: str) -> str:
+    return "|".join((
+        rf"\b(?:{en})[\s-]?free\b",
+        rf"\b{_NEGATION_EN}(?:{en})\b",
+        rf"\b(?:{en})\s+allerg(?:y|ies|ic)\b|\ballergic\s+to\s+(?:{en})\b",
+        rf"\b(?:{fi})(?:ton|tön|tto|ttö)\w*",
+        rf"\b{_NEGATION_FI}(?:{fi})\w*",
+        rf"\b(?:{fi})\w*allergi\w*",
+    ))
+
+
+_REQUIREMENTS: tuple[tuple[str, Requirement], ...] = (
+    *((_requirement_pattern(en, fi), requirement) for requirement, en, fi in _ALLERGEN_VOCAB),
+    (r"\bnon[\s-]?dairy\b", Requirement(kind="AVOID_ALLERGEN", code="AM")),
+    (r"\b(?:vegan|vegaani\w*)\b", Requirement(kind="CLAIM", code="VEGAN")),
+    (r"\bvegetarian\b", Requirement(kind="CLAIM", code="VEGETARIAN")),
+)
+_REQUIREMENT_RES = tuple((re.compile(p, re.IGNORECASE), r) for p, r in _REQUIREMENTS)
 _REQUIREMENT_LABELS = {
     "FREE_FROM_LACTOSE": "lactose-free", "FREE_FROM_GLUTEN": "gluten-free", "AM": "milk-free",
     "AE": "egg-free", "AP": "peanut-free", "AN": "nut-free", "AY": "soy-free", "AF": "fish-free",
-    "AS": "sesame-free", "BC": "celery-free", "BM": "mustard-free", "VEGAN": "vegan", "VEGETARIAN": "vegetarian",
+    "AC": "crustacean-free", "UM": "mollusc-free", "AS": "sesame-free", "BC": "celery-free",
+    "BM": "mustard-free", "NL": "lupin-free", "AU": "sulphite-free", "UW": "wheat-free",
+    "VEGAN": "vegan", "VEGETARIAN": "vegetarian",
 }
+# A negation the vocabulary does not know is never dropped silently: it becomes one clarifying question.
+_UNKNOWN_NEGATION_RE = re.compile(
+    r"\b(?:no|without|ilman)\s+(?P<word>[^\W\d_][\w-]*)|\b(?P<free>[^\W\d_]+)-free\b", re.IGNORECASE
+)
+_BENIGN_NEGATED = {
+    "later", "sooner", "more", "less", "longer", "matter", "need", "problem", "problems", "delay", "rush",
+    "hurry", "worries", "worry", "extra", "other", "substitute", "substitutes", "substitution",
+    "substitutions", "alternatives", "changes", "change", "charge", "fee", "cost", "costs", "thanks",
+    "muuta", "viivettä", "korvaavia", "korvaavaa", "vaihtoa", "lisämaksua", "lisäkuluja", "kiirettä",
+}
+_BENIGN_NEGATION_RE = re.compile(
+    r"\b(?:no|without|ilman)\s+(?:" + "|".join(sorted(_BENIGN_NEGATED, key=len, reverse=True)) + r")\b(?:\s+than)?",
+    re.IGNORECASE,
+)
+# Purpose clauses ("for the school", "for our kitchen") describe the buyer, not the product.
+_PURPOSE_RE = re.compile(
+    r"\bfor\s+(?:the|our|a|an|my|this|their)?\s*[^\W\d_]+(?:\s+(?:kitchen|canteen|cafeteria|restaurant|"
+    r"staff|team|event|lunch|dinner|breakfast|guests|week|weekend))?",
+    re.IGNORECASE,
+)
 
 _PREFERENCES: tuple[tuple[re.Pattern, Preference], ...] = (
     (re.compile(r"\b(?:organic|luomu\w*)\b", re.IGNORECASE), Preference(kind="ORGANIC", value="organic")),
@@ -123,6 +176,8 @@ _STOPWORDS = {
     "tarvitsemme", "tarvitsen", "tarvitaan", "tarvitsisimme", "haluamme", "tilaamme", "meille", "noin",
     "mennessä", "viimeistään", "toimitettuna", "toimitus", "toimitukseen", "olla", "pitää", "täytyy",
     "myös", "kaikki", "ole", "on", "se", "ne", "jota", "joka", "mikä",
+    "as", "usual", "thanks", "thank", "you", "hi", "hello", "hey", "kiitos", "moi", "hei", "kuten", "yleensä",
+    "tavallista", "aina", "tehty", "tehtyä", "tehtyjä", "valmistettu", "valmistettua",
 }
 # Core Finnish product vocabulary (§7.2). Wider Finnish polish is T25.
 _FINNISH_NOUNS: tuple[tuple[str, str], ...] = (
@@ -136,6 +191,7 @@ _FINNISH_NOUNS: tuple[tuple[str, str], ...] = (
     ("makaron", "macaroni"),
     ("spaget", "spaghetti"),
     ("pasta", "pasta"),
+    ("mysli", "muesli"),
     ("kerma", "cream"),
     ("juusto", "cheese"),
     ("jogurt", "yoghurt"),
@@ -149,9 +205,9 @@ _FINNISH_NOUNS: tuple[tuple[str, str], ...] = (
     ("leivä", "bread"),
     ("kevyt", "light"),
 )
-_DAIRY_RE = re.compile(r"\b(?:milk|cream|cheese|butter|yogh?urt|quark)\b", re.IGNORECASE)
+_MILK_RE = re.compile(r"\bmilk\b", re.IGNORECASE)
 _PLANT_RE = re.compile(r"\b(?:oat|soy|soya|almond|coconut|rice|pea|plant|vegan|vegetable)\b", re.IGNORECASE)
-_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+(?!\d)|\n+")  # "product no. 465039" stays one sentence
 _CHUNK_SPLIT = re.compile(r",\s+|;\s*|\s+(?:and|ja|sekä|plus|\+|&)\s+", re.IGNORECASE)
 _PUNCTUATION = re.compile(r"[()\[\]{}.,:;!?\"“”«»—–/]+")
 
@@ -281,7 +337,23 @@ def _extract(fragment: str) -> tuple[str, list[Requirement], list[Preference], s
     rest = _QUANTITY_RE.sub(take_pack, rest)
     for _kind, pattern in _DATE_RES:
         rest = pattern.sub(" ", rest)
+    rest = _PURPOSE_RE.sub(" ", rest)
+    rest = _BENIGN_NEGATION_RE.sub(" ", rest)
     return rest, requirements, preferences, product_id, packs
+
+
+def _unknown_negation(text: str) -> str | None:
+    """Return a negated word the vocabulary cannot map ("no sugar", "salt-free"), or None."""
+    rest = _PRODUCT_ID_RE.sub(" ", text)
+    for pattern, _requirement in _REQUIREMENT_RES:
+        rest = pattern.sub(" ", rest)
+    for _kind, pattern in _DATE_RES:
+        rest = pattern.sub(" ", rest)
+    for m in _UNKNOWN_NEGATION_RE.finditer(rest):
+        word = (m["word"] or m["free"]).lower()
+        if word not in _BENIGN_NEGATED:
+            return " ".join(m.group(0).split())
+    return None
 
 
 def _what(rest: str) -> str | None:
@@ -311,7 +383,7 @@ def _fallback(text: str, today: date, ignored: list[IgnoredInstruction]) -> _Fal
     # Request text is data: instruction-like spans are cut out before anything else reads the text.
     clean = text
     for finding in sorted(ignored, key=lambda f: f.start, reverse=True):
-        clean = clean[: finding.start] + " . " + clean[finding.end :]
+        clean = clean[: finding.start] + ", " + clean[finding.end :]
 
     dates = _find_dates(clean, today)
     explicit = dates[0] if dates else None
@@ -379,6 +451,11 @@ def _fallback(text: str, today: date, ignored: list[IgnoredInstruction]) -> _Fal
                 f"do you need for {_plain(item.quantity)} portions?"
             )
             break
+    if safety_question is None and (phrase := _unknown_negation(clean)):
+        safety_question = (
+            f"What does “{phrase}” mean for this order: which ingredient or allergen must the products "
+            "not contain?"
+        )
     if safety_question is None:
         for item in items:
             if item.what and _contradiction(item.what, item.requirements):
@@ -448,7 +525,9 @@ def _item_assumptions(what: str, preferences: list[Preference]) -> list[str]:
 
 
 def _contradiction(what: str, requirements: list[Requirement]) -> str | None:
-    if _DAIRY_RE.search(what) and not _PLANT_RE.search(what):
+    # Only milk itself (§7.10: "lactose-free milk that is milk-free"). Milk-free cheese, cream and
+    # yoghurt alternatives exist, so those are not contradictions.
+    if _MILK_RE.search(what) and not _PLANT_RE.search(what):
         for requirement in requirements:
             if (requirement.kind, requirement.code) in (("AVOID_ALLERGEN", "AM"), ("CLAIM", "VEGAN")):
                 label = _REQUIREMENT_LABELS[requirement.code]
@@ -534,7 +613,12 @@ def parse_request(
         raise ValueError("now must be timezone-aware")
     today = now.astimezone(HELSINKI).date()
     ignored = detect_instructions(text)
-    reasons = [ReasonCode.INSTRUCTION_IGNORED] if ignored else []
+    # The gateway's O4 rule is authoritative (any agent can call the gateway): whenever it flags the
+    # text, the agent reports INSTRUCTION_IGNORED too, so the two never disagree in the unsafe direction.
+    gateway_flag = detect_instruction(text)
+    if gateway_flag and not ignored:
+        logger.warning("INSTRUCTION_IGNORED category=GATEWAY_RULE_O4")
+    reasons = [ReasonCode.INSTRUCTION_IGNORED] if ignored or gateway_flag else []
 
     if len(text) > MAX_TEXT_LENGTH:
         return ParseResult(
