@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.agent.runner import run_agent
 from app.auth import Actor, get_actor, require_buyer, require_manager
 from app.config import get_settings
-from app.db.models import AuditEvent, Base, Policy, Proposal
+from app.db.models import AuditEvent, Base, Policy, Product, Proposal
 from app.db.seed import seed
 from app.db.session import SessionLocal, engine, get_db
 from app.integrations.mock_valio import MockValioProvider, helsinki_today
@@ -45,12 +45,18 @@ async def lifespan(app):
     with SessionLocal() as db:
         # Live mode must never seed synthetic product facts.
         if not get_settings().mock_mode:
-            from app.db.models import Product
-
             if db.scalar(select(Product).where(Product.code.like("DEMO-%"))):
                 raise RuntimeError(
                     "Live-data mode requires a separate database without DEMO fixture products."
                 )
+            if not db.scalar(select(Product.code).limit(1)):
+                raise RuntimeError(
+                    "No live catalog imported. Run scripts/import_products.py against this DATABASE_URL first."
+                )
+        elif db.scalar(select(Product).where(~Product.code.like("DEMO-%"))):
+            raise RuntimeError(
+                "Mock mode requires a separate fixture database; do not mix imported products with fixtures."
+            )
         seed(db, include_products=get_settings().mock_mode)
     yield
 
@@ -62,7 +68,8 @@ app = FastAPI(
     description="Open buyer-agent API. Demo bearer authentication is NOT production security. "
     "Inquiries, proposals, human approvals and commits are distinct operations. "
     "All commits currently use a LOCAL SIMULATOR; no orders are sent to Valio. "
-    "Money is returned as decimal strings in EUR. Quantities use explicit L/KG/EA base units.",
+    "Money is returned as decimal strings in EUR. Quantities use explicit catalog units: verified L/KG "
+    "conversions or original supplier technical units. Order steps are not necessarily whole packages.",
 )
 app.add_middleware(
     CORSMiddleware,
@@ -95,19 +102,24 @@ def health(db: DB, provider: Provider):
         "status": "ready",
         "mock_data": provider.mock,
         "simulated_orders": True,
-        "live_adapter_ready": False,
+        "live_adapter_ready": isinstance(provider, RealValioProvider) and bool(get_settings().valio_api_key),
+        "data_source": "local synthetic fixtures"
+        if provider.mock
+        else "Valio Junction challenge API (synthetic data, live calls)",
         "authentication": "public demo identities — not production",
     }
 
 
 @app.get("/api/v1/context", tags=["Discovery"])
-def context(actor: Identity):
+def context(actor: Identity, db: DB, provider: Provider):
     today = helsinki_today()
     return {
         "today": today,
         "next_monday": today + timedelta(days=(7 - today.weekday()) % 7 or 7),
         "timezone": "Europe/Helsinki",
-        "mock_data": get_provider().mock,
+        "mock_data": provider.mock,
+        "supplier_data_synthetic": True,
+        "units": sorted(set(db.scalars(select(Product.data["unit"].as_string()).distinct()))),
         "simulated_orders": True,
         "ai_configured": bool(get_settings().deepseek_api_key),
         "identity": {"id": actor.id, "role": actor.role, "buyer_id": actor.buyer_id},
@@ -124,8 +136,9 @@ def products(
     dietary: str | None = None,
     exclude_allergen: str | None = None,
     limit: int = Query(20, ge=1, le=100),
+    unit: str | None = None,
 ):
-    found = catalog.search(db, provider, query, category, dietary, exclude_allergen, limit)
+    found = catalog.search(db, provider, query, category, dietary, exclude_allergen, limit, unit=unit)
     orders.audit(
         db,
         actor,
@@ -145,7 +158,7 @@ def product(product_code: str, db: DB, actor: Identity):
 
 @app.post("/api/v1/check-offer", response_model=OfferOut, tags=["Inquiries"])
 def offer(request: OfferRequest, db: DB, actor: Identity, provider: Provider):
-    result = orders.check_offer(db, provider, request)
+    result = orders.check_offer(db, provider, request, actor.buyer_id)
     orders.audit(
         db,
         actor,

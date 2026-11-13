@@ -2,8 +2,11 @@ export type Product = {
   code: string
   name: string
   category: string
-  unit: 'L' | 'KG' | 'EA'
+  unit: string
   pack_quantity: string
+  sales_unit: string | null
+  quantity_per_sales_unit: string
+  free_from_allergens: string[] | null
   dietary: Record<string, boolean | null>
   allergens: string[] | null
   reliability: number | null
@@ -20,8 +23,15 @@ export type OfferLine = {
   unit_price: string
   line_total: string
   available: boolean
-  available_quantity: string
-  earliest_delivery: string
+  available_quantity: string | null
+  earliest_delivery: string | null
+  availability_status: 'CONFIRMED' | 'UNKNOWN' | 'UNAVAILABLE'
+  availability_note: string | null
+  order_cutoff: string | null
+  logistics_model: string | null
+  sales_unit: string | null
+  sales_quantity: string | null
+  sales_unit_price: string | null
   source: string
   verified_at: string
 }
@@ -82,6 +92,7 @@ export type Context = {
   mock_data: boolean
   simulated_orders: boolean
   ai_configured: boolean
+  units: string[]
 }
 export type ChatResult = {
   message: string

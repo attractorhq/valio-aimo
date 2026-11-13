@@ -39,7 +39,7 @@ class MockValioProvider:
             )
         ]
 
-    def get_prices(self, codes):
+    def get_prices(self, codes, delivery_date=None, buyer_id=None):
         if any(code not in self.prices for code in codes):
             raise IntegrationError(
                 "No synthetic pricing fixture for imported product. Configure a verified live adapter."
@@ -49,7 +49,7 @@ class MockValioProvider:
             for code in codes
         }
 
-    def check_availability(self, codes, delivery_date):
+    def check_availability(self, codes, delivery_date, buyer_id=None):
         if any(code not in self.stock for code in codes):
             raise IntegrationError("No synthetic availability fixture for imported product.")
         return {

@@ -1,6 +1,7 @@
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import HTTPException
+from pydantic import ValidationError
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -43,7 +44,7 @@ def get_policy(db: Session, buyer_id: str) -> PolicyOut:
     return PolicyOut(buyer_id=buyer_id, name=policy.name, version=policy.version, **policy.data)
 
 
-def check_offer(db: Session, provider, request: OfferRequest) -> OfferOut:
+def check_offer(db: Session, provider, request: OfferRequest, buyer_id: str | None = None) -> OfferOut:
     if request.delivery_date < helsinki_today():
         raise HTTPException(400, "Delivery date is in the past in Europe/Helsinki.")
     codes = [i.product_code for i in request.items]
@@ -61,8 +62,8 @@ def check_offer(db: Session, provider, request: OfferRequest) -> OfferOut:
         if line.substitute_for:
             product_details(db, line.substitute_for)
     try:
-        prices = provider.get_prices(codes)
-        stock = provider.check_availability(codes, request.delivery_date)
+        prices = provider.get_prices(codes, request.delivery_date, buyer_id)
+        stock = provider.check_availability(codes, request.delivery_date, buyer_id)
         lines = []
         for line in request.items:
             p, price, available = (
@@ -72,6 +73,22 @@ def check_offer(db: Session, provider, request: OfferRequest) -> OfferOut:
             )
             if price.currency != "EUR" or price.unit_price < 0:
                 raise IntegrationError("Provider returned unsupported price terms.")
+            if available.sales_unit is not None and available.sales_unit != (p.sales_unit or p.unit):
+                raise IntegrationError(
+                    f"{p.code}: supplier availability unit does not match imported sales unit."
+                )
+            factor = p.quantity_per_sales_unit
+            sales_quantity = line.quantity / factor
+            available_quantity = (
+                available.available_quantity * factor if available.available_quantity is not None else None
+            )
+            confirmed = (
+                available.status == "CONFIRMED"
+                and available_quantity is not None
+                and available_quantity >= line.quantity
+                and available.earliest_delivery is not None
+                and available.earliest_delivery <= request.delivery_date
+            )
             lines.append(
                 OfferLine(
                     product_code=p.code,
@@ -79,12 +96,24 @@ def check_offer(db: Session, provider, request: OfferRequest) -> OfferOut:
                     quantity=line.quantity,
                     unit=line.unit,
                     pack_quantity=p.pack_quantity,
-                    unit_price=price.unit_price,
-                    line_total=(line.quantity * price.unit_price).quantize(Decimal("0.01")),
-                    available=available.available_quantity >= line.quantity
-                    and available.earliest_delivery <= request.delivery_date,
-                    available_quantity=available.available_quantity,
+                    unit_price=(price.unit_price / factor).quantize(Decimal("0.00000001")),
+                    line_total=(sales_quantity * price.unit_price).quantize(
+                        Decimal("0.01"), rounding=ROUND_HALF_UP
+                    ),
+                    available=confirmed,
+                    available_quantity=available_quantity,
                     earliest_delivery=available.earliest_delivery,
+                    availability_status="CONFIRMED"
+                    if confirmed
+                    else "UNKNOWN"
+                    if available.status == "UNKNOWN"
+                    else "UNAVAILABLE",
+                    availability_note=available.note,
+                    sales_quantity=sales_quantity,
+                    sales_unit=p.sales_unit or p.unit,
+                    sales_unit_price=price.unit_price,
+                    order_cutoff=available.order_cutoff,
+                    logistics_model=available.logistics_model,
                     source=f"{price.source}; {available.source}",
                     verified_at=min(price.verified_at, available.verified_at),
                 )
@@ -94,10 +123,13 @@ def check_offer(db: Session, provider, request: OfferRequest) -> OfferOut:
             delivery_date=request.delivery_date,
             total=sum((line.line_total for line in lines), Decimal("0.00")),
             mock_data=provider.mock,
+            price_basis="Net supplier sales-unit prices, excluding VAT and delivery. Unpriced deposits block proposals."
+            if not provider.mock
+            else "Illustrative net prices, excluding VAT; no delivery fee in simulator.",
         )
-    except (IntegrationError, KeyError) as exc:
+    except (IntegrationError, KeyError, ValidationError) as exc:
         raise HTTPException(
-            502, str(exc) if isinstance(exc, IntegrationError) else "Incomplete provider response."
+            502, str(exc) if isinstance(exc, IntegrationError) else "Incomplete or invalid provider response."
         ) from exc
 
 
@@ -122,7 +154,7 @@ def serialize(p: Proposal) -> ProposalOut:
 def create_proposal(db, provider, actor: Actor, request: ProposalRequest):
     require_buyer(actor)
     policy = get_policy(db, actor.buyer_id)
-    offer = check_offer(db, provider, request)
+    offer = check_offer(db, provider, request, actor.buyer_id)
     products = {i.product_code: product_details(db, i.product_code) for i in request.items}
     status, reasons = evaluate(policy, request, offer, products)
     p = Proposal(
@@ -183,7 +215,18 @@ def save_transition(db, p, status, data):
 def terms(offer: OfferOut):
     # Stock fluctuation within sufficient availability is not a price/terms change.
     return (
-        [(i.product_code, i.quantity, i.unit, i.unit_price) for i in offer.items],
+        [
+            (
+                i.product_code,
+                i.quantity,
+                i.unit,
+                i.unit_price,
+                i.sales_unit,
+                i.sales_quantity,
+                i.sales_unit_price,
+            )
+            for i in offer.items
+        ],
         offer.total,
         offer.currency,
     )
@@ -192,7 +235,7 @@ def terms(offer: OfferOut):
 def revalidate(db, provider, p, actor):
     request = ProposalRequest.model_validate(p.data["request"])
     policy = get_policy(db, p.buyer_id)
-    offer = check_offer(db, provider, request)
+    offer = check_offer(db, provider, request, p.buyer_id)
     products = {i.product_code: product_details(db, i.product_code) for i in request.items}
     status, reasons = evaluate(policy, request, offer, products)
     audit(

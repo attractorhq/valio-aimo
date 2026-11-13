@@ -150,12 +150,12 @@ export default function App() {
             </strong>
           </div>
           <div className="topbar-badges">
-            <span className={`env-badge ${context.data?.mock_data ? '' : 'env-offline'}`}>
+            <span className={`env-badge ${context.data ? '' : 'env-offline'}`}>
               <i />
               {context.data
                 ? context.data.mock_data
                   ? 'MOCK DATA'
-                  : 'LIVE READS DISABLED'
+                  : 'LIVE CHALLENGE API'
                 : 'CONNECTING'}
             </span>
             <span className="demo-badge">DEMO AUTH</span>

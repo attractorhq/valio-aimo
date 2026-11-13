@@ -60,7 +60,9 @@ export function ProposalCard({
           <div>
             <strong>{line.product_name}</strong>
             <span>
-              {line.quantity} {line.unit} × {money(line.unit_price)} / {line.unit}
+              {line.sales_quantity && line.sales_unit && line.sales_unit_price
+                ? `${line.sales_quantity} ${line.sales_unit} × ${money(line.sales_unit_price)} / ${line.sales_unit} (${line.quantity} ${line.unit} requested)`
+                : `${line.quantity} ${line.unit} × ${money(line.unit_price)} / ${line.unit}`}
             </span>
           </div>
           <strong>{money(line.line_total)}</strong>

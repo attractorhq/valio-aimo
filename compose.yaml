@@ -13,6 +13,7 @@ services:
       DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-flash}
       VALIO_API_KEY: ${VALIO_API_KEY:-}
       VALIO_BASE_URL: ${VALIO_BASE_URL:-https://junction26.valioaimo.fi}
+      VALIO_CUSTOMER_ID: ${VALIO_CUSTOMER_ID:-junction-demo}
     volumes:
       - gateway-data:/data
     restart: unless-stopped

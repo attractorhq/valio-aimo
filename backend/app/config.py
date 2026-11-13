@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./gateway.db"
     valio_base_url: str = "https://junction26.valioaimo.fi"
     valio_api_key: str = ""
+    valio_customer_id: str = "junction-demo"
+    valio_customer_ids: dict[str, str] = {}
+    valio_timeout_seconds: float = 20
     deepseek_api_key: str = ""
     deepseek_model: str = "deepseek-flash"
     frontend_origins: str = "http://localhost:5173"

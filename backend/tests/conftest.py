@@ -17,7 +17,7 @@ MANAGER = {"Authorization": "Bearer demo-manager"}
 
 
 @pytest.fixture
-def context():
+def context(monkeypatch):
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
     factory = sessionmaker(engine, expire_on_commit=False)
@@ -34,6 +34,7 @@ def context():
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[get_provider] = lambda: provider
     settings = get_settings().model_copy(update={"deepseek_api_key": "", "mock_mode": True})
+    monkeypatch.setattr("app.main.get_settings", lambda: settings)
     # Runner reads the settings accessor directly; fixture patches it in tests that need it.
     client = TestClient(app)
     yield client, provider, factory, settings

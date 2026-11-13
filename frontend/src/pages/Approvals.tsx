@@ -104,7 +104,9 @@ export function Approvals({ identity }: { identity: Identity }) {
                   <span>
                     {i.product_name}
                     <small>
-                      {i.quantity} {i.unit} × {money(i.unit_price)} / {i.unit}
+                      {i.sales_quantity && i.sales_unit && i.sales_unit_price
+                        ? `${i.sales_quantity} ${i.sales_unit} × ${money(i.sales_unit_price)} / ${i.sales_unit} (${i.quantity} ${i.unit} requested)`
+                        : `${i.quantity} ${i.unit} × ${money(i.unit_price)} / ${i.unit}`}
                     </small>
                   </span>
                   <strong>{money(i.line_total)}</strong>

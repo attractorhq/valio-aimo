@@ -13,6 +13,7 @@ class SearchInput(StrictModel):
     dietary: str | None = None
     exclude_allergen: str | None = None
     limit: int = Field(default=10, ge=1, le=20)
+    unit: str | None = None
 
 
 class ProductInput(StrictModel):
@@ -64,7 +65,7 @@ def execute_tool(name, arguments, db, provider, actor):
         if name == "get_product_details":
             return catalog.product_details(db, args.product_code).model_dump(mode="json")
         if name == "check_offer":
-            offer = orders.check_offer(db, provider, args)
+            offer = orders.check_offer(db, provider, args, actor.buyer_id)
             # Deterministic candidate ranking; no model arithmetic. Caller must first filter constraints.
             ranked = sorted(
                 offer.items,

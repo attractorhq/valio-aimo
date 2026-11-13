@@ -41,6 +41,22 @@ type Fields = {
   allergens: string
 }
 
+function verifiedAllergens(product: Product, text: string) {
+  const restrictions = text
+    .split(',')
+    .map((a) => a.trim().toLowerCase())
+    .filter(Boolean)
+  return (
+    !restrictions.length ||
+    (product.allergens !== null &&
+      restrictions.every(
+        (a) =>
+          !product.allergens!.includes(a) &&
+          (product.free_from_allergens === null || product.free_from_allergens.includes(a)),
+      ))
+  )
+}
+
 export function Buyer({ identity, context }: { identity: Identity; context: Context }) {
   const cache = useQueryClient()
   const { data: policies } = useQuery({
@@ -92,7 +108,11 @@ export function Buyer({ identity, context }: { identity: Identity; context: Cont
     setProposal(null)
     const snapshot = { ...fields }
     try {
-      const params = new URLSearchParams({ query: snapshot.query, limit: '20' })
+      const params = new URLSearchParams({
+        query: snapshot.query,
+        unit: snapshot.unit,
+        limit: context.mock_data ? '20' : '6',
+      })
       if (snapshot.dietary) params.set('dietary', snapshot.dietary)
       const products = await request<Product[]>(identity, `/api/v1/products?${params}`)
       const results: Candidate[] = await Promise.all(
@@ -119,17 +139,8 @@ export function Buyer({ identity, context }: { identity: Identity; context: Cont
             }
           }),
       )
-      const restrictions = snapshot.allergens
-        .split(',')
-        .map((x) => x.trim().toLowerCase())
-        .filter(Boolean)
       function feasible(c: Candidate) {
-        return (
-          !!c.offer?.available &&
-          (!restrictions.length ||
-            (c.product.allergens !== null &&
-              !restrictions.some((a) => c.product.allergens!.includes(a))))
-        )
+        return !!c.offer?.available && verifiedAllergens(c.product, snapshot.allergens)
       }
       results.sort(
         (a, b) =>
@@ -234,6 +245,12 @@ export function Buyer({ identity, context }: { identity: Identity; context: Cont
               </div>
               <span className="step-label">01 / DISCOVER</span>
             </div>
+            {!context.mock_data && (
+              <p className="small muted">
+                Live calls to Valio’s synthetic challenge backend. Only six shortlisted products are
+                checked; no production data or real orders.
+              </p>
+            )}
             <div className="scenario-bar">
               <span>Try a scenario</span>
               <button onClick={() => preset('normal')}>Within policy</button>
@@ -278,6 +295,13 @@ export function Buyer({ identity, context }: { identity: Identity; context: Cont
                     <option value="L">Litres (L)</option>
                     <option value="KG">Kilograms (KG)</option>
                     <option value="EA">Items (EA)</option>
+                    {context.units
+                      ?.filter((u) => !['L', 'KG', 'EA'].includes(u))
+                      .map((u) => (
+                        <option key={u} value={u}>
+                          Supplier unit ({u})
+                        </option>
+                      ))}
                   </select>
                 </label>
                 <label>
@@ -371,13 +395,7 @@ export function Buyer({ identity, context }: { identity: Identity; context: Cont
                       recommended={
                         index === 0 &&
                         !!c.offer?.available &&
-                        (!verifiedFields?.allergens.trim() ||
-                          (c.product.allergens !== null &&
-                            !verifiedFields.allergens
-                              .split(',')
-                              .map((a) => a.trim().toLowerCase())
-                              .filter(Boolean)
-                              .some((a) => c.product.allergens!.includes(a))))
+                        verifiedAllergens(c.product, verifiedFields?.allergens || '')
                       }
                       onSelect={() => propose(c)}
                       disabled={!!proposing}
@@ -403,7 +421,7 @@ export function Buyer({ identity, context }: { identity: Identity; context: Cont
                 <FlaskConical size={14} />{' '}
                 {context.mock_data
                   ? 'Synthetic fixture prices and availability.'
-                  : 'Source and verification time shown per product.'}{' '}
+                  : 'Live Valio challenge API calls against synthetic supplier data.'}{' '}
                 Checks do not reserve stock. All facts are revalidated before commitment.
               </p>
             </section>
@@ -519,12 +537,12 @@ function ProductCard({
         <span className="mini-label">{p.category.replace('_', ' ')}</span>
         {recommended && (
           <span className="best-fit">
-            <Check size={12} /> Best available price
+            <Check size={12} /> Best checked price
           </span>
         )}
       </div>
       <span className="product-code">
-        {p.code} · {p.pack_quantity} {p.unit} / pack
+        {p.code} · order step {p.pack_quantity} {p.unit}
       </span>
       <h3>{p.name}</h3>
       <div className="tags">
@@ -540,12 +558,15 @@ function ProductCard({
           ? 'unknown — review required if restricted'
           : p.allergens.length
             ? p.allergens.join(', ')
-            : 'none declared in fixture'}
+            : p.free_from_allergens === null
+              ? 'none declared in fixture'
+              : 'no positives declared — absence is not guaranteed'}
       </p>
       {offer ? (
         <>
           <div className="product-price">
             <strong>
+              {Number(p.quantity_per_sales_unit) !== 1 ? '≈ ' : ''}
               {money(offer.unit_price)}
               <small> / {offer.unit}</small>
             </strong>
@@ -557,8 +578,11 @@ function ProductCard({
             <i />
             {offer.available
               ? `Available for ${readableDate(deliveryDate)}`
-              : 'Not available for requested quantity / date'}
+              : offer.availability_status === 'UNKNOWN'
+                ? 'Supplier stock unconfirmed — not verified inventory'
+                : 'Not available for requested quantity / date'}
           </div>
+          {offer.availability_note && <p className="allergen-note">{offer.availability_note}</p>}
           {budget && Number(offer.line_total) > Number(budget) && (
             <span className="over-budget">Over request budget · human review</span>
           )}
@@ -601,6 +625,26 @@ function ProductCard({
             <br />
             Checked {readableTime(offer.verified_at)} Helsinki.
             <br />
+            {offer.sales_unit && (
+              <>
+                {offer.sales_quantity} {offer.sales_unit} × {money(offer.sales_unit_price!)} per
+                supplier sales unit. Totals use these unrounded terms.
+                <br />
+              </>
+            )}
+            {p.sales_unit && (
+              <>
+                1 {p.sales_unit} = {p.quantity_per_sales_unit} {p.unit}. Order step is not a whole
+                pack.
+                <br />
+              </>
+            )}
+            {offer.order_cutoff && (
+              <>
+                Order cut-off: {readableTime(offer.order_cutoff)} Helsinki.
+                <br />
+              </>
+            )}
             *Carbon is a category average, not this product’s measurement.
           </p>
         </details>

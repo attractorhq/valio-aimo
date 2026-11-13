@@ -59,7 +59,12 @@ export function Settings({ identity, mockMode }: { identity: Identity; mockMode:
             </div>
             <dl>
               <dt>Allowed categories</dt>
-              <dd>{p.allowed_categories.join(', ')}</dd>
+              <dd>
+                {p.allowed_categories.slice(0, 12).join(', ')}
+                {p.allowed_categories.length > 12
+                  ? ` … (${p.allowed_categories.length} supplier category codes; seeded challenge policy permits all imported categories)`
+                  : ''}
+              </dd>
               <dt>Substitutions</dt>
               <dd>
                 {p.allow_equivalent_substitutions

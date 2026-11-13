@@ -1,3 +1,4 @@
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import Policy, Product
@@ -94,6 +95,20 @@ def seed(db: Session, include_products: bool = True):
                     source="Synthetic demo fixture",
                 ).model_dump(mode="json")
                 db.add(Product(code=code, name=name, category=category, data=data))
+    categories = (
+        ["dairy", "plant_based", "produce", "pantry"]
+        if include_products
+        else sorted(set(db.scalars(select(Product.category))))
+    )
+    equivalents = (
+        {"DEMO-MLK-01": ["DEMO-MLK-02"]}
+        if include_products
+        else {
+            p.code: p.data["substitution_codes"]
+            for p in db.scalars(select(Product))
+            if p.data.get("substitution_codes")
+        }
+    )
     for buyer, name, limit, equivalent in [
         ("restaurant-a", "Restaurant A", "200.00", False),
         ("hotel-b", "Hotel B", "500.00", True),
@@ -106,9 +121,9 @@ def seed(db: Session, include_products: bool = True):
                     version=1,
                     data={
                         "max_auto_total": limit,
-                        "allowed_categories": ["dairy", "plant_based", "produce", "pantry"],
+                        "allowed_categories": categories,
                         "allow_equivalent_substitutions": equivalent,
-                        "equivalent_substitutions": {"DEMO-MLK-01": ["DEMO-MLK-02"]},
+                        "equivalent_substitutions": equivalents,
                         "excluded_allergens": [],
                         "unusual_quantity": "1000",
                         "confirmed_availability_required": True,

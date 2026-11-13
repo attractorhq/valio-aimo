@@ -1,4 +1,5 @@
 """Explicit catalog import. No guessing of the unverified vendor schema or units."""
+
 import argparse
 import csv
 import json
@@ -15,6 +16,7 @@ from app.db.models import Base, Product
 from app.db.seed import seed
 from app.db.session import SessionLocal, engine
 from app.schemas import ProductOut
+from app.integrations.valio_catalog import normalize_product
 
 
 def field(data, path):
@@ -46,12 +48,16 @@ def csv_values(path, code_column, value_column):
         return result
 
 
-def import_catalog(raw: Path, mapping_path: Path | None = None, reliability_columns=None, carbon_columns=None):
+def import_catalog(
+    raw: Path, mapping_path: Path | None = None, reliability_columns=None, carbon_columns=None
+):
     products_path = raw / "products.json"
     Base.metadata.create_all(engine)
     if not products_path.exists():
         if not get_settings().mock_mode:
-            raise ValueError("No products.json found. Real-data mode never falls back to fabricated products.")
+            raise ValueError(
+                "No products.json found. Real-data mode never falls back to fabricated products."
+            )
         with SessionLocal() as db:
             seed(db)
         return {"mode": "synthetic fixtures", "products": 8}
@@ -64,13 +70,33 @@ def import_catalog(raw: Path, mapping_path: Path | None = None, reliability_colu
     records = field(document, mapping.get("root", ""))
     if not isinstance(records, list):
         raise ValueError("Catalog must be a JSON array, or mapping.root must name an array.")
-    reliability = csv_values(raw / "delivery-reliability.csv", *(reliability_columns or ("product_code", "reliability")))
-    carbon = csv_values(raw / "carbon-footprint.csv", *(carbon_columns or ("product_code", "AVG kg CO2-eq/kg")))
+    vendor = not mapping and records and "salesUnit" in records[0] and "id" in records[0]
+    reliability = csv_values(
+        raw / "delivery-reliability.csv",
+        *(
+            reliability_columns
+            or (("productId", "deliveryReliability") if vendor else ("product_code", "reliability"))
+        ),
+    )
+    carbon = csv_values(
+        raw / "carbon-footprint.csv",
+        *(
+            carbon_columns
+            or (("productId", "AVG kg CO2-eq/kg") if vendor else ("product_code", "AVG kg CO2-eq/kg"))
+        ),
+    )
     normalized = []
     seen = set()
     for record in records:
-        data = ({key: field(record, path) for key, path in mapping["fields"].items()}
-                if "fields" in mapping else dict(record))
+        if vendor:
+            if record.get("deleted"):
+                continue
+            record = normalize_product(record).model_dump(mode="json")
+        data = (
+            {key: field(record, path) for key, path in mapping["fields"].items()}
+            if "fields" in mapping
+            else dict(record)
+        )
         for key, translations in mapping.get("values", {}).items():
             original = data.get(key)
             if original not in translations:
@@ -79,11 +105,14 @@ def import_catalog(raw: Path, mapping_path: Path | None = None, reliability_colu
         # Unknowns can be absent/null. Required code/name/category/unit/pack may NOT be guessed.
         data = {k: v for k, v in data.items() if v is not None}
         if not isinstance(data.get("code"), str) or not data["code"].strip():
-            raise ValueError("Product codes must be original strings; numeric conversion could lose leading zeroes.")
+            raise ValueError(
+                "Product codes must be original strings; numeric conversion could lose leading zeroes."
+            )
         if data["code"] in seen or data["code"].startswith("DEMO-"):
             raise ValueError(f"Duplicate or reserved fixture code: {data['code']}")
         seen.add(data["code"])
-        data["source"] = "Imported challenge catalog (synthetic supplier data)"
+        if not vendor:
+            data["source"] = "Imported challenge catalog (synthetic supplier data)"
         if data["code"] in reliability:
             data["reliability"] = reliability[data["code"]]
         if data["code"] in carbon:
@@ -95,28 +124,47 @@ def import_catalog(raw: Path, mapping_path: Path | None = None, reliability_colu
     # Validate the entire batch before the first write. Upsert only; never delete user records.
     with SessionLocal() as db:
         if db.scalar(select(Product).where(Product.code.like("DEMO-%"))):
-            raise ValueError("This database contains demo fixtures. Use a NEW DATABASE_URL for imported data.")
+            raise ValueError(
+                "This database contains demo fixtures. Use a NEW DATABASE_URL for imported data."
+            )
         for product in normalized:
-            db.merge(Product(code=product.code, name=product.name, category=product.category,
-                             data=product.model_dump(mode="json")))
+            db.merge(
+                Product(
+                    code=product.code,
+                    name=product.name,
+                    category=product.category,
+                    data=product.model_dump(mode="json"),
+                )
+            )
         seed(db, include_products=False)
         db.commit()
-    return {"mode": "imported catalog", "products": len(normalized), "vendor_schema_validated": schema_path.exists()}
+    return {
+        "mode": "imported catalog",
+        "products": len(normalized),
+        "vendor_schema_validated": schema_path.exists(),
+    }
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--raw-dir", type=Path, default=Path(__file__).resolve().parents[1] / "data/raw")
     parser.add_argument("--mapping", type=Path)
-    parser.add_argument("--reliability-code-column", default="product_code")
-    parser.add_argument("--reliability-value-column", default="reliability")
-    parser.add_argument("--carbon-code-column", default="product_code")
-    parser.add_argument("--carbon-value-column", default="AVG kg CO2-eq/kg")
+    parser.add_argument("--reliability-code-column")
+    parser.add_argument("--reliability-value-column")
+    parser.add_argument("--carbon-code-column")
+    parser.add_argument("--carbon-value-column")
     args = parser.parse_args()
     try:
-        result = import_catalog(args.raw_dir, args.mapping,
-                                (args.reliability_code_column, args.reliability_value_column),
-                                (args.carbon_code_column, args.carbon_value_column))
+        result = import_catalog(
+            args.raw_dir,
+            args.mapping,
+            (args.reliability_code_column, args.reliability_value_column)
+            if args.reliability_code_column and args.reliability_value_column
+            else None,
+            (args.carbon_code_column, args.carbon_value_column)
+            if args.carbon_code_column and args.carbon_value_column
+            else None,
+        )
     except Exception as exc:
         parser.exit(1, f"Import failed (no batch changes applied): {exc}\n")
     print(json.dumps(result, indent=2))

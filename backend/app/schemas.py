@@ -2,11 +2,15 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, field_validator
 
-Money = Annotated[Decimal, Field(ge=0, max_digits=12, decimal_places=2, allow_inf_nan=False)]
-Quantity = Annotated[Decimal, Field(gt=0, max_digits=12, decimal_places=3, allow_inf_nan=False)]
-Unit = Literal["L", "KG", "EA"]
+FixedDecimal = PlainSerializer(lambda value: format(value, "f"), return_type=str, when_used="json")
+Money = Annotated[Decimal, Field(ge=0, max_digits=16, decimal_places=2, allow_inf_nan=False), FixedDecimal]
+UnitPrice = Annotated[
+    Decimal, Field(ge=0, max_digits=24, decimal_places=8, allow_inf_nan=False), FixedDecimal
+]
+Quantity = Annotated[Decimal, Field(gt=0, max_digits=18, decimal_places=9, allow_inf_nan=False), FixedDecimal]
+Unit = Annotated[str, Field(pattern=r"^[A-Z][A-Z0-9_]{0,15}$")]
 Status = Literal["AUTO_APPROVED", "NEEDS_APPROVAL", "REJECTED", "APPROVED", "COMMITTED"]
 
 
@@ -20,6 +24,14 @@ class ProductOut(StrictModel):
     category: str
     unit: Unit
     pack_quantity: Quantity
+    sales_unit: Unit | None = None
+    quantity_per_sales_unit: Quantity = Decimal("1")
+    names: dict[str, str] = Field(default_factory=dict)
+    free_from_allergens: list[str] | None = None
+    allergen_codes: list[str] = Field(default_factory=list)
+    substitution_codes: list[str] = Field(default_factory=list)
+    deposits: list[dict] = Field(default_factory=list)
+    variable_weight: bool | None = None
     dietary: dict[str, bool | None] = Field(default_factory=dict)
     allergens: list[str] | None = None
     nutrition: dict | None = None
@@ -28,7 +40,7 @@ class ProductOut(StrictModel):
     carbon_scope: Literal["category_average"] | None = None
     source: str
 
-    @field_validator("allergens")
+    @field_validator("allergens", "free_from_allergens")
     @classmethod
     def canonical_allergens(cls, values):
         if values is None:
@@ -70,11 +82,18 @@ class OfferLine(StrictModel):
     quantity: Quantity
     unit: Unit
     pack_quantity: Quantity
-    unit_price: Money
+    unit_price: UnitPrice
     line_total: Money
     available: bool
-    available_quantity: Annotated[Decimal, Field(ge=0)]
-    earliest_delivery: date
+    available_quantity: Annotated[Decimal, Field(ge=0)] | None
+    earliest_delivery: date | None
+    availability_status: Literal["CONFIRMED", "UNKNOWN", "UNAVAILABLE"] = "CONFIRMED"
+    availability_note: str | None = None
+    sales_unit: Unit | None = None
+    sales_quantity: Quantity | None = None
+    sales_unit_price: UnitPrice | None = None
+    order_cutoff: datetime | None = None
+    logistics_model: str | None = None
     source: str
     verified_at: datetime
 

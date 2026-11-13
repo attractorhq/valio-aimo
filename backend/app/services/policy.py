@@ -14,8 +14,26 @@ def evaluate(policy: PolicyOut, request: ProposalRequest, offer: OfferOut, produ
         p = products[item.product_code]
         if p.category not in policy.allowed_categories:
             add(reject, "CATEGORY_FORBIDDEN", f"{p.name}: category is outside buyer policy.")
-        if not checked.available:
+        if checked.availability_status == "UNKNOWN" and policy.confirmed_availability_required:
+            add(
+                reject,
+                "AVAILABILITY_UNCONFIRMED",
+                f"{p.name}: supplier quantity is unknown; confirmed stock is required.",
+            )
+        elif not checked.available:
             add(reject, "UNAVAILABLE", f"{p.name}: insufficient stock or delivery date cannot be met.")
+        if p.deposits:
+            add(
+                reject,
+                "DEPOSIT_COST_UNVERIFIED",
+                f"{p.name}: returnable packaging charges are not yet priced; total would be incomplete.",
+            )
+        if p.variable_weight and p.sales_unit != "KG":
+            add(
+                reject,
+                "VARIABLE_WEIGHT_UNVERIFIED",
+                f"{p.name}: variable-weight sales unit cannot be committed at an assumed weight.",
+            )
         if restrictions:
             if p.allergens is None:
                 add(
@@ -28,6 +46,12 @@ def evaluate(policy: PolicyOut, request: ProposalRequest, offer: OfferOut, produ
                     reject,
                     "ALLERGEN_VIOLATION",
                     f"{p.name}: conflicts with an explicit allergen restriction.",
+                )
+            elif p.free_from_allergens is not None and not restrictions.issubset(p.free_from_allergens):
+                add(
+                    escalate,
+                    "ALLERGEN_DATA_UNKNOWN",
+                    f"{p.name}: requested allergen absence is not explicitly verified; human review required.",
                 )
         for dietary in request.required_dietary:
             known = p.dietary.get(dietary.lower())

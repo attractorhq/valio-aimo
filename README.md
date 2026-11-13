@@ -2,14 +2,16 @@
 
 An agent-ready B2B food purchasing gateway, built for the Valio Aimo Junction 2026 challenge. **React + Vite, not Next.js.** The static frontend deploys to **Cloudflare Pages**; the Python/FastAPI backend runs separately.
 
-**Runnable without credentials.** The default catalog, fixed prices and stock are clearly labelled synthetic fixtures. **Every order is a local simulation. Nothing is ordered from Valio.** This is a gateway and its demonstration clients, not a marketplace.
+**Two working modes:** local synthetic fixtures without credentials, or live calls to the **actual Valio Junction challenge API** with its supplied 17,546-product catalog. The challenge backend/data are themselves synthetic, not production systems. **Every order is a local simulation. Nothing is ordered from Valio.** This is a gateway and its demonstration clients, not a marketplace.
 
 ## Run locally
 
 Requires Python **3.12+** and Node **22+**. From the repository root:
 
+Only copy `.env.example` on a fresh clone; **do not overwrite an existing `.env` containing keys**. The example defaults to offline mock mode. For live mode, follow the next section before starting FastAPI.
+
 ```bash
-cp .env.example .env
+cp -n .env.example .env
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e 'backend[test]'
@@ -40,6 +42,59 @@ Alternatively, `docker compose up --build` starts the backend with a persistent 
 
 Hotel B has a EUR 500 limit and a single predefined milk equivalent. Use the explicit substitution checkbox to contrast buyer policies. Settings lets the demo manager change thresholds; versions invalidate prior authorizations at commit.
 
+## Live Valio challenge API
+
+The authenticated OpenAPI contract, product schema, dataset and both read operations were retrieved and verified on **13 November 2026**. Live browser testing completed catalog → price/stock → policy → revalidation → **simulated** commitment. The initial portal access problem is resolved.
+
+Set these values in the root `.env` (keep the API key on the server):
+
+```env
+MOCK_MODE=false
+VALIO_API_KEY=your-challenge-api-key
+VALIO_BASE_URL=https://junction26.valioaimo.fi
+VALIO_CUSTOMER_ID=junction-demo
+DATABASE_URL=sqlite:////absolute/path/to/valio-aimo/backend/gateway-live.db
+```
+
+Use a **new database**, not the existing fixture database; neither catalog is deleted or overwritten. Absolute database paths keep the importer and backend pointed at the same file.
+
+From the repository root, with the virtual environment activated:
+
+```bash
+python scripts/download_valio_data.py
+python scripts/import_products.py
+cd backend
+uvicorn app.main:app --reload --port 8000
+```
+
+The downloader uses documented `/api/*/download` routes and skips existing files unless `--refresh` is supplied. It makes no whole-catalog price or availability queries. `product-schema.json` downloaded from the portal is optional; if present, the importer validates the original document against it. The actual Valio format and CSV columns are detected automatically; **no manual mapping is needed for the supplied files**. Import takes approximately 30–40 seconds on a typical development machine.
+
+Restart the backend after changing `.env`. Start the frontend normally and refresh. Its badge should read **LIVE CHALLENGE API**. The built-in AI remains optional and separately requires `DEEPSEEK_API_KEY`.
+
+### A verified live demo request
+
+Search for **`463335`**, keep **100 L**, lactose-free, next Monday and EUR 200. At the time of testing this was *Valio Eila® 3% milk drink 1 l lactose free*, **EUR 1.40 per ST**, explicitly converted to **1 L per ST**: **EUR 140** net. Availability and price are always fetched again; these observations are not a guarantee of future terms. If stock/date changes, choose a valid alternative rather than bypassing policy. The normal `milk` search checks only six matching shortlisted products in live mode.
+
+The mock scenario buttons remain useful for deterministic fixture demos; live searches use actual supplier products, so those scenarios do not guarantee a particular policy/stock outcome.
+
+### Confirmed contract and safety semantics
+
+- Pricing: **`POST /api/price`** with `customer`, `requestedDate`, `products`. Uses validated `catalogPrice.value` net of tax **per supplier sales unit**, checks currency/customer/date/validity and rejects price errors. Comparison prices are not used to infer pack size.
+- Availability: **`POST /api/availability`** with the same fields. Checks both sales blocks, delivery schedule, quantity, supplier sales unit and order cut-off against the response's Helsinki `timeNow`.
+- **Terminal** quantity `999999` is a documented unknown-stock placeholder, never confirmed inventory. Terminal/unknown-cut-off offers cannot pass the seeded confirmed-stock requirement, including with manager approval. Late delivery and elapsed cut-offs are unavailable.
+- Units: preserves original `salesUnit`, `allowedLotSize` and category codes. Translates to L/KG only with explicit consumer-level volume/net-weight plus the documented packaging hierarchy; otherwise retains the original technical unit (e.g. KI/ST/PAK). **`pack_quantity` means permitted order step**, not necessarily a whole package. The dataset explicitly allows fractional sales-unit steps.
+- The API returns `sales_quantity`, `sales_unit_price` and conversion metadata. Line totals use the exact supplier sales-unit price, not the rounded unit-comparison display; net line totals round half-up to cents. Converted display prices can have eight decimal places. No density conversion or name-based pack-size inference.
+- Dietary facts come only from explicit classification claims. Original allergen codes are retained. A list of positive allergens is **not** assumed exhaustive: a restriction needs explicit `FREE_FROM` evidence or escalates. Unsupported allergen identifiers remain coded/unknown.
+- Unpriced returnable deposits and ambiguous variable-weight container pricing are rejected rather than producing an incomplete authorized total. VAT and delivery remain excluded, visibly, from this simulator.
+- Demo policies on a freshly imported live database explicitly permit all imported supplier category codes (349 in the retrieved catalog). These are illustrative permissions, not a claim about a real customer's purchasing authority. Hotel substitutions derive only from supplied substitution rules and still undergo dietary/stock checks.
+- Customer identity is server-bound. The challenge permits arbitrary customer numbers and says they do not affect results. Set optional `VALIO_CUSTOMER_IDS={"restaurant-a":"123","hotel-b":"456"}` on the backend for separate buyer bindings; the browser/model cannot select the upstream customer. Without a mapping, the configured `VALIO_CUSTOMER_ID` is used.
+- No automatic retries, price cache or silent mock fallback. A failed/invalid upstream response returns a sanitized **502**. Read calls have a configurable `VALIO_TIMEOUT_SECONDS` (default 20).
+- **There is no order endpoint in the verified supplier contract. Commitment is always local and clearly labelled simulated.**
+
+`/health` reports mode and whether the live adapter has credentials; it does not continuously poll the supplier. `/api/v1/context` supplies supported units and explicit Helsinki dates.
+
+To return to fixture mode, set `MOCK_MODE=true` and point `DATABASE_URL` at the separate original mock database, then restart. Switching modes never silently mixes catalogs.
+
 ## Deployment: Cloudflare Pages
 
 1. Push this repository to your Git provider and create a **Cloudflare Pages** project.
@@ -47,6 +102,17 @@ Hotel B has a EUR 500 limit and a single predefined milk equivalent. Use the exp
 3. Set public build environment variable **`VITE_API_BASE_URL=https://your-python-backend.example`** (no trailing slash required). It must be an HTTPS backend accessible from the browser. Rebuild when this value changes.
 4. Deploy FastAPI on a Python/container host (e.g. a VM, Fly.io or Render). Docker context is the repository root; Dockerfile is `backend/Dockerfile`. Expose port 8000, attach a **persistent writable volume at `/data`**, and set `DATABASE_URL=sqlite:////data/gateway.db`.
 5. Set backend **`FRONTEND_ORIGINS=https://your-project.pages.dev`**; use comma-separated exact origins for custom domains. Wildcard Pages preview URLs are intentionally not trusted. Secrets belong **only on the backend**.
+
+For live mode, initialize the persistent database **before** starting the web process: run `python scripts/download_valio_data.py --raw-dir /data/raw`, then `python scripts/import_products.py --raw-dir /data/raw` inside the built image with the same volume/environment. Alternatively, upload a locally imported SQLite database to the volume while the server is stopped. No datasets or keys are baked into the image. With Compose, use a new project/volume to retain existing mock data:
+
+```bash
+docker compose -p aimo-live build
+docker compose -p aimo-live run --rm gateway python scripts/download_valio_data.py --raw-dir /data/raw
+docker compose -p aimo-live run --rm gateway python scripts/import_products.py --raw-dir /data/raw
+docker compose -p aimo-live up -d
+```
+
+These commands expect `MOCK_MODE=false` and `VALIO_API_KEY` in the root `.env`. Compose sets the in-container database to `/data/gateway.db`; do not use your host's absolute database path inside a container.
 
 `frontend/public/_redirects` supplies SPA deep-link fallback for `/approvals`, `/history`, and `/settings`. `frontend/wrangler.toml` also supports `npx wrangler pages deploy dist` after building. A Pages project needs no Next.js adapter, SSR, Workers runtime or browser API keys.
 
@@ -79,7 +145,7 @@ curl http://localhost:8000/api/v1/proposals \
   -d '{"request":"100 litres of lactose-free milk","delivery_date":"2026-11-16","budget":"200.00","required_dietary":["lactose_free"],"excluded_allergens":[],"items":[{"product_code":"DEMO-MLK-02","quantity":"100","unit":"L"}]}'
 ```
 
-Money is decimal strings in **EUR**, calculated with Python `Decimal`. Fixture prices are per base **L/KG/EA**, net of VAT, with no delivery fee in the simulator. Quantity must be an exact pack multiple; unsupported conversion is a **400**, never silent rounding. Missing data is `null`/unknown. Lactose-free does **not** mean free of milk allergens. Reliability is historical delivery fraction; carbon is a category average, not a per-product measurement.
+Money is decimal strings in **EUR**, calculated with Python `Decimal`. Fixture prices are per base **L/KG/EA**; live prices are converted from exact supplier sales-unit prices, net of VAT, with no delivery fee in the simulator. Quantity must be an exact order-step multiple; unsupported conversion is a **400**, never silent rounding. Missing data is `null`/unknown. Lactose-free does **not** mean free of milk allergens. Reliability is historical delivery fraction; carbon is a category average, not a per-product measurement.
 
 ### Authorization/state model
 
@@ -118,7 +184,7 @@ source .venv/bin/activate
 DATABASE_URL=sqlite:////absolute/path/catalog.db python scripts/import_products.py
 ```
 
-The authenticated supplier schema could not be retrieved, so no vendor field names are assumed. Either provide a normalized array matching `ProductOut` (`backend/app/schemas.py`), or provide an explicit mapping:
+The actual Valio format is handled by `backend/app/integrations/valio_catalog.py`. Its CSV headers are `productId,deliveryReliability` and `productId,AVG kg CO2-eq/kg`. For a **different/custom input format**, either provide a normalized array matching `ProductOut` (`backend/app/schemas.py`), or provide an explicit mapping:
 
 ```json
 {
@@ -141,21 +207,11 @@ MOCK_MODE=false DATABASE_URL=sqlite:////absolute/path/imported.db \
   --carbon-code-column product_code --carbon-value-column 'AVG kg CO2-eq/kg'
 ```
 
-Set CSV column flags to the **actual** headers. Product IDs remain original strings, pack/unit facts must be explicit, duplicate codes are rejected, missing optional facts remain unknown, and the entire batch validates before writes. Import is an upsert, not deletion. Use a **new database** instead of mixing demo fixtures with imported products. Imported products do not receive invented fixture prices or availability; offer requests fail closed until the verified live adapter exists.
+For custom inputs, set CSV column flags to the **actual** headers. Product IDs remain original strings, quantity/unit facts must be explicit, duplicate codes are rejected, missing optional facts remain unknown, and the entire batch validates before writes. Import is an upsert, not deletion. Use a **new database** instead of mixing demo fixtures with imported products. Imported products never receive invented fixture prices or availability.
 
-## Valio adapter status / remaining work
+## Adapter structure
 
-`ValioProvider` defines `search_products`, `get_prices`, and `check_availability`. `MockValioProvider` is runnable. **`RealValioProvider` deliberately fails closed with 502 for reads.** No vendor routes or formats have been invented.
-
-During implementation, `GET https://junction26.valioaimo.fi/openapi.json` redirected to a sign-in page; a portal login attempt with the supplied password returned HTTP 403. No contract or datasets were obtained. No secrets are included in the repository.
-
-Once access works:
-
-1. Download authenticated OpenAPI and dataset/schema through the portal; map exact product fields and CSV columns.
-2. Implement typed HTTPX responses for the documented pricing and delivery-date availability operations, with `X-API-Key`, timeouts, explicit price units/currency and source timestamps. Keep credentials on the server.
-3. Contract-test unit/pack pricing, partial quantity, missing records, provider errors and dates. Never infer missing allergen facts.
-4. Set `MOCK_MODE=false` against a separate imported database. Health reports that the live adapter is not ready in this version.
-5. Do not add a vendor commit call unless the verified contract actually exposes it. Local commit remains labelled simulated independently of read mode.
+`ValioProvider` defines local `search_products` plus date- and buyer-bound `get_prices` and `check_availability`. `RealValioProvider` uses typed Pydantic responses with HTTPX and the verified vendor routes. `MockValioProvider` remains independent and reproducible. Authenticated OpenAPI and original downloads are in gitignored `data/raw/` on the development machine; no passwords or API keys are part of the repository.
 
 ## Tests
 
@@ -167,7 +223,18 @@ npm run build
 npm run test:e2e
 ```
 
-Browser tests start isolated backend/frontend servers with their own database; first install Chromium with `npx playwright install chromium` (Linux may also need `npx playwright install-deps chromium`). Backend tests isolate SQLite and providers; they require no credentials. Tests cover authorization, budgets, substitutions, dietary/allergen unknowns and violations, stock failure, changed terms, idempotency, audit persistence, agent allowlists, bounded tools and AI fallback.
+Browser tests start isolated backend/frontend servers on ports **8010/5175** with their own database, without stopping your local demo; first install Chromium with `npx playwright install chromium` (Linux may also need `npx playwright install-deps chromium`). Backend tests isolate SQLite and providers; they require no credentials. Tests cover authorization, budgets, substitutions, dietary/allergen unknowns and violations, stock failure, changed terms, idempotency, audit persistence, agent allowlists, bounded tools and AI fallback.
+
+Live adapter contract tests use HTTPX mock transports and require no external requests. They additionally cover supplier customer/date validation, missing/duplicate prices, validity windows, negative prices, 401/403/429/500 handling, stock blocks, cut-offs, unknown Terminal quantities, explicit sales-unit conversion and exact totals.
+
+Optional real-network browser check, after downloading the datasets and configuring a valid key:
+
+```bash
+cd frontend
+npm run test:live
+```
+
+This imports an isolated temporary database, starts ports **8011/5174**, and checks product 463335 end to end. It does not touch your demo database or create a supplier order. External stock, dates and prices can legitimately make this opt-in check fail. Regular browser tests remain fully mocked and do not require a key.
 
 ## Repository
 
@@ -176,10 +243,11 @@ backend/app/       FastAPI schemas, SQLAlchemy persistence, policies, simulator,
 backend/tests/     Isolated API/policy/agent tests
 frontend/src/      React clients: buyer assistant, manager queue, audit, policies
 frontend/e2e/      Browser acceptance tests
-scripts/           Explicit local dataset importer
+frontend/e2e-live/ Opt-in actual supplier API browser smoke test
+scripts/           Authenticated dataset downloader and explicit importer
 data/raw/          Gitignored challenge downloads
 ```
 
 ### Production follow-up (intentionally not in MVP)
 
-Verified buyer/manager authentication and scoped credentials; reviewed vendor adapter; signed/attested provenance if warranted; per-customer pricing identity; provider retry/circuit-breaking semantics; true stock reservations and fulfillment/payment/tax terms; append-only audit retention; versioned migrations; pagination; shared durable database and distributed idempotency; stricter request normalization and model evaluations. No MCP, payment layer, vector DB, background worker or multi-agent framework is needed to demonstrate this gateway.
+Verified buyer/manager authentication and scoped credentials; production supplier contract review; signed/attested provenance if warranted; production per-customer credential binding; provider retry/circuit-breaking semantics; true stock reservations and fulfillment/payment/tax/deposit terms; append-only audit retention; versioned migrations; pagination; shared durable database and distributed idempotency; stricter request normalization and model evaluations. No MCP, payment layer, vector DB, background worker or multi-agent framework is needed to demonstrate this gateway.
