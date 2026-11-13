@@ -17,35 +17,58 @@ function decisionSummary(proposal: Proposal, approver?: string): string {
   if (proposal.decision === 'AUTO') {
     return 'All hard requirements, stock and delivery terms are verified or declared, and the net total is within the buyer mandate.'
   }
+  if (proposal.decision === 'ASK' && proposal.state === 'CONFIRMED_SIMULATED') {
+    return `${approver ?? 'The approver'} approved this exact version in the Approver panel; the gateway re-checked it before the simulated confirmation.`
+  }
+  if (proposal.decision === 'ASK' && proposal.state !== 'PENDING_APPROVAL') {
+    return 'This proposal version will not be ordered.'
+  }
   if (proposal.decision === 'ASK') {
     return `Every hard requirement is proven; this proposal version waits for ${approver ?? 'Head Chef (demo)'} to sign off the trade-off below.`
   }
   return 'Deterministic gateway policy blocked this proposal because it breaches a non-overridable mandate rule.'
 }
 
+/** After the approver acted on the separate channel, the agent view shows the outcome, never a control. */
+function askStateText(proposal: Proposal, approver: string): string {
+  switch (proposal.state) {
+    case 'CONFIRMED_SIMULATED':
+      return `Approved by ${approver} → Confirmed (simulated)`
+    case 'REJECTED':
+      return `Rejected by ${approver}. Nothing was ordered.`
+    case 'EXPIRED':
+      return 'The offer expired before sign-off. Re-quote needed.'
+    case 'SUPERSEDED':
+      return 'Superseded: a new version was decided from scratch.'
+    default:
+      return `In progress (${proposal.state})`
+  }
+}
+
 /**
  * Step 4 Decision footer: reason chips, plain-language explanation, "Waiting for Head Chef (demo)" with NO approve button,
  * and "Simulated order — mock environment" (P6 P0-2/P0-3, P10 S2).
  */
-export function DecisionFooter({
-  proposal,
-  mandate,
-}: {
-  proposal: Proposal
-  mandate?: Mandate
-}) {
+export function DecisionFooter({ proposal, mandate }: { proposal: Proposal; mandate?: Mandate }) {
   const decision = proposal.decision
   const approver = proposal.approverRole ?? mandate?.approver.role ?? 'Head Chef (demo)'
-  const Icon = decision === 'AUTO' ? CheckCircle2 : decision === 'ASK' ? Hourglass : Ban
+  const confirmed = proposal.state === 'CONFIRMED_SIMULATED'
+  const voided =
+    decision === 'ASK' && ['REJECTED', 'EXPIRED', 'SUPERSEDED'].includes(proposal.state)
+  const Icon = confirmed ? CheckCircle2 : decision === 'ASK' && !voided ? Hourglass : Ban
+  const tone = confirmed ? 'auto' : voided ? 'block' : decision.toLowerCase()
 
   return (
-    <div className={`outcome outcome-${decision.toLowerCase()}`}>
+    <div className={`outcome outcome-${tone}`}>
       <p className="outcome-headline">
         <Icon size={22} aria-hidden />
         <span>
           <span className="outcome-word">{decision}</span>
           {decision === 'AUTO' && 'Every fact is proven and the order is inside the mandate.'}
-          {decision === 'ASK' && `Waiting for ${approver}`}
+          {decision === 'ASK' &&
+            (proposal.state === 'PENDING_APPROVAL'
+              ? `Waiting for ${approver}`
+              : askStateText(proposal, approver))}
           {decision === 'BLOCK' && 'This order breaks the mandate.'}
         </span>
       </p>
@@ -69,7 +92,7 @@ export function DecisionFooter({
         </ul>
       )}
 
-      {decision === 'ASK' && (
+      {decision === 'ASK' && proposal.state === 'PENDING_APPROVAL' && (
         <p className="muted small">
           The agent cannot approve. {approver} signs off version {proposal.offerVersion} of this
           proposal in the separate Approver panel.

@@ -1,0 +1,248 @@
+import { useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { AlertTriangle, Ban, CheckCircle2, Clock, Info, KeyRound, XCircle } from 'lucide-react'
+import type { Mandate } from '../../lib/contracts'
+import { approverChannel, GatewayError, type ApproverItem } from '../../lib/gateway'
+import {
+  formatClock,
+  formatDate,
+  formatMoney,
+  formatNumber,
+  formatQuantity,
+  reasonChip,
+} from '../../lib/format'
+import { approvalReasons, contextReasons, plainReason } from './explain'
+
+/** What happened to this proposal version, in one line. */
+export function ApprovalState({ item }: { item: ApproverItem }) {
+  const { proposal, loggedAt } = item
+  const logged = loggedAt ? ` · logged ${formatClock(loggedAt)}` : ''
+  switch (proposal.state) {
+    case 'CONFIRMED_SIMULATED':
+      return (
+        <p className="approval-state approval-state-done" role="status">
+          <CheckCircle2 size={18} aria-hidden />
+          Approved · {proposal.mode === 'LIVE' ? 're-checked live' : 're-checked (recorded data)'} ·
+          Confirmed (simulated){logged}
+        </p>
+      )
+    case 'REJECTED':
+      return (
+        <p className="approval-state approval-state-rejected" role="status">
+          <XCircle size={18} aria-hidden />
+          Rejected · nothing was ordered{logged}
+        </p>
+      )
+    case 'EXPIRED':
+      return (
+        <p className="approval-state approval-state-void" role="status">
+          <Clock size={18} aria-hidden />
+          Expired · the offer ran out before sign-off and must be re-quoted. It can no longer be
+          approved.
+        </p>
+      )
+    case 'SUPERSEDED':
+      return (
+        <p className="approval-state approval-state-void" role="status">
+          <AlertTriangle size={18} aria-hidden />
+          Superseded · something changed at the re-check, so this version and any approval of it are
+          void. The new version
+          {proposal.supersededBy ? ` (${proposal.supersededBy})` : ''} was decided from scratch.
+        </p>
+      )
+    default:
+      return null
+  }
+}
+
+/** The exact proposal version the human is asked to sign off, with one Approve and one Reject. */
+export function ApprovalCard({ item, mandate }: { item: ApproverItem; mandate?: Mandate }) {
+  const { proposal } = item
+  const queryClient = useQueryClient()
+  const [comment, setComment] = useState('')
+  const pending = proposal.state === 'PENDING_APPROVAL'
+  // The approval capability (demo token) is fetched on the approver channel only, for this version.
+  const view = useQuery({
+    queryKey: ['approver-view', proposal.proposalId],
+    queryFn: () => approverChannel.view(proposal.proposalId),
+    enabled: pending,
+    staleTime: Infinity,
+  })
+  const decide = useMutation({
+    mutationFn: (action: 'APPROVE' | 'REJECT') =>
+      approverChannel.decide({
+        proposalId: proposal.proposalId,
+        offerVersion: proposal.offerVersion,
+        approvalToken: view.data!.approvalToken,
+        action,
+        comment: comment.trim() || undefined,
+      }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['approver-proposals'] }),
+  })
+  const decided = decide.data ?? item
+  const reasons = approvalReasons(proposal)
+  const context = contextReasons(proposal)
+  const onlyLimit = reasons.length === 1 && reasons[0] === 'OVER_AUTO_LIMIT'
+  const total = formatMoney(proposal.totals.exclVat)
+  const error = decide.error instanceof GatewayError ? decide.error : undefined
+
+  return (
+    <article className="approval-card" aria-labelledby={`approve-${proposal.proposalId}`}>
+      <header className="approval-card-header">
+        <h2 id={`approve-${proposal.proposalId}`}>
+          {pending
+            ? `You are approving version ${proposal.offerVersion} of this proposal`
+            : `Version ${proposal.offerVersion} of this proposal`}
+        </h2>
+        <p className="muted small">
+          {mandate?.organisationName ?? proposal.customerId} · proposal {proposal.proposalId} ·
+          offer {proposal.offerId} v{proposal.offerVersion} · mandate v{proposal.mandateVersion}
+        </p>
+      </header>
+
+      <section aria-label="Why you are asked" className="approval-why">
+        {reasons.map((code) => (
+          <p key={code} className="approval-reason">
+            <span className="chip">{reasonChip(code)}</span>
+            <span>
+              {plainReason(code, proposal, mandate)}
+              {onlyLimit && ' Everything else is verified or declared.'}
+            </span>
+          </p>
+        ))}
+        {context.map((code) => (
+          <p key={code} className="approval-reason approval-reason-info">
+            <span className="chip">
+              <Info size={13} aria-hidden />
+              {reasonChip(code)}
+            </span>
+            <span>{plainReason(code, proposal, mandate)}</span>
+          </p>
+        ))}
+      </section>
+
+      <div className="table-scroll">
+        <table className="data-table stack-on-mobile">
+          <caption className="visually-hidden">Exact lines you are approving</caption>
+          <thead>
+            <tr>
+              <th scope="col">Product</th>
+              <th scope="col" className="num">
+                Quantity
+              </th>
+              <th scope="col" className="num">
+                Unit price
+              </th>
+              <th scope="col" className="num">
+                Line total
+              </th>
+              <th scope="col">Delivery</th>
+            </tr>
+          </thead>
+          <tbody>
+            {proposal.lines.map((line) => (
+              <tr key={line.lineId}>
+                <th scope="row">
+                  {line.name}
+                  <small className="muted"> · {line.productId}</small>
+                </th>
+                <td className="num" data-label="Quantity">
+                  <span>
+                    {formatNumber(line.quantitySalesUnits)} {line.salesUnitLabel}
+                    <small className="muted block">
+                      = {formatQuantity(line.deliveredQuantity.value, line.deliveredQuantity.unit)}
+                    </small>
+                  </span>
+                </td>
+                <td className="num" data-label="Unit price">
+                  {formatMoney(line.unitPriceExclVat)}
+                </td>
+                <td className="num" data-label="Line total">
+                  {formatMoney(line.lineTotalExclVat)}
+                </td>
+                <td data-label="Delivery">{formatDate(line.deliveryDate)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <dl className="totals">
+        <div>
+          <dt>Total excl. VAT</dt>
+          <dd>{total}</dd>
+        </div>
+        <div>
+          <dt>VAT</dt>
+          <dd>{formatMoney(proposal.totals.vat)}</dd>
+        </div>
+        <div>
+          <dt>Total incl. VAT</dt>
+          <dd>{formatMoney(proposal.totals.inclVat)}</dd>
+        </div>
+      </dl>
+
+      {decided.proposal.state === 'PENDING_APPROVAL' ? (
+        <div className="approval-actions">
+          <label htmlFor={`comment-${proposal.proposalId}`} className="field-label">
+            Comment (optional)
+          </label>
+          <textarea
+            id={`comment-${proposal.proposalId}`}
+            rows={2}
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            placeholder="Stored with your decision in the audit log."
+          />
+          <div className="approval-buttons">
+            <button
+              type="button"
+              className="btn btn-approve"
+              disabled={!view.data || decide.isPending}
+              onClick={() => decide.mutate('APPROVE')}
+            >
+              <CheckCircle2 size={16} aria-hidden />
+              Approve {total}
+            </button>
+            <button
+              type="button"
+              className="btn btn-reject"
+              disabled={!view.data || decide.isPending}
+              onClick={() => decide.mutate('REJECT')}
+            >
+              <Ban size={16} aria-hidden />
+              Reject
+            </button>
+          </div>
+          {decide.isPending && (
+            <p className="muted small" role="status">
+              Approving… the gateway re-checks price and availability before it confirms.
+            </p>
+          )}
+        </div>
+      ) : (
+        <ApprovalState item={decided} />
+      )}
+
+      {error && (
+        <p className="notice notice-error" role="alert">
+          <AlertTriangle size={16} aria-hidden />
+          {error.message}
+        </p>
+      )}
+      {view.error && (
+        <p className="notice notice-error" role="alert">
+          <AlertTriangle size={16} aria-hidden />
+          {view.error.message}
+        </p>
+      )}
+
+      <p className="permission-notice">
+        <KeyRound size={14} aria-hidden />
+        {view.data?.permissionNotice ?? 'Demo approval link — single use'}
+        {decided.proposal.state === 'PENDING_APPROVAL'
+          ? view.data && ` · valid until ${formatClock(view.data.expiresAt)}`
+          : ' · no longer valid'}
+      </p>
+    </article>
+  )
+}

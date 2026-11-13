@@ -16,7 +16,21 @@ import { logPath } from '../components/log/logData'
 function approvalStatus(proposal: Proposal): StepStatus {
   if (proposal.decision === 'BLOCK') return 'blocked'
   if (proposal.state === 'CONFIRMED_SIMULATED') return 'done'
+  if (['REJECTED', 'EXPIRED', 'SUPERSEDED'].includes(proposal.state)) return 'blocked'
   return 'waiting'
+}
+
+const STATE_WORD: Partial<Record<Proposal['state'], string>> = {
+  REJECTED: 'Rejected',
+  EXPIRED: 'Expired',
+  SUPERSEDED: 'Superseded',
+}
+
+function approvalWord(proposal: Proposal): string {
+  if (proposal.decision === 'ASK' && proposal.state === 'CONFIRMED_SIMULATED') return 'Approved'
+  return (
+    STATE_WORD[proposal.state] ?? { AUTO: 'Auto', ASK: 'Ask', BLOCK: 'Block' }[proposal.decision]
+  )
 }
 
 function itemCount(proposal: Proposal) {
@@ -38,7 +52,15 @@ export function Main() {
   }, [customerId, mandates.data])
 
   const mandate = mandates.data?.find((m) => m.customerId === customerId)
-  const proposal = run.data?.proposal
+  // Follow the proposal's state on the agent channel: the approver decides in a separate window.
+  const latest = useQuery({
+    queryKey: ['proposal', run.data?.proposal.proposalId],
+    queryFn: () => gateway.getProposal(run.data!.proposal.proposalId),
+    enabled: Boolean(run.data),
+    refetchInterval: (query) =>
+      (query.state.data ?? run.data?.proposal)?.state === 'PENDING_APPROVAL' ? 1500 : false,
+  })
+  const proposal = latest.data ?? run.data?.proposal
   const running = run.isPending
 
   function selectMandate(id: string) {
@@ -119,9 +141,7 @@ export function Main() {
             number={4}
             title="Approval"
             status={proposal ? approvalStatus(proposal) : running ? 'running' : 'idle'}
-            statusWord={
-              proposal ? { AUTO: 'Auto', ASK: 'Ask', BLOCK: 'Block' }[proposal.decision] : undefined
-            }
+            statusWord={proposal ? approvalWord(proposal) : undefined}
             current={Boolean(proposal)}
             summary={proposal ? approvalLabel(proposal) : 'Agent decides, or a human signs off'}
           >
