@@ -1,0 +1,211 @@
+{
+ "entries": [
+  {
+   "entryId": "MOCK-P-A-E1",
+   "customerId": "mock-hotels",
+   "proposalId": "MOCK-P-A",
+   "offerId": null,
+   "offerVersion": null,
+   "offerHash": null,
+   "mandateVersion": 1,
+   "timestamp": "2026-11-13T21:49:57+02:00",
+   "actor": "agent",
+   "event": "REQUEST_STRUCTURED",
+   "fromState": null,
+   "toState": null,
+   "reasons": [],
+   "rule": null,
+   "facts": [],
+   "summary": "Request structured: 1,000 l lactose-free milk drink, delivered by Mon 16 Nov.",
+   "comment": null
+  },
+  {
+   "entryId": "MOCK-P-A-E2",
+   "customerId": "mock-hotels",
+   "proposalId": "MOCK-P-A",
+   "offerId": "MOCK-O-A",
+   "offerVersion": 1,
+   "offerHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "mandateVersion": 1,
+   "timestamp": "2026-11-13T21:50:00+02:00",
+   "actor": "gateway",
+   "event": "OFFER_CREATED",
+   "fromState": null,
+   "toState": "OFFERED",
+   "reasons": [],
+   "rule": null,
+   "facts": [
+    {
+     "fact": "price.unit",
+     "value": "1.01",
+     "display": "€1.01 / sales unit excl. VAT · customer price",
+     "level": "VERIFIED",
+     "source": {
+      "system": "valio-aimo.price-api",
+      "field": "catalogPrice.value",
+      "retrievedAt": "2026-11-13T21:49:58+02:00"
+     },
+     "method": null,
+     "conflict": null
+    },
+    {
+     "fact": "stock.quantity",
+     "value": "9999999999",
+     "display": "Plenty in stock",
+     "level": "VERIFIED",
+     "source": {
+      "system": "valio-aimo.availability-api",
+      "field": "scheduleLines[0].availableAmount",
+      "retrievedAt": "2026-11-13T21:49:58+02:00"
+     },
+     "method": null,
+     "conflict": null
+    },
+    {
+     "fact": "delivery.date",
+     "value": "2026-11-16",
+     "display": "Mon 16 Nov · order by Sun 15 Nov 17:00",
+     "level": "VERIFIED",
+     "source": {
+      "system": "valio-aimo.availability-api",
+      "field": "scheduleLines[0].availableDate, closingTime",
+      "retrievedAt": "2026-11-13T21:49:58+02:00"
+     },
+     "method": null,
+     "conflict": null
+    },
+    {
+     "fact": "claim.FREE_FROM_LACTOSE",
+     "value": true,
+     "display": "Lactose-free",
+     "level": "DECLARED",
+     "source": {
+      "system": "valio-aimo.product-data",
+      "field": "synkkaData.classifications[nutritionalClaim]",
+      "retrievedAt": null
+     },
+     "method": null,
+     "conflict": null
+    }
+   ],
+   "summary": "Offer v1 at a fixed price: 1,000 × €1.01 = €1,010.00 excl. VAT, valid until 22:05.",
+   "comment": null
+  },
+  {
+   "entryId": "MOCK-P-A-E3",
+   "customerId": "mock-hotels",
+   "proposalId": "MOCK-P-A",
+   "offerId": "MOCK-O-A",
+   "offerVersion": 1,
+   "offerHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "mandateVersion": 1,
+   "timestamp": "2026-11-13T21:50:00+02:00",
+   "actor": "agent",
+   "event": "PROPOSAL_CREATED",
+   "fromState": "OFFERED",
+   "toState": "PROPOSED",
+   "reasons": [],
+   "rule": null,
+   "facts": [],
+   "summary": "The agent proposed offer v1 for this request.",
+   "comment": null
+  },
+  {
+   "entryId": "MOCK-P-A-E4",
+   "customerId": "mock-hotels",
+   "proposalId": "MOCK-P-A",
+   "offerId": "MOCK-O-A",
+   "offerVersion": 1,
+   "offerHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "mandateVersion": 1,
+   "timestamp": "2026-11-13T21:50:00+02:00",
+   "actor": "gateway:policy",
+   "event": "DECIDED",
+   "fromState": "PROPOSED",
+   "toState": "AUTO_APPROVED",
+   "reasons": [],
+   "rule": "§6.6",
+   "facts": [],
+   "summary": "Every fact is verified or declared and €1,010.00 is within the €1,500.00 auto-approve limit, so the agent may decide alone.",
+   "comment": null
+  },
+  {
+   "entryId": "MOCK-P-A-E5",
+   "customerId": "mock-hotels",
+   "proposalId": "MOCK-P-A",
+   "offerId": "MOCK-O-A",
+   "offerVersion": 1,
+   "offerHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "mandateVersion": 1,
+   "timestamp": "2026-11-13T21:50:01+02:00",
+   "actor": "gateway",
+   "event": "RECHECKED",
+   "fromState": "AUTO_APPROVED",
+   "toState": "RECHECKED",
+   "reasons": [],
+   "rule": "P1.3 step 5",
+   "facts": [
+    {
+     "fact": "price.unit",
+     "value": "1.01",
+     "display": "€1.01 / sales unit excl. VAT · customer price",
+     "level": "VERIFIED",
+     "source": {
+      "system": "valio-aimo.price-api",
+      "field": "catalogPrice.value",
+      "retrievedAt": "2026-11-13T21:49:58+02:00"
+     },
+     "method": null,
+     "conflict": null
+    },
+    {
+     "fact": "stock.quantity",
+     "value": "9999999999",
+     "display": "Plenty in stock",
+     "level": "VERIFIED",
+     "source": {
+      "system": "valio-aimo.availability-api",
+      "field": "scheduleLines[0].availableAmount",
+      "retrievedAt": "2026-11-13T21:49:58+02:00"
+     },
+     "method": null,
+     "conflict": null
+    },
+    {
+     "fact": "delivery.date",
+     "value": "2026-11-16",
+     "display": "Mon 16 Nov · order by Sun 15 Nov 17:00",
+     "level": "VERIFIED",
+     "source": {
+      "system": "valio-aimo.availability-api",
+      "field": "scheduleLines[0].availableDate, closingTime",
+      "retrievedAt": "2026-11-13T21:49:58+02:00"
+     },
+     "method": null,
+     "conflict": null
+    }
+   ],
+   "summary": "Re-checked live before confirming: price, stock, delivery date and cut-off unchanged.",
+   "comment": null
+  },
+  {
+   "entryId": "MOCK-P-A-E6",
+   "customerId": "mock-hotels",
+   "proposalId": "MOCK-P-A",
+   "offerId": "MOCK-O-A",
+   "offerVersion": 1,
+   "offerHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "mandateVersion": 1,
+   "timestamp": "2026-11-13T21:50:01+02:00",
+   "actor": "gateway",
+   "event": "CONFIRMED_SIMULATED",
+   "fromState": "RECHECKED",
+   "toState": "CONFIRMED_SIMULATED",
+   "reasons": [],
+   "rule": null,
+   "facts": [],
+   "summary": "Confirmed (simulated). Simulated order — mock environment; nothing was sent to Valio.",
+   "comment": null
+  }
+ ]
+}

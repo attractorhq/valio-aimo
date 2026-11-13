@@ -2,6 +2,12 @@ import { ExternalLink, ShieldCheck, UserRoundCheck } from 'lucide-react'
 import { Link, Route, Routes, useLocation } from 'react-router-dom'
 import { Main } from './pages/Main'
 import { Approver } from './pages/Approver'
+import { Log } from './pages/Log'
+import { proposalIdFromPath } from './components/log/logData'
+
+function LogRoute() {
+  return <Log proposalId={proposalIdFromPath(useLocation().pathname)} />
+}
 
 export default function App() {
   const approver = useLocation().pathname.startsWith('/approver')
@@ -41,6 +47,8 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Main />} />
           <Route path="/approver" element={<Approver />} />
+          <Route path="/log" element={<LogRoute />} />
+          <Route path="/log/:proposalId" element={<LogRoute />} />
           <Route
             path="*"
             element={

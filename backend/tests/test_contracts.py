@@ -48,6 +48,8 @@ def assert_schema(model, value):
 @pytest.mark.parametrize(("filename", "model"), [
     ("scenario-a.json", Proposal), ("scenario-b.json", Proposal), ("scenario-c.json", Proposal),
     ("mandate-m1.json", Mandate), ("mandate-m2.json", Mandate),
+    ("audit-a.json", AuditTrail), ("audit-b.json", AuditTrail), ("audit-c.json", AuditTrail),
+    ("audit-b-recheck.json", AuditTrail),
 ])
 def test_synthetic_mocks_validate_and_round_trip(filename, model):
     example = mock(filename)
