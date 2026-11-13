@@ -121,7 +121,7 @@ def context(actor: Identity, db: DB, provider: Provider):
         "supplier_data_synthetic": True,
         "units": sorted(set(db.scalars(select(Product.data["unit"].as_string()).distinct()))),
         "simulated_orders": True,
-        "ai_configured": bool(get_settings().deepseek_api_key),
+        "ai_configured": bool(get_settings().openrouter_api_key),
         "identity": {"id": actor.id, "role": actor.role, "buyer_id": actor.buyer_id},
     }
 

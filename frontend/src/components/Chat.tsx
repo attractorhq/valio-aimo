@@ -42,7 +42,7 @@ export function Chat({
           <Sparkles size={17} />
           <h3>Your purchasing copilot</h3>
         </div>
-        <span className="mini-label">{aiConfigured ? 'DEEPSEEK · TOOL USE' : 'GUIDED MODE'}</span>
+        <span className="mini-label">{aiConfigured ? 'OPENROUTER · TOOL USE' : 'GUIDED MODE'}</span>
       </div>
       <p>Describe what your kitchen needs. Every decision still goes through the gateway.</p>
       <form onSubmit={send} className="chat-input">

@@ -12,8 +12,8 @@ class Settings(BaseSettings):
     valio_customer_id: str = "junction-demo"
     valio_customer_ids: dict[str, str] = {}
     valio_timeout_seconds: float = 20
-    deepseek_api_key: str = ""
-    deepseek_model: str = "deepseek-flash"
+    openrouter_api_key: str = ""
+    llm_model: str = "z-ai/glm-5.3-flash"
     frontend_origins: str = "http://localhost:5173"
 
 

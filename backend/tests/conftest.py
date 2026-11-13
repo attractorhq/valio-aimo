@@ -33,7 +33,7 @@ def context(monkeypatch):
 
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[get_provider] = lambda: provider
-    settings = get_settings().model_copy(update={"deepseek_api_key": "", "mock_mode": True})
+    settings = get_settings().model_copy(update={"openrouter_api_key": "", "mock_mode": True})
     monkeypatch.setattr("app.main.get_settings", lambda: settings)
     # Runner reads the settings accessor directly; fixture patches it in tests that need it.
     client = TestClient(app)

@@ -9,8 +9,8 @@ services:
       MOCK_MODE: ${MOCK_MODE:-true}
       DATABASE_URL: sqlite:////data/gateway.db
       FRONTEND_ORIGINS: ${FRONTEND_ORIGINS:-http://localhost:5173}
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
-      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-flash}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-z-ai/glm-5.3-flash}
       VALIO_API_KEY: ${VALIO_API_KEY:-}
       VALIO_BASE_URL: ${VALIO_BASE_URL:-https://junction26.valioaimo.fi}
       VALIO_CUSTOMER_ID: ${VALIO_CUSTOMER_ID:-junction-demo}

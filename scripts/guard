@@ -20,7 +20,7 @@ fi
 # Pattern of the Valio Aimo challenge key, plus the literal values from .env if present.
 patterns=('junct_[A-Za-z0-9_-]{20,}' 'sk-or-v1-[A-Za-z0-9]{20,}' 'sk-ant-[A-Za-z0-9_-]{20,}' 'sk-[A-Za-z0-9]{32,}')
 if [ -f .env ]; then
-  for var in VALIO_API_KEY VALIO_PORTAL_PASSWORD OPENROUTER_API_KEY ANTHROPIC_API_KEY DEEPSEEK_API_KEY APPROVAL_SIGNING_KEY; do
+  for var in VALIO_API_KEY VALIO_PORTAL_PASSWORD OPENROUTER_API_KEY ANTHROPIC_API_KEY APPROVAL_SIGNING_KEY; do
     val=$(grep -E "^${var}=" .env | head -1 | cut -d= -f2- | tr -d '"' || true)
     [ -n "$val" ] && [ "${#val}" -ge 8 ] && patterns+=("$(printf '%s' "$val" | sed 's/[][\.*^$/]/\\&/g')")
   done

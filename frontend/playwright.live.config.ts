@@ -22,7 +22,7 @@ export default defineConfig({
       env: {
         DATABASE_URL: `sqlite:///${path.join(directory, 'browser.db')}`,
         MOCK_MODE: 'false',
-        DEEPSEEK_API_KEY: '',
+        OPENROUTER_API_KEY: '',
         FRONTEND_ORIGINS: 'http://localhost:5174',
       },
     },

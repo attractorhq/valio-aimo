@@ -69,7 +69,7 @@ uvicorn app.main:app --reload --port 8000
 
 The downloader uses documented `/api/*/download` routes and skips existing files unless `--refresh` is supplied. It makes no whole-catalog price or availability queries. `product-schema.json` downloaded from the portal is optional; if present, the importer validates the original document against it. The actual Valio format and CSV columns are detected automatically; **no manual mapping is needed for the supplied files**. Import takes approximately 30–40 seconds on a typical development machine.
 
-Restart the backend after changing `.env`. Start the frontend normally and refresh. Its badge should read **LIVE CHALLENGE API**. The built-in AI remains optional and separately requires `DEEPSEEK_API_KEY`.
+Restart the backend after changing `.env`. Start the frontend normally and refresh. Its badge should read **LIVE CHALLENGE API**. The built-in AI remains optional and separately requires `OPENROUTER_API_KEY`.
 
 ### A verified live demo request
 
@@ -158,13 +158,13 @@ Money is decimal strings in **EUR**, calculated with Python `Decimal`. Fixture p
 - Audit includes request, checked offers, policy snapshot/version, decision codes, reviewer action and simulated outcome. No credentials or hidden model reasoning are logged.
 - Errors: **400** invalid request/units, **401** missing demo identity, **403** role/tenant failure, **404** missing record, **409** state/terms conflict, **502** unverified or failing upstream integration.
 
-## Optional DeepSeek assistant
+## Optional OpenRouter assistant
 
-Set backend `DEEPSEEK_API_KEY` and optionally `DEEPSEEK_MODEL` (default `deepseek-flash`). Uses the Python `openai` SDK with `base_url=https://api.deepseek.com`, non-thinking tool mode, timeout 20 seconds per call, no automatic retries, maximum six model calls and twenty tool executions. The tool allowlist is:
+Set backend `OPENROUTER_API_KEY` and optionally `LLM_MODEL` (default `z-ai/glm-5.3-flash`). Uses the Python `openai` SDK with `base_url=https://openrouter.ai/api/v1`, non-thinking tool mode, timeout 20 seconds per call, no automatic retries, maximum six model calls and twenty tool executions. The tool allowlist is:
 
 `search_products`, `get_product_details`, `check_offer`, `create_order_proposal`, `get_proposal_status`.
 
-Every tool's arguments are Pydantic validated; there is no arbitrary SQL/URL tool, approval tool or purchase tool. At most one proposal is created per chat request. The assistant is stateless across messages in this first version; include a complete request each time. Explanations are model-generated, while persisted proposal status and totals remain authoritative. If the model name is unavailable, credentials are missing, or the provider fails, the UI falls back to the **same deterministic guided API flow**. No live DeepSeek call is required for the demo.
+Every tool's arguments are Pydantic validated; there is no arbitrary SQL/URL tool, approval tool or purchase tool. At most one proposal is created per chat request. The assistant is stateless across messages in this first version; include a complete request each time. Explanations are model-generated, while persisted proposal status and totals remain authoritative. If the model name is unavailable, credentials are missing, or the provider fails, the UI falls back to the **same deterministic guided API flow**. No live OpenRouter call is required for the demo.
 
 ## Import supplied data
 
