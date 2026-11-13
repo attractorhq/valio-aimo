@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type { Proposal } from '../lib/contracts'
 import { gateway, SCENARIOS, type FlowResult, type ScenarioId } from '../lib/gateway'
-import { formatMoney } from '../lib/format'
+import { formatMoney, reasonChip } from '../lib/format'
 import { MandatePanel } from '../components/flow/MandatePanel'
 import { RequestComposer } from '../components/flow/RequestComposer'
 import { ModeBadge } from '../components/flow/ModeBadge'
-import { Step, type StepStatus } from '../components/flow/Step'
+import { StatusPill, Step, type StepStatus } from '../components/flow/Step'
 import { RequestCard, approvalLabel } from '../components/flow/StepContent'
 import { DecisionFooter } from '../components/order/DecisionFooter'
 import { ExcludedList } from '../components/order/ExcludedList'
@@ -105,7 +105,26 @@ export function Main() {
           error={run.error?.message}
         />
         <div className="flow-header">
-          <h2 className="panel-title">Flow</h2>
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="panel-title">Flow</h2>
+            {proposal && (
+              <div
+                className="flex flex-wrap items-center gap-2 text-xs"
+                aria-label="Decision summary"
+              >
+                <StatusPill status={approvalStatus(proposal)} word={approvalWord(proposal)} />
+                <strong>{approvalLabel(proposal)}</strong>
+                {proposal.reasons.map((code) => (
+                  <span key={code} className="chip">
+                    {reasonChip(code)}
+                  </span>
+                ))}
+                <a href="#step-4" className="font-semibold text-[var(--green)] underline">
+                  Jump to step 4
+                </a>
+              </div>
+            )}
+          </div>
           <ModeBadge source={gateway.source} proposal={proposal} />
         </div>
         <ol className="steps" aria-label="Purchasing flow">
@@ -151,7 +170,7 @@ export function Main() {
         {proposal && (
           <p>
             <a
-              href={logPath(proposal.proposalId)}
+              href={logPath(proposal.proposalId.replace(/^(MOCK-P-[ABC])-[0-9a-f]{8}$/, '$1'))}
               className="font-semibold text-[var(--green)] underline"
             >
               Open the decision log for this proposal

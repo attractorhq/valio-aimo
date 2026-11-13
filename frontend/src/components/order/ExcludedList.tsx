@@ -1,6 +1,6 @@
 import { Ban, ShieldAlert } from 'lucide-react'
-import type { ExcludedProduct, Proposal, ReasonCode, RequestItem } from '../../lib/contracts'
-import { formatDate, reasonChip, reasonText, requirementLabel } from '../../lib/format'
+import type { Proposal, ReasonCode, RequestItem } from '../../lib/contracts'
+import { reasonChip, requirementLabel } from '../../lib/format'
 import { TrustBadge, TrustSourceMeta, formatFactDisplay } from '../trust/TrustBadge'
 
 function formatExcludedReasonChip(code: ReasonCode, item?: RequestItem): string {
@@ -11,33 +11,6 @@ function formatExcludedReasonChip(code: ReasonCode, item?: RequestItem): string 
     }
   }
   return reasonChip(code)
-}
-
-function formatExcludedReasonExplanation(
-  code: ReasonCode,
-  excluded: ExcludedProduct,
-  proposal: Proposal,
-  item?: RequestItem,
-): string {
-  const claimReq = item?.requirements?.find((r) => r.kind === 'CLAIM')
-  const reqText = claimReq
-    ? requirementLabel(claimReq).toLowerCase()
-    : item?.requirements?.[0]
-      ? requirementLabel(item.requirements[0]).toLowerCase()
-      : 'hard requirement'
-  const cutoffFact = excluded.facts?.find((f) => f.fact === 'delivery.cutoff')
-  const dateFact = excluded.facts?.find((f) => f.fact === 'delivery.date')
-  const params: Record<string, string> = {
-    claim: reqText,
-    requirement: reqText,
-    product: `${excluded.productId} (${excluded.name})`,
-    original: excluded.substituteFor ?? 'requested product',
-    closingTime: cutoffFact?.display ?? 'already elapsed',
-    availableDate: dateFact?.display ?? formatDate(proposal.requestedDate),
-    detail: 'Conflicting allergen and nutritional claim declarations from the supplier.',
-  }
-  const rendered = reasonText(code, params)
-  return /\{\w+\}/.test(rendered) ? formatExcludedReasonChip(code, item) : rendered
 }
 
 /**
@@ -71,15 +44,15 @@ export function ExcludedList({ proposal }: { proposal: Proposal }) {
 
       {excluded.length > 0 && (
         <section
-          className="rounded-xl border border-[var(--line)] bg-[var(--bg)] p-3.5"
+          className="rounded-xl border border-[var(--line)] bg-[var(--bg)] px-2.5 py-2"
           aria-label="Excluded candidates"
         >
-          <header className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
+          <header className="mb-1 flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-xs font-bold tracking-wider text-[var(--muted)] uppercase">
               Excluded ({excluded.length}) · rejected by hard rules, never offered for approval
             </h3>
           </header>
-          <ul className="grid gap-2.5">
+          <ul className="flex flex-wrap gap-1.5">
             {excluded.map((entry) => {
               const item = entry.itemId ? itemsById.get(entry.itemId) : undefined
               const isValioSub =
@@ -91,35 +64,17 @@ export function ExcludedList({ proposal }: { proposal: Proposal }) {
               return (
                 <li
                   key={`${entry.productId}-${entry.itemId ?? 'all'}`}
-                  className={`rounded-lg border p-3 text-sm ${
+                  className={`rounded-lg border px-2 py-1 text-xs ${
                     isValioSub
-                      ? 'border-[var(--block)] bg-[var(--block-bg)]'
-                      : 'border-[var(--line)] bg-[var(--surface)]'
+                      ? 'w-full border-[var(--block)] bg-[var(--block-bg)]'
+                      : 'inline-flex flex-wrap items-center gap-1.5 border-[var(--line)] bg-[var(--surface)]'
                   }`}
                 >
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div>
-                      <div className="font-semibold text-[var(--ink)]">
-                        {entry.name}{' '}
-                        <span className="font-normal text-[var(--muted)]">
-                          · {entry.productId}
-                        </span>
-                        {item && (
-                          <span className="ml-1.5 text-xs font-normal text-[var(--muted)]">
-                            (for {item.what})
-                          </span>
-                        )}
-                      </div>
-                      {isValioSub && (
-                        <p className="mt-1 flex items-center gap-1.5 text-xs font-bold text-[var(--block)]">
-                          <ShieldAlert size={14} aria-hidden />
-                          <span>
-                            Valio Aimo lists {entry.productId} ({entry.name}) as the substitute for{' '}
-                            {entry.substituteFor ?? 'this line'}. It fails &lsquo;{reqNames}&rsquo;
-                            for this buyer, so the agent will never swap to it.
-                          </span>
-                        </p>
-                      )}
+                  <div className="flex flex-wrap items-center justify-between gap-1.5">
+                    <div className="min-w-0">
+                      <span className="font-semibold text-[var(--ink)]">{entry.name}</span>{' '}
+                      <span className="text-[var(--muted)]">· {entry.productId}</span>
+                      {item && <span className="ml-1 text-[var(--muted)]">({item.what})</span>}
                     </div>
                     <ul
                       className="chip-list"
@@ -130,19 +85,24 @@ export function ExcludedList({ proposal }: { proposal: Proposal }) {
                           key={code}
                           className="chip border-[var(--block)] bg-[var(--surface)] text-[var(--block)]"
                         >
-                          <Ban size={12} aria-hidden />
+                          <Ban size={11} aria-hidden />
                           <span>{formatExcludedReasonChip(code, item)}</span>
                         </li>
                       ))}
                     </ul>
                   </div>
-                  <p className="mt-1.5 text-xs text-[var(--muted)]">
-                    {entry.reasons
-                      .map((code) => formatExcludedReasonExplanation(code, entry, proposal, item))
-                      .join(' · ')}
-                  </p>
+                  {isValioSub && (
+                    <p className="mt-0.5 flex items-center gap-1.5 font-bold text-[var(--block)]">
+                      <ShieldAlert size={13} aria-hidden />
+                      <span>
+                        Valio Aimo lists {entry.productId} ({entry.name}) as the substitute for{' '}
+                        {entry.substituteFor ?? 'this line'}. It fails &lsquo;{reqNames}&rsquo; for
+                        this buyer, so the agent will never swap to it.
+                      </span>
+                    </p>
+                  )}
                   {entry.facts && entry.facts.length > 0 && (
-                    <ul className="mt-2 grid gap-1 border-t border-[var(--line)] pt-2">
+                    <ul className="mt-1 grid gap-1 border-t border-[var(--line)] pt-1">
                       {entry.facts.map((fact, idx) => (
                         <li
                           key={`${fact.fact}-${idx}`}
