@@ -12,6 +12,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import GatewayState, GatewayUnavailable, agent_router, approver_router, register_error_handlers
+from app.api.mandate_routes import router as mandate_router
 from app.api.state import try_state
 from app.config import get_settings
 from app.contracts import VERSION
@@ -23,6 +24,9 @@ TAGS = [
     {"name": "Approver channel",
      "description": "The named human's sign-off on one exact proposal version (single-use demo link). "
                     "Never exposed as an agent or MCP tool."},
+    {"name": "Buyer admin",
+     "description": "A human buyer admin changes the mandate (limits, allergen mode). Each change bumps the "
+                    "mandate version, is audited, and re-decides open proposals live. Never an agent tool."},
     {"name": "Operations", "description": "Health and service metadata."},
 ]
 
@@ -46,6 +50,7 @@ app.add_middleware(
 register_error_handlers(app)
 app.include_router(agent_router)
 app.include_router(approver_router)
+app.include_router(mandate_router)
 
 
 @app.get("/health", tags=["Operations"], operation_id="health")
