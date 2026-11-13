@@ -5,7 +5,9 @@ Do not infer product facts or sizes from names, comparison prices or gross packa
 
 from decimal import Decimal
 
+from app.catalog.normalise import normalise_product
 from app.schemas import ProductOut
+from app.trust.labels import EU14_ALLERGEN_CODES
 
 # GS1 allergen identifiers present in Synkka classifications. Keep original codes as well.
 # Verified against the dataset (13 Nov): ML = lactose (milk chocolate, cheese), UM = molluscs
@@ -31,8 +33,17 @@ ALLERGENS = {
     "GB": "barley",
     "GO": "oats",
     "GS": "spelt",
+    "GK": "kamut",
+    "SA": "almonds",
+    "SH": "hazelnuts",
+    "SC": "cashews",
+    "SP": "pecans",
+    "SR": "brazil nuts",
+    "ST": "pistachios",
+    "SW": "walnuts",
+    "SM": "macadamia nuts",
 }
-GLUTEN_CEREALS = {"wheat", "rye", "barley", "oats", "spelt"}
+NON_OAT_GLUTEN_CEREALS = {"wheat", "rye", "barley", "spelt", "kamut"}
 
 
 def normalize_product(record: dict) -> ProductOut:
@@ -56,14 +67,30 @@ def normalize_product(record: dict) -> ProductOut:
     if "LOW_LACTOSE" in claims and "FREE_FROM_LACTOSE" not in claims:
         dietary["lactose_free"] = False
 
-    positive = [a["id"] for a in groups.get("allergen", []) if a.get("unit") == "CONTAINS"]
+    positive = [
+        a["id"]
+        for a in groups.get("allergen", [])
+        if a.get("unit") == "CONTAINS" and a.get("id") != "X99"
+    ]
     free_codes = [a["id"] for a in groups.get("nonAllergen", []) if a.get("unit") == "FREE_FROM"]
+    has_x99 = any(
+        a.get("id") == "X99" and a.get("unit") != "UNDECLARED"
+        for a in (*groups.get("allergen", []), *groups.get("nonAllergen", []))
+    )
+    if has_x99:
+        # Patch P4: X99 proves free-from ONLY for the EU-14 allergen codes and subcodes.
+        free_codes.extend(c for c in EU14_ALLERGEN_CODES if c not in positive)
+
     # A partial list of positives never establishes absence of a different allergen.
     allergens = [ALLERGENS.get(c, f"gs1:{c}") for c in positive]
-    if GLUTEN_CEREALS.intersection(allergens):
-        allergens.append("gluten")
-    free = [ALLERGENS.get(c, f"gs1:{c}") for c in free_codes]
-    if dietary.get("gluten_free"):
+    # §6.3: GO (oats) CONTAINS + FREE_FROM_GLUTEN is allowed gluten-free oats, not gluten.
+    if NON_OAT_GLUTEN_CEREALS.intersection(allergens) or (
+        "oats" in allergens and not dietary.get("gluten_free")
+    ):
+        if "gluten" not in allergens:
+            allergens.append("gluten")
+    free = [ALLERGENS.get(c, f"gs1:{c}") for c in free_codes if c != "X99"]
+    if dietary.get("gluten_free") and "AW" not in positive:
         free.append("gluten")
 
     # Default to exact supplier unit. Normalize physical quantity only with explicit base-level facts.
@@ -102,7 +129,7 @@ def normalize_product(record: dict) -> ProductOut:
         sales_unit=sales_unit,
         quantity_per_sales_unit=factor,
         dietary=dietary,
-        allergens=allergens if positive or free_codes else None,
+        allergens=allergens if positive or free_codes or has_x99 else None,
         free_from_allergens=sorted(set(free)),
         allergen_codes=positive,
         nutrition={"declaration": synkka["nutritionalContent"]} if synkka.get("nutritionalContent") else None,
@@ -113,3 +140,6 @@ def normalize_product(record: dict) -> ProductOut:
         variable_weight=synkka.get("variableUnit"),
         source="Valio Junction supplied catalog (synthetic challenge data)",
     )
+
+
+__all__ = ["ALLERGENS", "NON_OAT_GLUTEN_CEREALS", "normalise_product", "normalize_product"]
