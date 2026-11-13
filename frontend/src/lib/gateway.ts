@@ -47,7 +47,8 @@ export type DecideInput = {
 /** Approver channel. Never used by the agent view. */
 export interface ApproverChannel {
   listProposals(customerId: string): Promise<ApproverItem[]>
-  view(proposalId: string): Promise<ApproverView>
+  view(proposalId: string): Promise<ApproverView & { loggedAt?: string }>
+  viewByToken(approvalToken: string): Promise<ApproverView & { loggedAt?: string }>
   decide(input: DecideInput): Promise<ApproverItem>
 }
 
@@ -197,7 +198,10 @@ export const mockGateway: Gateway = {
     const store = load()
     store[proposal.proposalId] = {
       proposal,
-      approvalToken: proposal.state === 'PENDING_APPROVAL' ? randomId() : undefined,
+      approvalToken:
+        proposal.state === 'PENDING_APPROVAL'
+          ? `tk-${match.id}-${proposal.proposalId}-${randomId().slice(0, 8)}`
+          : undefined,
       tokenUsed: false,
     }
     save(store)
@@ -223,12 +227,63 @@ export const mockApproverChannel: ApproverChannel = {
     if (!mandate || !record.approvalToken) {
       throw new GatewayError('NOT_PENDING', 'This proposal never needed an approval.')
     }
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
+    const approvalUrl = `${origin}/approve/${encodeURIComponent(record.approvalToken)}`
     return {
       proposal: record.proposal,
       approver: mandate.approver,
       approvalToken: record.approvalToken,
+      approvalUrl,
+      qrPayload: approvalUrl,
       expiresAt: record.proposal.validUntil,
       permissionNotice: 'Demo approval link — single use',
+      loggedAt: record.loggedAt,
+    }
+  },
+  async viewByToken(approvalToken) {
+    const store = load()
+    let foundId = Object.keys(store).find((id) => store[id]?.approvalToken === approvalToken)
+    if (!foundId) {
+      // Cross-device fallback for a real phone on mobile data scanning a demo QR token in mock mode:
+      const m = approvalToken.match(/^tk-([ABC])-(MOCK-P-[ABC]-[0-9a-f]{8})-.+$/)
+      if (m) {
+        const scenarioId = m[1] as ScenarioId
+        const proposalId = m[2]
+        const base = MOCK_PROPOSALS[scenarioId]
+        const now = Date.now()
+        store[proposalId] = {
+          proposal: {
+            ...base,
+            proposalId,
+            createdAt: new Date(now).toISOString(),
+            validUntil: new Date(now + OFFER_VALIDITY_MS).toISOString(),
+          },
+          approvalToken,
+          tokenUsed: false,
+        }
+        save(store)
+        foundId = proposalId
+      }
+    }
+    if (!foundId) {
+      throw new GatewayError('TOKEN_INVALID', 'This approval link is not valid for any proposal.')
+    }
+    const record = current(store, foundId)
+    const mandate = MOCK_MANDATES.find((m) => m.customerId === record.proposal.customerId)
+    if (!mandate || !record.approvalToken) {
+      throw new GatewayError('NOT_PENDING', 'This proposal never needed an approval.')
+    }
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
+    const approvalUrl = `${origin}/approve/${encodeURIComponent(record.approvalToken)}`
+    return {
+      proposal: record.proposal,
+      approver: mandate.approver,
+      approvalToken: record.approvalToken,
+      approvalUrl,
+      qrPayload: approvalUrl,
+      expiresAt: record.proposal.validUntil,
+      permissionNotice: 'Demo approval link — single use',
+      loggedAt: record.loggedAt,
     }
   },
   async decide({ proposalId, offerVersion, approvalToken, action }) {
