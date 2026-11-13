@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Raw event data stays private in ignored data/fixtures/; never commit captures.
+set -euo pipefail
+root="$(git rev-parse --show-toplevel)"
+cd "$root"
+PY="${PYTHON:-.venv/bin/python}"
+export PYTHONPATH="$root/backend${PYTHONPATH:+:$PYTHONPATH}"
+exec "$PY" -m app.valio.record "$@"
