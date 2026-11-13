@@ -1,5 +1,15 @@
 import { ShieldCheck } from 'lucide-react'
 import { Main } from './pages/Main'
+import { Log } from './pages/Log'
+import { LOG_ROOT, proposalIdFromPath } from './components/log/logData'
+
+function Page() {
+  const path = window.location.pathname
+  if (path === LOG_ROOT || path.startsWith(`${LOG_ROOT}/`)) {
+    return <Log proposalId={proposalIdFromPath(path)} />
+  }
+  return <Main />
+}
 
 export default function App() {
   return (
@@ -20,7 +30,7 @@ export default function App() {
         </p>
       </header>
       <main id="main">
-        <Main />
+        <Page />
       </main>
       <footer className="app-footer">
         <span>Simulated orders only — mock environment.</span>

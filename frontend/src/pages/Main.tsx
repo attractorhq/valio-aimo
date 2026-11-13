@@ -11,6 +11,7 @@ import { RequestCard, approvalLabel } from '../components/flow/StepContent'
 import { DecisionFooter } from '../components/order/DecisionFooter'
 import { ExcludedList } from '../components/order/ExcludedList'
 import { OrderProposalView } from '../components/order/OrderProposalView'
+import { logPath } from '../components/log/logData'
 
 function approvalStatus(proposal: Proposal): StepStatus {
   if (proposal.decision === 'BLOCK') return 'blocked'
@@ -127,6 +128,16 @@ export function Main() {
             {proposal && <DecisionFooter proposal={proposal} mandate={mandate} />}
           </Step>
         </ol>
+        {proposal && (
+          <p>
+            <a
+              href={logPath(proposal.proposalId)}
+              className="font-semibold text-[var(--green)] underline"
+            >
+              Open the decision log for this proposal
+            </a>
+          </p>
+        )}
         <p className="visually-hidden" aria-live="polite">
           {proposal
             ? `Decision ${proposal.decision}. ${approvalLabel(proposal)}.`

@@ -1,0 +1,177 @@
+{
+ "entries": [
+  {
+   "entryId": "MOCK-P-B-E1",
+   "customerId": "mock-school",
+   "proposalId": "MOCK-P-B",
+   "offerId": null,
+   "offerVersion": null,
+   "offerHash": null,
+   "mandateVersion": 1,
+   "timestamp": "2026-11-13T21:49:57+02:00",
+   "actor": "agent",
+   "event": "REQUEST_STRUCTURED",
+   "fromState": null,
+   "toState": null,
+   "reasons": [],
+   "rule": null,
+   "facts": [],
+   "summary": "Request structured: 90 kg gluten-free macaroni and 80 l gluten-free oat drink by Mon 16 Nov.",
+   "comment": null
+  },
+  {
+   "entryId": "MOCK-P-B-E2",
+   "customerId": "mock-school",
+   "proposalId": "MOCK-P-B",
+   "offerId": null,
+   "offerVersion": null,
+   "offerHash": null,
+   "mandateVersion": 1,
+   "timestamp": "2026-11-13T21:49:59+02:00",
+   "actor": "gateway:policy",
+   "event": "CANDIDATE_EXCLUDED",
+   "fromState": null,
+   "toState": null,
+   "reasons": [
+    "CLAIM_MISSING",
+    "SUBSTITUTE_REJECTED"
+   ],
+   "rule": "L11",
+   "facts": [
+    {
+     "fact": "claim.FREE_FROM_GLUTEN",
+     "value": null,
+     "display": "Unknown",
+     "level": "UNKNOWN",
+     "source": {
+      "system": "valio-aimo.product-data",
+      "field": "synkkaData.classifications[nutritionalClaim]",
+      "retrievedAt": null
+     },
+     "method": null,
+     "conflict": null
+    }
+   ],
+   "summary": "Valio lists a substitute for the oat drink, but it is not declared gluten-free, so it is never swapped in.",
+   "comment": null
+  },
+  {
+   "entryId": "MOCK-P-B-E3",
+   "customerId": "mock-school",
+   "proposalId": "MOCK-P-B",
+   "offerId": "MOCK-O-B",
+   "offerVersion": 1,
+   "offerHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "mandateVersion": 1,
+   "timestamp": "2026-11-13T21:50:00+02:00",
+   "actor": "gateway",
+   "event": "OFFER_CREATED",
+   "fromState": null,
+   "toState": "OFFERED",
+   "reasons": [],
+   "rule": null,
+   "facts": [
+    {
+     "fact": "price.unit",
+     "value": "22.92",
+     "display": "€22.92 / sales unit excl. VAT",
+     "level": "VERIFIED",
+     "source": {
+      "system": "valio-aimo.price-api",
+      "field": "catalogPrice.value",
+      "retrievedAt": "2026-11-13T21:49:58+02:00"
+     },
+     "method": null,
+     "conflict": null
+    },
+    {
+     "fact": "stock.quantity",
+     "value": "19",
+     "display": "19 in stock",
+     "level": "VERIFIED",
+     "source": {
+      "system": "valio-aimo.availability-api",
+      "field": "scheduleLines[0].availableAmount",
+      "retrievedAt": "2026-11-13T21:49:58+02:00"
+     },
+     "method": null,
+     "conflict": null
+    },
+    {
+     "fact": "claim.FREE_FROM_GLUTEN",
+     "value": true,
+     "display": "Gluten-free",
+     "level": "DECLARED",
+     "source": {
+      "system": "valio-aimo.product-data",
+      "field": "synkkaData.classifications[nutritionalClaim]",
+      "retrievedAt": null
+     },
+     "method": null,
+     "conflict": null
+    }
+   ],
+   "summary": "Offer v1 at a fixed price: 18 bags + 80 pieces = €506.16 excl. VAT.",
+   "comment": null
+  },
+  {
+   "entryId": "MOCK-P-B-E4",
+   "customerId": "mock-school",
+   "proposalId": "MOCK-P-B",
+   "offerId": "MOCK-O-B",
+   "offerVersion": 1,
+   "offerHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "mandateVersion": 1,
+   "timestamp": "2026-11-13T21:50:00+02:00",
+   "actor": "agent",
+   "event": "PROPOSAL_CREATED",
+   "fromState": "OFFERED",
+   "toState": "PROPOSED",
+   "reasons": [],
+   "rule": null,
+   "facts": [],
+   "summary": "The agent proposed offer v1 for this request.",
+   "comment": null
+  },
+  {
+   "entryId": "MOCK-P-B-E5",
+   "customerId": "mock-school",
+   "proposalId": "MOCK-P-B",
+   "offerId": "MOCK-O-B",
+   "offerVersion": 1,
+   "offerHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "mandateVersion": 1,
+   "timestamp": "2026-11-13T21:50:00+02:00",
+   "actor": "gateway:policy",
+   "event": "DECIDED",
+   "fromState": "PROPOSED",
+   "toState": "PENDING_APPROVAL",
+   "reasons": [
+    "OVER_AUTO_LIMIT"
+   ],
+   "rule": "O3",
+   "facts": [],
+   "summary": "€506.16 is above the €500.00 auto-approve limit. Everything else is verified or declared.",
+   "comment": null
+  },
+  {
+   "entryId": "MOCK-P-B-E6",
+   "customerId": "mock-school",
+   "proposalId": "MOCK-P-B",
+   "offerId": "MOCK-O-B",
+   "offerVersion": 1,
+   "offerHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "mandateVersion": 1,
+   "timestamp": "2026-11-13T21:50:00+02:00",
+   "actor": "gateway",
+   "event": "APPROVAL_REQUESTED",
+   "fromState": null,
+   "toState": null,
+   "reasons": [],
+   "rule": null,
+   "facts": [],
+   "summary": "Waiting for Head Chef (demo). The approval link went to the approver channel only, never to the agent.",
+   "comment": null
+  }
+ ]
+}

@@ -1,0 +1,79 @@
+{
+ "entries": [
+  {
+   "entryId": "MOCK-P-B-RECHECK-E1",
+   "customerId": "mock-school",
+   "proposalId": "MOCK-P-B-RECHECK",
+   "offerId": "MOCK-O-B-R",
+   "offerVersion": 1,
+   "offerHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+   "mandateVersion": 1,
+   "timestamp": "2026-11-13T21:50:00+02:00",
+   "actor": "gateway:policy",
+   "event": "DECIDED",
+   "fromState": "PROPOSED",
+   "toState": "PENDING_APPROVAL",
+   "reasons": [
+    "OVER_AUTO_LIMIT"
+   ],
+   "rule": "O3",
+   "facts": [],
+   "summary": "€506.16 is above the €500.00 auto-approve limit. Everything else is verified or declared.",
+   "comment": null
+  },
+  {
+   "entryId": "MOCK-P-B-RECHECK-E2",
+   "customerId": "mock-school",
+   "proposalId": "MOCK-P-B-RECHECK",
+   "offerId": "MOCK-O-B-R",
+   "offerVersion": 1,
+   "offerHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+   "mandateVersion": 1,
+   "timestamp": "2026-11-13T21:58:00+02:00",
+   "actor": "approver:Head Chef (demo)",
+   "event": "APPROVED",
+   "fromState": "PENDING_APPROVAL",
+   "toState": "APPROVED",
+   "reasons": [],
+   "rule": null,
+   "facts": [],
+   "summary": "Head Chef (demo) approved version 1 of this proposal (€506.16).",
+   "comment": "OK for Monday."
+  },
+  {
+   "entryId": "MOCK-P-B-RECHECK-E3",
+   "customerId": "mock-school",
+   "proposalId": "MOCK-P-B-RECHECK",
+   "offerId": "MOCK-O-B-R",
+   "offerVersion": 1,
+   "offerHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+   "mandateVersion": 1,
+   "timestamp": "2026-11-13T21:58:01+02:00",
+   "actor": "gateway",
+   "event": "SUPERSEDED",
+   "fromState": "APPROVED",
+   "toState": "SUPERSEDED",
+   "reasons": [
+    "REQUOTED"
+   ],
+   "rule": "P1.3 step 5",
+   "facts": [
+    {
+     "fact": "price.unit",
+     "value": "22.93",
+     "display": "€22.93 / sales unit excl. VAT",
+     "level": "VERIFIED",
+     "source": {
+      "system": "valio-aimo.price-api",
+      "field": "catalogPrice.value",
+      "retrievedAt": "2026-11-13T21:58:01+02:00"
+     },
+     "method": null,
+     "conflict": null
+    }
+   ],
+   "summary": "Re-checked live before confirming: the pasta price changed from €22.92 to €22.93. Version 1 and its approval are void; a new version is decided from scratch.",
+   "comment": null
+  }
+ ]
+}
