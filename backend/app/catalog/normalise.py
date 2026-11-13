@@ -442,6 +442,20 @@ def allergen_declaration(product: Product, code: str) -> AllergenDeclaration:
     by_code = {a.code.upper(): a for a in product.allergens}
     has_x99 = "X99" in by_code and by_code["X99"].status == "FREE_FROM"
 
+    # Lactose (ML) implies milk (AM): ML CONTAINS -> AM CONTAINS, ML MAY_CONTAIN -> AM MAY_CONTAIN.
+    if norm == "AM" and "ML" in by_code and by_code["ML"].status in ("CONTAINS", "MAY_CONTAIN"):
+        ml_status = by_code["ML"].status
+        own_status = by_code["AM"].status if "AM" in by_code else None
+        if own_status != "CONTAINS":
+            effective: Literal["CONTAINS", "MAY_CONTAIN"] = (
+                "CONTAINS" if ml_status == "CONTAINS" else "MAY_CONTAIN"
+            )
+            return AllergenDeclaration(
+                code="AM",
+                status=effective,
+                evidence=_allergen_evidence("AM", effective, "allergen", method="implied_by:ML"),
+            )
+
     if norm in by_code and norm != "X99":
         direct = by_code[norm]
         # Patch P4: X99 proves nothing for non-EU-14 codes, and lactose-free is proven only by FREE_FROM_LACTOSE.
@@ -755,7 +769,7 @@ def normalise_product(
     for sub_id in substitutions:
         facts.append(valio_substitute_label(sub_id))
 
-    return Product(
+    product_obj = Product(
         productId=product_id,
         name=name,
         names=names,
@@ -777,3 +791,18 @@ def normalise_product(
         deposits=deposits,
         facts=facts,
     )
+
+    from app.policy.requirements import K6_MESSAGE, allergen_status, is_inherently_dairy_product
+
+    if is_inherently_dairy_product(product_obj) and allergen_status(product_obj, "AM") in (
+        "FREE_FROM",
+        "NOT_LISTED",
+    ):
+        k6 = Conflict(code="K6", message=K6_MESSAGE)
+        am_ev = allergen_declaration(product_obj, "AM").evidence.model_copy(update={"conflict": k6})
+        updated_facts = [am_ev if f.fact == "allergen.AM" else f for f in product_obj.facts]
+        if not any(f.fact == "allergen.AM" for f in updated_facts):
+            updated_facts.append(am_ev)
+        product_obj = product_obj.model_copy(update={"facts": updated_facts})
+
+    return product_obj

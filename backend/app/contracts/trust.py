@@ -20,7 +20,7 @@ class TrustSource(Contract):
 
 
 class Conflict(Contract):
-    code: Literal["K1", "K2", "K3", "K4", "K5"]
+    code: Literal["K1", "K2", "K3", "K4", "K5", "K6"]
     message: str
 
 

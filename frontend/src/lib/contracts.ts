@@ -48,7 +48,7 @@ export type AuditTrail = {
 };
 
 export type Conflict = {
-  code: "K1" | "K2" | "K3" | "K4" | "K5";
+  code: "K1" | "K2" | "K3" | "K4" | "K5" | "K6";
   message: string;
 };
 
