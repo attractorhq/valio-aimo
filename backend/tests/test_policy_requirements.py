@@ -50,6 +50,11 @@ def avoid(code: str) -> Requirement:
         ({"AW": "FREE_FROM"}, None, "UW", "FREE_FROM"),
         ({"AW": "CONTAINS"}, None, "UW", "UNKNOWN"),  # gluten cereals declared, which one is open
         ({"AW": "CONTAINS", "X99": "FREE_FROM"}, None, "UW", "UNKNOWN"),
+        # Lactose (ML) is milk sugar and implies milk (AM).
+        ({"ML": "CONTAINS"}, None, "AM", "CONTAINS"),
+        ({"ML": "MAY_CONTAIN"}, None, "AM", "MAY_CONTAIN"),
+        ({"AM": "FREE_FROM", "ML": "CONTAINS"}, None, "AM", "CONTAINS"),
+        ({"AM": "MAY_CONTAIN", "ML": "CONTAINS"}, None, "AM", "CONTAINS"),
     ],
 )
 def test_allergen_status(allergens, declared, code, expected):
@@ -177,7 +182,40 @@ def test_claim_conflicts_detected_from_data_and_labels():
         ("K2", LACTOSE_FREE, True),
         ("K2", avoid("ML"), True),
         ("K2", GLUTEN_FREE, False),
+        ("K6", MILK_FREE, True),
+        ("K6", LACTOSE_FREE, False),
+        ("K6", GLUTEN_FREE, False),
     ],
 )
 def test_conflict_is_decisive_only_for_the_relied_on_fact(conflict, requirement, decisive):
     assert conflict_is_decisive(conflict, [requirement]) is decisive
+
+
+def test_k6_dairy_category_declared_milk_free_is_a_data_conflict():
+    dairy_x99 = product(allergens={"X99": "FREE_FROM"}).model_copy(
+        update={"category": "10640", "name": "Synthetic delicacy cheese box"}
+    )
+    assert claim_conflicts(dairy_x99) == {"K6"}
+    for mandate in (STANDARD, STRICT):
+        assert codes(check_requirements(dairy_x99, [MILK_FREE], mandate)) == [
+            ("DATA_CONFLICT", "EXCLUDE", "K6")
+        ]
+    # Non-dairy category with X99 remains FREE_FROM with no K6 conflict.
+    non_dairy_x99 = product(allergens={"X99": "FREE_FROM"}).model_copy(
+        update={"category": "21380", "name": "Synthetic pasta"}
+    )
+    assert claim_conflicts(non_dairy_x99) == frozenset()
+    assert check_requirements(non_dairy_x99, [MILK_FREE], STANDARD) == ()
+    assert check_requirements(non_dairy_x99, [MILK_FREE], STRICT) == ()
+
+    # VEGAN or plant-based cheese alternative in a dairy category is not K6.
+    vegan_cheese = product(allergens={"AM": "FREE_FROM"}, claims=("VEGAN",)).model_copy(
+        update={"category": "10641", "name": "Synthetic Gouda style cheese"}
+    )
+    plant_cheese = product(allergens={"AM": "FREE_FROM"}).model_copy(
+        update={"category": "10641", "name": "Synthetic plant-based cream cheese"}
+    )
+    for alt in (vegan_cheese, plant_cheese):
+        assert claim_conflicts(alt) == frozenset()
+        assert check_requirements(alt, [MILK_FREE], STANDARD) == ()
+        assert check_requirements(alt, [MILK_FREE], STRICT) == ()

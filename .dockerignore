@@ -1,8 +1,23 @@
+# Build context is the repository root (edge/wrangler.jsonc image_build_context, compose.yaml).
+# Only backend/, scripts/ and data/ (catalog + fixtures) are copied; everything else stays out.
 .git
+.github
 .env
+.env.*
 .venv
+.worktrees
+.wrangler
 **/node_modules
 **/dist
 **/__pycache__
+**/.pytest_cache
 **/*.db
+**/*.db-shm
+**/*.db-wal
 data/raw
+frontend
+edge
+judging
+docs
+spec
+backend/tests

@@ -1,12 +1,12 @@
 import { ExternalLink, ShieldCheck, UserRoundCheck } from 'lucide-react'
-import { Link, Route, Routes, useLocation } from 'react-router-dom'
+import { Link, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { Main } from './pages/Main'
 import { Approver } from './pages/Approver'
 import { Log } from './pages/Log'
-import { proposalIdFromPath } from './components/log/logData'
 
 function LogRoute() {
-  return <Log proposalId={proposalIdFromPath(useLocation().pathname)} />
+  const { proposalId } = useParams()
+  return <Log proposalId={proposalId} />
 }
 
 export default function App() {

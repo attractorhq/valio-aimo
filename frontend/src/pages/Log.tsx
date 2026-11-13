@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, ScrollText } from 'lucide-react'
 import { DecisionLog } from '../components/log/DecisionLog'
-import { MOCK_LOGS, loadAuditTrail, logPath } from '../components/log/logData'
+import { MOCK_LOGS, findMockLog, loadAuditTrail, logPath } from '../components/log/logData'
 
 /** Decision log per proposal (P6 P0-5): readable for the buyer and Valio Aimo without knowing the code. */
 export function Log({ proposalId }: { proposalId?: string }) {
@@ -11,7 +11,7 @@ export function Log({ proposalId }: { proposalId?: string }) {
     enabled: Boolean(proposalId),
     retry: false,
   })
-  const current = MOCK_LOGS.find((log) => log.proposalId === proposalId)
+  const current = proposalId ? findMockLog(proposalId) : undefined
 
   return (
     <div className="grid gap-4">
@@ -43,8 +43,8 @@ export function Log({ proposalId }: { proposalId?: string }) {
               <li key={log.proposalId}>
                 <a
                   href={logPath(log.proposalId)}
-                  aria-current={log.proposalId === proposalId ? 'page' : undefined}
-                  className={`btn ${log.proposalId === proposalId ? 'btn-primary' : 'btn-scenario'}`}
+                  aria-current={log.proposalId === current?.proposalId ? 'page' : undefined}
+                  className={`btn ${log.proposalId === current?.proposalId ? 'btn-primary' : 'btn-scenario'}`}
                 >
                   {log.title}
                 </a>

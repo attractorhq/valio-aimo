@@ -12,6 +12,7 @@ import {
   reasonChip,
 } from '../../lib/format'
 import { approvalReasons, contextReasons, plainReason } from './explain'
+import { logPath } from '../log/logData'
 
 /** What happened to this proposal version, in one line. */
 export function ApprovalState({ item }: { item: ApproverItem }) {
@@ -96,7 +97,10 @@ export function ApprovalCard({ item, mandate }: { item: ApproverItem; mandate?: 
         </h2>
         <p className="muted small">
           {mandate?.organisationName ?? proposal.customerId} · proposal {proposal.proposalId} ·
-          offer {proposal.offerId} v{proposal.offerVersion} · mandate v{proposal.mandateVersion}
+          offer {proposal.offerId} v{proposal.offerVersion} · mandate v{proposal.mandateVersion} ·{' '}
+          <a href={logPath(proposal.proposalId)} className="underline">
+            Decision log
+          </a>
         </p>
       </header>
 
