@@ -249,6 +249,8 @@ def test_openapi_keeps_decide_approval_off_the_agent_channel(api):
         for operation in operations.values():
             if operation["operationId"] in ("decideApproval", "getApproverView", "listApproverProposals"):
                 assert path.startswith(APPROVER) and operation["tags"] == ["Approver channel"]
+            elif path.startswith("/v0.1/admin/"):
+                assert operation["tags"] == ["Buyer admin"]  # T21: humans only, never the agent channel
             elif path.startswith("/v0.1/"):
                 assert operation["tags"] == ["Agent channel"]
                 assert "approval" not in json.dumps(operation.get("requestBody", {})).lower()

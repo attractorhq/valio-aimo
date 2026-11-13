@@ -4,6 +4,7 @@ import type { Proposal } from '../lib/contracts'
 import { gateway, SCENARIOS, type FlowResult, type ScenarioId } from '../lib/gateway'
 import { formatMoney, reasonChip } from '../lib/format'
 import { MandatePanel } from '../components/flow/MandatePanel'
+import { MandateControls } from '../components/mandate/MandateControls'
 import { RequestComposer } from '../components/flow/RequestComposer'
 import { ModeBadge } from '../components/flow/ModeBadge'
 import { StatusPill, Step, type StepStatus } from '../components/flow/Step'
@@ -91,6 +92,13 @@ export function Main() {
             selected={mandate}
             onSelect={selectMandate}
             disabled={running}
+          />
+        )}
+        {mandate && (
+          <MandateControls
+            mandate={mandate}
+            live={gateway.source === 'GATEWAY'}
+            onChanged={() => mandates.refetch()}
           />
         )}
       </aside>
