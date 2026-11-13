@@ -170,7 +170,7 @@ export function Main() {
         {proposal && (
           <p>
             <a
-              href={logPath(proposal.proposalId.replace(/^(MOCK-P-[ABC])-[0-9a-f]{8}$/, '$1'))}
+              href={logPath(proposal.proposalId)}
               className="font-semibold text-[var(--green)] underline"
             >
               Open the decision log for this proposal
