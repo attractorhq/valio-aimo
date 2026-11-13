@@ -2,6 +2,7 @@ import { ExternalLink, ShieldCheck, UserRoundCheck } from 'lucide-react'
 import { Link, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { Main } from './pages/Main'
 import { Approver } from './pages/Approver'
+import { ApproveMobile } from './pages/ApproveMobile'
 import { Log } from './pages/Log'
 
 function LogRoute() {
@@ -10,7 +11,8 @@ function LogRoute() {
 }
 
 export default function App() {
-  const approver = useLocation().pathname.startsWith('/approver')
+  const { pathname } = useLocation()
+  const approver = pathname.startsWith('/approver') || pathname.startsWith('/approve/')
   return (
     <div className={`app ${approver ? 'app-approver' : ''}`}>
       <a href="#main" className="skip-link">
@@ -47,6 +49,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Main />} />
           <Route path="/approver" element={<Approver />} />
+          <Route path="/approve/:token" element={<ApproveMobile />} />
           <Route path="/log" element={<LogRoute />} />
           <Route path="/log/:proposalId" element={<LogRoute />} />
           <Route

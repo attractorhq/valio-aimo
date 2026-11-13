@@ -1,6 +1,15 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, Ban, CheckCircle2, Clock, Info, KeyRound, XCircle } from 'lucide-react'
+import {
+  AlertTriangle,
+  Ban,
+  CheckCircle2,
+  Clock,
+  Info,
+  KeyRound,
+  Smartphone,
+  XCircle,
+} from 'lucide-react'
 import type { Mandate } from '../../lib/contracts'
 import { approverChannel, GatewayError, type ApproverItem } from '../../lib/gateway'
 import {
@@ -12,6 +21,7 @@ import {
   reasonChip,
 } from '../../lib/format'
 import { approvalReasons, contextReasons, plainReason } from './explain'
+import { QrCode } from './QrCode'
 import { logPath } from '../log/logData'
 
 /** What happened to this proposal version, in one line. */
@@ -57,7 +67,17 @@ export function ApprovalState({ item }: { item: ApproverItem }) {
 }
 
 /** The exact proposal version the human is asked to sign off, with one Approve and one Reject. */
-export function ApprovalCard({ item, mandate }: { item: ApproverItem; mandate?: Mandate }) {
+export function ApprovalCard({
+  item,
+  mandate,
+  showQr = true,
+  initialToken,
+}: {
+  item: ApproverItem
+  mandate?: Mandate
+  showQr?: boolean
+  initialToken?: string
+}) {
   const { proposal } = item
   const queryClient = useQueryClient()
   const [comment, setComment] = useState('')
@@ -69,16 +89,20 @@ export function ApprovalCard({ item, mandate }: { item: ApproverItem; mandate?: 
     enabled: pending,
     staleTime: Infinity,
   })
+  const activeToken = initialToken ?? view.data?.approvalToken
   const decide = useMutation({
     mutationFn: (action: 'APPROVE' | 'REJECT') =>
       approverChannel.decide({
         proposalId: proposal.proposalId,
         offerVersion: proposal.offerVersion,
-        approvalToken: view.data!.approvalToken,
+        approvalToken: activeToken!,
         action,
         comment: comment.trim() || undefined,
       }),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ['approver-proposals'] }),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['approver-proposals'] })
+      queryClient.invalidateQueries({ queryKey: ['approver-token-view'] })
+    },
   })
   const decided = decide.data ?? item
   const reasons = approvalReasons(proposal)
@@ -201,7 +225,7 @@ export function ApprovalCard({ item, mandate }: { item: ApproverItem; mandate?: 
             <button
               type="button"
               className="btn btn-approve"
-              disabled={!view.data || decide.isPending}
+              disabled={!activeToken || decide.isPending}
               onClick={() => decide.mutate('APPROVE')}
             >
               <CheckCircle2 size={16} aria-hidden />
@@ -210,7 +234,7 @@ export function ApprovalCard({ item, mandate }: { item: ApproverItem; mandate?: 
             <button
               type="button"
               className="btn btn-reject"
-              disabled={!view.data || decide.isPending}
+              disabled={!activeToken || decide.isPending}
               onClick={() => decide.mutate('REJECT')}
             >
               <Ban size={16} aria-hidden />
@@ -221,6 +245,39 @@ export function ApprovalCard({ item, mandate }: { item: ApproverItem; mandate?: 
             <p className="muted small" role="status">
               Approving… the gateway re-checks price and availability before it confirms.
             </p>
+          )}
+          {showQr && activeToken && (
+            <aside
+              className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-[var(--line)] bg-[var(--bg)] p-3"
+              aria-label="Phone approval QR code"
+            >
+              <QrCode
+                value={
+                  view.data?.qrPayload ??
+                  `${typeof window !== 'undefined' ? window.location.origin : ''}/approve/${encodeURIComponent(activeToken)}`
+                }
+              />
+              <div className="min-w-[200px] flex-1 text-xs">
+                <div className="inline-flex items-center gap-1.5 font-bold text-[var(--ink)]">
+                  <Smartphone size={14} aria-hidden />
+                  <span>Approve on your phone (QR)</span>
+                </div>
+                <p className="mt-1 text-[var(--muted)]">
+                  Scan with a phone camera to open this exact proposal version on mobile.
+                </p>
+                <p className="mt-1.5">
+                  <a
+                    href={`/approve/${encodeURIComponent(activeToken)}`}
+                    className="font-semibold text-[var(--green)] underline"
+                  >
+                    Open mobile approval page
+                  </a>
+                </p>
+                <p className="mt-1 font-semibold text-[var(--muted)]">
+                  {view.data?.permissionNotice ?? 'Demo approval link — single use'}
+                </p>
+              </div>
+            </aside>
           )}
         </div>
       ) : (

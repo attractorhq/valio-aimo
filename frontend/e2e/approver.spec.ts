@@ -145,3 +145,47 @@ test('the approver panel has no horizontal page scroll', async ({ page }) => {
   )
   expect(overflow).toBeLessThanOrEqual(0)
 })
+
+test('phone approval via QR (/approve/:token) at 390 px and across separate device contexts', async ({
+  page,
+  browser,
+}) => {
+  await runScenarioB(page)
+  // Agent view never shows a QR code or approval link (P3).
+  await expect(page.getByRole('img', { name: /Scan on a phone/i })).toHaveCount(0)
+
+  await page.goto('/approver')
+  const qr = page.getByRole('img', {
+    name: 'Scan on a phone to open the single-use demo approval page',
+  })
+  await expect(qr).toBeVisible()
+  const mobileHref = await page
+    .getByRole('link', { name: 'Open mobile approval page' })
+    .getAttribute('href')
+  expect(mobileHref).toMatch(/^\/approve\/tk-B-/)
+
+  // Open on a separate browser context (simulating a judge's phone on mobile data, 390 px wide).
+  const phoneContext = await browser.newContext({ viewport: { width: 390, height: 844 } })
+  const phone = await phoneContext.newPage()
+  await phone.goto(mobileHref!)
+
+  await expect(phone.getByRole('heading', { name: 'Approver — Head Chef (demo)' })).toBeVisible()
+  const card = phone.getByRole('article')
+  await expect(card.getByRole('heading')).toHaveText('You are approving version 1 of this proposal')
+  await expect(card).toContainText(
+    '€506.16 is above your €500.00 auto-approve limit. Everything else is verified or declared.',
+  )
+  await expect(card).toContainText('Synthetic gluten-free macaroni 5 kg')
+  await expect(card).toContainText('Demo approval link — single use')
+
+  const overflow = await phone.evaluate(
+    () => document.documentElement.scrollWidth - window.innerWidth,
+  )
+  expect(overflow).toBeLessThanOrEqual(0)
+
+  await card.getByRole('button', { name: 'Approve €506.16' }).click()
+  await expect(card).toContainText(
+    /Approved · re-checked \(recorded data\) · Confirmed \(simulated\) · logged \d{2}:\d{2}/,
+  )
+  await phoneContext.close()
+})
