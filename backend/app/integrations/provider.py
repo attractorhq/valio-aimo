@@ -4,10 +4,7 @@ from decimal import Decimal
 from typing import Protocol
 
 from app.schemas import ProductOut
-
-
-class IntegrationError(Exception):
-    pass
+from app.valio.errors import IntegrationError as IntegrationError
 
 
 @dataclass(frozen=True)
