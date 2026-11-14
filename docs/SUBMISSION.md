@@ -26,20 +26,24 @@ A trusted trade gateway for Valio Aimo plus a demo purchasing agent. It separate
   - Lactose-free does not imply milk-free.
   - A supplier-listed substitute must prove the buyer's requirements too. The school order rejects a listed oat drink that lacks the gluten-free claim.
   - A different product type, such as cooking cream when whipping cream was asked for, is never auto-approved.
+  - A stated product form (grated, sliced, block) is a requirement: another form is at most a substitute for a human to approve.
   - Quantities are sized in whole sales units.
 - **Humans approve trade-offs, never missing evidence:**
   - The Approver panel and a phone page show the exact lines, quantities, delivery, total and reasons, in plain words. Example: "Approving means 95 kg instead of 120 kg, on Monday instead of today."
   - The single-use demo permission is bound to that proposal version. The agent's responses never contain an approval link, token or QR.
   - Before confirmation, the server re-checks price, quantity, delivery and requirements. Any change voids the old approval and decides a new version from scratch.
   - Unknown allergens and passed cut-offs cannot be waived.
+  - When nothing qualifies, the result says what was searched, offers the earliest deliverable date as a one-click retry, and lists the closest compliant products (nothing is ordered from them).
   - Partial stock becomes its own proposal version with its own approval.
   - When another compliant product has the missing stock, it tops up the rest as a split order. The split always goes to a human, and a price rise of more than 10 % per kg or litre is stated.
 - **Alternatives and editable assumptions:**
   - Each line shows Good / Better / Best alternatives with a one-line trade-off (price per litre or kilo, pack, brand, stock certainty). Only compliant products are listed.
   - The agent's assumptions are editable chips, for example "Any fat %" → "1.5 %". Editing one re-runs the flow, and the gateway's shortlist changes.
 - **Buyer control:** a buyer admin (`/admin`) can change the mandate's limits. Open proposals are then re-decided live, and the change is logged. The mandate can be reset to its defaults.
+  - The same buyer's orders for the same delivery day count together against the limits, so a need split into small orders cannot slip under the auto-approve limit.
+  - Each browser gets its own private session, so one visitor's changes never affect another's.
 - **Inspectable and tamper-evident decisions:**
-  - The decision log shows actors, rules and evidence for every state change.
+  - The decision log shows actors, rules and evidence for every state change. `/log` lists recent proposals per buyer.
   - A SHA-256 hash chain over the log can be verified at `/v0.1/audit/verify`.
   - The log downloads as JSON or CSV from the log page, and it shows the result of the final re-check.
 - **Open interface:**
