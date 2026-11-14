@@ -16,6 +16,23 @@ function parseIsoDay(iso: string): Date {
   return new Date(Date.UTC(y, m - 1, d))
 }
 
+/**
+ * T62: the limits apply to this order plus what is already committed for the same delivery date. When this
+ * order alone is within the limit, the day's committed orders took it over: say that, never "€300 is above
+ * your €500 limit". Returns null when the order alone is over the limit (the usual wording applies).
+ */
+export function committedLimitSentence(
+  code: ReasonCode,
+  proposal: Proposal,
+  mandate?: Mandate,
+): string | null {
+  if (!mandate || (code !== 'OVER_AUTO_LIMIT' && code !== 'OVER_HARD_LIMIT')) return null
+  const hard = code === 'OVER_HARD_LIMIT'
+  const limit = hard ? mandate.hardLimitEur : mandate.autoApproveLimitEur
+  if (Number(proposal.totals.exclVat) > Number(limit)) return null
+  return `${formatMoney(proposal.totals.exclVat)} excl. VAT plus the orders already committed for ${formatDate(proposal.requestedDate)} is above your ${formatMoney(limit)} ${hard ? 'hard limit' : 'auto-approve limit'}.`
+}
+
 /** Plain-language summary of what approving this proposal version means (patch P8 B2, P10). */
 export function formatApprovalStatement(proposal: Proposal, mandate?: Mandate): string | null {
   if (proposal.decision !== 'ASK') return null
@@ -76,6 +93,8 @@ export function formatApprovalStatement(proposal: Proposal, mandate?: Mandate): 
     return `Approving means delivery ${dateClause}.`
   }
   if (proposal.reasons.length === 1 && proposal.reasons[0] === 'OVER_AUTO_LIMIT' && mandate) {
+    const committed = committedLimitSentence('OVER_AUTO_LIMIT', proposal, mandate)
+    if (committed) return `${committed} Everything else is verified or declared.`
     return `${formatMoney(proposal.totals.exclVat)} is above your ${formatMoney(mandate.autoApproveLimitEur)} auto-approve limit. Everything else is verified or declared.`
   }
   return null
@@ -129,7 +148,10 @@ export function plainReason(
   if (code === 'AGENT_SUBSTITUTE') return substituteStatement(proposal)
   if (code === 'VALIO_SUBSTITUTE') return valioSubstituteStatement(proposal)
   if (code === 'OVER_AUTO_LIMIT' && mandate) {
-    return `${formatMoney(proposal.totals.exclVat)} is above your ${formatMoney(mandate.autoApproveLimitEur)} auto-approve limit.`
+    return (
+      committedLimitSentence(code, proposal, mandate) ??
+      `${formatMoney(proposal.totals.exclVat)} is above your ${formatMoney(mandate.autoApproveLimitEur)} auto-approve limit.`
+    )
   }
   const text = reasonText(code, { total: formatMoney(proposal.totals.exclVat) })
   if (/\{\w+\}/.test(text)) return null

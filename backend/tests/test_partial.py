@@ -535,7 +535,9 @@ def test_partial_delivery_version_has_its_own_approval_and_supersedes_on_recheck
     with pytest.raises(TokenAlreadyUsedError):
         decide_approval(gateway, p1.proposalId, p1.offerVersion, view1.approvalToken, "APPROVE")
 
-    # 2. Stock changes before re-check (19 bags -> 18 bags = 90 kg) -> SUPERSEDED, v2 created from scratch
+    # 2. Stock changes before re-check (19 bags -> 18 bags = 90 kg) -> SUPERSEDED, v2 created from scratch.
+    # An independent order: a fresh gateway, so the €505.68 confirmed above does not count against it (T62).
+    gateway = ProposalGateway(products=products, mandates=MandateBook(DEMO_MANDATES), provider=provider)
     offer2 = gateway.get_offer(offer_req, offer_id="OF-B2-SUPERSEDE").offer
     v1 = gateway.create_proposal(M2.customerId, offer2.offerId, offer2.offerVersion, struct_req)
     view_v1 = gateway.get_approver_view(v1.proposalId)

@@ -6,7 +6,15 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Literal
 
-from app.contracts import Decision, ExcludedProduct, Mandate, ReasonCode, StructuredRequest
+from app.contracts import (
+    Decision,
+    ExcludedProduct,
+    Mandate,
+    ReasonCode,
+    StructuredRequest,
+    format_date,
+    format_money,
+)
 
 from .findings import Finding, ordered_codes
 from .instructions import detect_instruction
@@ -26,6 +34,8 @@ class PolicyDecision:
     total_excl_vat: Decimal
     mandate_version: int
     approver_role: str | None
+    # T62: what this customer already has committed (confirmed or awaiting sign-off) for the same delivery date.
+    committed_excl_vat: Decimal = Decimal(0)
 
     @property
     def reasons(self) -> tuple[ReasonCode, ...]:
@@ -75,6 +85,7 @@ def decide(
     partial_items: frozenset[str] = frozenset(),
     instruction_ignored: bool = False,
     clarification_needed: bool = False,
+    committed_excl_vat: Decimal = Decimal(0),
 ) -> PolicyDecision:
     """Decide one order (offer or proposal version) from scratch.
 
@@ -83,6 +94,9 @@ def decide(
     - `partial_items` are items this proposal version explicitly offers in part (P2.2/P2.5). A shortfall
       anywhere else is not something a human may sign off: it is NO_ORDER · NO_CANDIDATE.
     - `instruction_ignored` / `clarification_needed` come from the request parser; O4 is also detected here.
+    - `committed_excl_vat` (T62) is the total the customer already has committed for the same delivery date
+      (confirmed or awaiting sign-off), passed in by the gateway: the limits apply to it plus this order, so a
+      need split into several small orders can never pass the auto-approve or hard limit unnoticed.
     """
     items = {item.itemId: item for item in request.items}
     for line in lines:
@@ -120,12 +134,21 @@ def decide(
         elif len(item_lines) > 1:
             findings.append(Finding("SPLIT", "INFO", "L8", item_id=item.itemId))
 
-    # O1 / O3: limits on the total excl. VAT of the lines that remain.
+    # O1 / O3: limits on the total excl. VAT of the lines that remain, plus what is already committed for the
+    # same delivery date (T62: split-order guard).
     total = sum((v.line.line_total_excl_vat for v in kept), Decimal(0))
-    if total > mandate.hardLimitEur:
-        findings.append(Finding("OVER_HARD_LIMIT", "BLOCK", "O1"))
-    elif total > mandate.autoApproveLimitEur:
-        findings.append(Finding("OVER_AUTO_LIMIT", "ASK", "O3"))
+    exposure = total + committed_excl_vat
+    context = (
+        f"{format_money(committed_excl_vat)} already committed for {format_date(request.requestedDate)}; "
+        f"with this order {format_money(exposure)}"
+        if committed_excl_vat > 0 else None
+    )
+    if exposure > mandate.hardLimitEur:
+        detail = f"{context} > {format_money(mandate.hardLimitEur)} hard limit" if context else None
+        findings.append(Finding("OVER_HARD_LIMIT", "BLOCK", "O1", detail=detail))
+    elif exposure > mandate.autoApproveLimitEur:
+        detail = f"{context} > {format_money(mandate.autoApproveLimitEur)} auto-approve limit" if context else None
+        findings.append(Finding("OVER_AUTO_LIMIT", "ASK", "O3", detail=detail))
 
     # O4: the request text is data. O6: unclear or contradictory requests are asked about, not assumed.
     if instruction_ignored or detect_instruction(request.requestText):
@@ -144,4 +167,5 @@ def decide(
         total_excl_vat=total,
         mandate_version=mandate.version,
         approver_role=mandate.approver.role if outcome == "ASK" else None,
+        committed_excl_vat=committed_excl_vat,
     )

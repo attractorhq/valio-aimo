@@ -2,10 +2,16 @@ import { Ban, CheckCircle2, Hourglass, Info, ShieldCheck } from 'lucide-react'
 import { REASON_REGISTRY, type Mandate, type Proposal, type ReasonCode } from '../../lib/contracts'
 import { formatMoney, reasonChip, reasonText } from '../../lib/format'
 import { proposalRequirementChecks, requirementsStatement } from '../../lib/requirements'
-import { plainReason, uniqueReasons } from '../approver/explain'
+import { committedLimitSentence, plainReason, uniqueReasons } from '../approver/explain'
 
 /** The reason in plain words, or null when that would only repeat the chip (T45). */
 function explainReason(code: ReasonCode, proposal: Proposal, mandate?: Mandate): string | null {
+  const committed = committedLimitSentence(code, proposal, mandate)
+  if (committed) {
+    return code === 'OVER_HARD_LIMIT'
+      ? `${committed} No agent or approver can override this.`
+      : committed
+  }
   const params: Record<string, string> = { total: formatMoney(proposal.totals.exclVat) }
   if (mandate) {
     params.limit = formatMoney(

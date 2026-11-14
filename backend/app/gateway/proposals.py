@@ -91,7 +91,11 @@ from app.policy import (
     decide,
     evaluate_line,
 )
+from app.policy.limits import limit_sentence
 from app.valio.facts import SENTINEL_METHOD, is_stock_sentinel
+
+# T62: proposal states whose total counts against the same-day limits (the split-order guard).
+COMMITTED_STATES = frozenset({"PENDING_APPROVAL", "APPROVED", "AUTO_APPROVED", "RECHECKED", "CONFIRMED_SIMULATED"})
 
 
 class ProposalError(ValueError):
@@ -242,6 +246,13 @@ def format_approval_statement(
         return f"Approving means delivery {date_clause}."
 
     if list(proposal.reasons) == [ReasonCode.OVER_AUTO_LIMIT] and mandate is not None:
+        if proposal.totals.exclVat <= mandate.autoApproveLimitEur:
+            # T62: the day's committed orders, not this order alone, take it over the limit.
+            return (
+                limit_sentence(ReasonCode.OVER_AUTO_LIMIT, proposal.totals.exclVat, mandate.autoApproveLimitEur,
+                               proposal.requestedDate)
+                + ". Everything else is verified or declared."
+            )
         return (
             f"{format_money(proposal.totals.exclVat)} is above your "
             f"{format_money(mandate.autoApproveLimitEur)} auto-approve limit. "
@@ -646,6 +657,28 @@ class ProposalGateway:
             inputs.append(line_input_from_offer_line(offer_line, product))
         return inputs
 
+    def committed_total(
+        self, customer_id: str, requested_date: date, *, exclude: Sequence[str] = ()
+    ) -> Decimal:
+        """T62: what the customer already has committed for one delivery date (excl. VAT).
+
+        Confirmed (simulated) orders and proposals on their way to confirmation (waiting for sign-off,
+        approved, being re-checked) count; superseded, rejected, expired and blocked ones do not.
+        """
+        if self._session is not None:
+            self._hydrate_from_session(self._session)
+        return sum(
+            (
+                p.totals.exclVat
+                for p in self._proposals.values()
+                if p.customerId == customer_id
+                and p.requestedDate == requested_date
+                and p.state in COMMITTED_STATES
+                and p.proposalId not in exclude
+            ),
+            Decimal(0),
+        )
+
     def create_proposal(
         self,
         request_or_customer: CreateProposalRequest | str,
@@ -661,8 +694,11 @@ class ProposalGateway:
         clarification_needed: bool = False,
         auto_confirm: bool = True,
         allow_no_order_block: bool = False,
+        replaces: str | None = None,
     ) -> Proposal:
         """Bind `customerId + mandateVersion + request + offerId/offerVersion/offerHash + totals` and decide.
+
+        `replaces` is the proposal a new version supersedes: it no longer counts towards the committed total.
 
         Accepts either a `CreateProposalRequest` or `(customerId, offerId, offerVersion, request)`.
         Repeated calls for the same `(customerId, offerId, offerVersion, request)` are idempotent.
@@ -731,6 +767,9 @@ class ProposalGateway:
             if partial_items is None
             else frozenset(partial_items)
         )
+        committed = self.committed_total(
+            create_req.customerId, create_req.request.requestedDate, exclude=(replaces,) if replaces else ()
+        )
         policy_decision = decide(
             mandate=mandate,
             request=create_req.request,
@@ -739,6 +778,7 @@ class ProposalGateway:
             partial_items=effective_partial,
             instruction_ignored=instruction_ignored,
             clarification_needed=clarification_needed,
+            committed_excl_vat=committed,
         )
 
         if policy_decision.outcome == "NO_ORDER" and not allow_no_order_block:
@@ -886,7 +926,10 @@ class ProposalGateway:
             excluded=excluded,
             totals=totals,
         )
-        base_summary = decision_summary(outcome, reasons, total_excl_vat=totals.exclVat, mandate=mandate)
+        base_summary = decision_summary(
+            outcome, reasons, total_excl_vat=totals.exclVat, mandate=mandate,
+            committed_excl_vat=committed, requested_date=create_req.request.requestedDate,
+        )
         approval_statement = (
             format_approval_statement(preview_proposal, mandate=mandate, today=eval_now.date())
             if outcome == "ASK" and (
@@ -1403,6 +1446,7 @@ class ProposalGateway:
             partial_items=partial,
             auto_confirm=False,
             allow_no_order_block=True,
+            replaces=proposal.proposalId,
         )
 
         changes_text = "; ".join(diffs)
