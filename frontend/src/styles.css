@@ -1111,6 +1111,11 @@ button.chip {
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
 }
+/* The totals divider is the only line under the order lines (no double rule). */
+.table-scroll:has(+ .totals) tbody tr:last-child,
+.table-scroll:has(+ .totals) tbody tr:last-child > * {
+  border-bottom: 0;
+}
 .totals > div {
   background: transparent;
   border-radius: 0;
