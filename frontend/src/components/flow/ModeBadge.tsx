@@ -1,11 +1,11 @@
 import { useState } from 'react'
-import { Activity, CheckCircle2, Database, FlaskConical, Radio } from 'lucide-react'
+import { Activity, Database, FlaskConical, Radio } from 'lucide-react'
 import type { Proposal } from '../../lib/contracts'
 import type { DataSource } from '../../lib/gateway'
 import { formatTime } from '../../lib/format'
 import { Eval, RECORDED_CAPTURE_TIME, type PresentationMode } from '../../pages/Eval'
 
-/** Where the data came from: live API, recorded responses, or synthetic UI mocks, plus Eval & Pre-flight controls. */
+/** Where the data came from: live API, recorded responses, or synthetic UI mocks, plus the Pre-flight panel. */
 export function ModeBadge({
   source,
   proposal,
@@ -43,10 +43,7 @@ export function ModeBadge({
             Recorded{recordedTime ? ` · captured ${formatTime(recordedTime)}` : ''}
           </span>
         )}
-        <span className="mode-badge border-[var(--green)] bg-[var(--green-soft)] text-[var(--green)]">
-          <CheckCircle2 size={13} aria-hidden />
-          Eval 8/24 (8/8 P0)
-        </span>
+        {/* T57: no eval score in the buyer view. It is a developer metric, kept inside Pre-flight. */}
         <button
           type="button"
           aria-expanded={showPreflight}
