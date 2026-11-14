@@ -1,7 +1,17 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
+import { AlertCircle, HelpCircle, Pencil } from 'lucide-react'
 import type { Proposal } from '../lib/contracts'
-import { gateway, SCENARIOS, type FlowResult, type ScenarioId } from '../lib/gateway'
+import {
+  gateway,
+  SCENARIOS,
+  scenarioCustomerId,
+  subscribeGatewaySource,
+  type AgentStepEvent,
+  type DataSource,
+  type FlowResult,
+  type ScenarioId,
+} from '../lib/gateway'
 import { formatMoney, reasonChip } from '../lib/format'
 import { MandatePanel } from '../components/flow/MandatePanel'
 import { RequestComposer } from '../components/flow/RequestComposer'
@@ -33,18 +43,37 @@ function approvalWord(proposal: Proposal): string {
   )
 }
 
-function itemCount(proposal: Proposal) {
-  const n = proposal.request.items.length
+function itemCountFromItems(n: number) {
   return `${n} item${n === 1 ? '' : 's'}`
 }
 
 /** The one main view: Request → Lookup → Order → Approval, around a structured flow (not a chat). */
 export function Main() {
   const mandates = useQuery({ queryKey: ['mandates'], queryFn: () => gateway.listMandates() })
+  const health = useQuery({
+    queryKey: ['gateway-health'],
+    queryFn: () => gateway.checkHealth(),
+    retry: false,
+  })
   const [customerId, setCustomerId] = useState<string>()
   const [text, setText] = useState('')
+  const [streamedSteps, setStreamedSteps] = useState<AgentStepEvent[]>([])
+  const [sourceState, setSourceState] = useState<DataSource>(() => gateway.source)
+
+  useEffect(() => {
+    return subscribeGatewaySource((next) => setSourceState(next))
+  }, [])
+
   const run = useMutation<FlowResult, Error, { customerId: string; requestText: string }>({
-    mutationFn: (input) => gateway.run(input),
+    mutationFn: (input) => {
+      setStreamedSteps([])
+      return gateway.run({
+        ...input,
+        onStep: (_step, stepsSoFar) => {
+          setStreamedSteps(stepsSoFar)
+        },
+      })
+    },
   })
 
   useEffect(() => {
@@ -54,30 +83,122 @@ export function Main() {
   const mandate = mandates.data?.find((m) => m.customerId === customerId)
   // Follow the proposal's state on the agent channel: the approver decides in a separate window.
   const latest = useQuery({
-    queryKey: ['proposal', run.data?.proposal.proposalId],
-    queryFn: () => gateway.getProposal(run.data!.proposal.proposalId),
-    enabled: Boolean(run.data),
+    queryKey: ['proposal', run.data?.proposal?.proposalId],
+    queryFn: () => gateway.getProposal(run.data!.proposal!.proposalId),
+    enabled: Boolean(run.data?.proposal?.proposalId),
     refetchInterval: (query) =>
       (query.state.data ?? run.data?.proposal)?.state === 'PENDING_APPROVAL' ? 1500 : false,
   })
-  const proposal = latest.data ?? run.data?.proposal
+
+  // If the proposal was superseded at re-check, also fetch the superseding v2 proposal for display context
+  const rawProposal = latest.data ?? run.data?.proposal ?? undefined
+  const supersededNext = useQuery({
+    queryKey: ['proposal', rawProposal?.supersededBy],
+    queryFn: () => gateway.getProposal(rawProposal!.supersededBy!),
+    enabled: Boolean(rawProposal?.state === 'SUPERSEDED' && rawProposal?.supersededBy),
+  })
+  const proposal = rawProposal
   const running = run.isPending
+
+  const activeSteps = run.data?.steps ?? streamedSteps
+  const step1 = activeSteps.find((s) => s.step === 1 && s.name === 'REQUEST')
+  const step2 = activeSteps.find((s) => s.step === 2 && s.name === 'LOOKUP')
+  const step3 = activeSteps.find((s) => s.step === 3 && s.name === 'ORDER')
+  const step4 = activeSteps.find((s) => s.step === 4 && s.name === 'APPROVAL')
+  const errorStep = activeSteps.find((s) => s.name === 'ERROR')
+
+  const clarificationQuestion =
+    run.data?.clarificationQuestion ?? step1?.clarificationQuestion ?? undefined
+  const streamError = run.data?.error ?? errorStep?.error ?? undefined
+
+  const structuredRequest =
+    proposal?.request ??
+    run.data?.request ??
+    step3?.request ??
+    step2?.request ??
+    step1?.request ??
+    undefined
+  const lookupExcluded = proposal?.excluded ?? run.data?.excluded ?? step2?.excluded ?? undefined
+  const offerSnapshot = run.data?.offer ?? step3?.offer ?? undefined
 
   function selectMandate(id: string) {
     setCustomerId(id)
+    setStreamedSteps([])
     run.reset()
   }
   function submit() {
-    if (customerId && text.trim()) run.mutate({ customerId, requestText: text })
+    if (customerId && text.trim()) {
+      setStreamedSteps([])
+      run.mutate({ customerId, requestText: text })
+    }
   }
   function scenario(id: ScenarioId) {
     const s = SCENARIOS.find((x) => x.id === id)!
-    setCustomerId(s.customerId)
+    const targetCustomerId = scenarioCustomerId(id, mandates.data ?? [])
+    setCustomerId(targetCustomerId)
     setText(s.requestText)
-    run.mutate({ customerId: s.customerId, requestText: s.requestText })
+    setStreamedSteps([])
+    run.mutate({ customerId: targetCustomerId, requestText: s.requestText })
+  }
+  function focusComposerToEdit() {
+    const el = document.getElementById('request-text') as HTMLTextAreaElement | null
+    if (el) {
+      el.focus()
+      el.setSelectionRange(el.value.length, el.value.length)
+    }
   }
 
-  const done: StepStatus = proposal ? 'done' : running ? 'running' : 'idle'
+  const step1Status: StepStatus = step1
+    ? step1.status
+    : proposal
+      ? 'done'
+      : running
+        ? 'running'
+        : 'idle'
+
+  const step2Status: StepStatus =
+    errorStep && errorStep.step <= 2
+      ? 'blocked'
+      : step2
+        ? step2.status
+        : proposal
+          ? 'done'
+          : running && step1?.status === 'done'
+            ? 'running'
+            : 'idle'
+
+  const step3Status: StepStatus =
+    errorStep && errorStep.step === 3
+      ? 'blocked'
+      : step3
+        ? step3.status
+        : proposal
+          ? 'done'
+          : running && step2?.status === 'done'
+            ? 'running'
+            : 'idle'
+
+  const step4Status: StepStatus = proposal
+    ? approvalStatus(proposal)
+    : errorStep && errorStep.step === 4
+      ? 'blocked'
+      : step4
+        ? step4.status
+        : running && step3?.status === 'done'
+          ? 'running'
+          : 'idle'
+
+  const currentStepNumber =
+    proposal || step4 || (errorStep && errorStep.step === 4)
+      ? 4
+      : step3 || (errorStep && errorStep.step === 3)
+        ? 3
+        : step2 || (errorStep && errorStep.step === 2)
+          ? 2
+          : step1
+            ? 1
+            : undefined
+
   return (
     <div className="main-grid">
       <aside className="main-side">
@@ -102,7 +223,7 @@ export function Main() {
           onScenario={scenario}
           scenarios={SCENARIOS}
           running={running}
-          error={run.error?.message}
+          error={run.error?.message ?? streamError?.message}
         />
         <div className="flow-header">
           <div className="flex flex-wrap items-center gap-3">
@@ -125,46 +246,150 @@ export function Main() {
               </div>
             )}
           </div>
-          <ModeBadge source={gateway.source} proposal={proposal} />
+          <ModeBadge
+            source={run.data?.source ?? sourceState}
+            proposal={proposal}
+            healthMode={run.data?.mode ?? health.data?.mode ?? gateway.healthMode}
+          />
         </div>
         <ol className="steps" aria-label="Purchasing flow">
           <Step
             number={1}
             title="Request"
-            status={done}
-            summary={proposal ? `${itemCount(proposal)} · structured` : 'Structured request'}
+            status={step1Status}
+            current={currentStepNumber === 1 && !proposal}
+            summary={
+              clarificationQuestion
+                ? clarificationQuestion
+                : structuredRequest
+                  ? `${itemCountFromItems(structuredRequest.items.length)} · structured`
+                  : (step1?.summary ?? 'Structured request')
+            }
           >
-            {proposal && <RequestCard proposal={proposal} />}
+            {clarificationQuestion && (
+              <div
+                className="outcome outcome-ask mb-2"
+                role="region"
+                aria-label="Clarification needed"
+              >
+                <p className="outcome-headline">
+                  <HelpCircle size={20} aria-hidden />
+                  <span>
+                    <span className="outcome-word">CLARIFICATION NEEDED</span>
+                    {clarificationQuestion}
+                  </span>
+                </p>
+                {run.data?.explanation?.text && (
+                  <p className="mt-1 text-sm">{run.data.explanation.text}</p>
+                )}
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    className="btn btn-scenario text-xs font-semibold"
+                    onClick={focusComposerToEdit}
+                  >
+                    <Pencil size={14} aria-hidden />
+                    <span>Answer by editing the request above</span>
+                  </button>
+                  <span className="text-xs text-[var(--ink)] opacity-80">
+                    Nothing was ordered. Add the missing detail and run again.
+                  </span>
+                </div>
+              </div>
+            )}
+            {structuredRequest && <RequestCard proposal={proposal} request={structuredRequest} />}
           </Step>
           <Step
             number={2}
             title="Lookup"
-            status={done}
-            summary="Static catalogue first, then live price + availability for the shortlist only"
+            status={step2Status}
+            current={currentStepNumber === 2 && !proposal}
+            summary={
+              errorStep && errorStep.step <= 2
+                ? errorStep.summary
+                : 'Static catalogue first, then live price + availability for the shortlist only'
+            }
           >
-            {proposal && <ExcludedList proposal={proposal} />}
+            {errorStep && errorStep.step <= 2 && (
+              <div className="notice notice-error mb-2" role="alert">
+                <AlertCircle size={16} aria-hidden />
+                <span>{errorStep.summary}</span>
+              </div>
+            )}
+            {(proposal || step2 || lookupExcluded?.length) && (
+              <ExcludedList
+                proposal={proposal}
+                request={structuredRequest}
+                excluded={lookupExcluded}
+              />
+            )}
           </Step>
           <Step
             number={3}
             title="Order"
-            status={done}
+            status={step3Status}
+            current={currentStepNumber === 3 && !proposal}
             summary={
               proposal
                 ? `Proposal at fixed price · offer v${proposal.offerVersion} · ${formatMoney(proposal.totals.exclVat)} excl. VAT`
-                : 'Proposal at fixed price'
+                : offerSnapshot
+                  ? `Proposal at fixed price · offer v${offerSnapshot.offerVersion} · ${formatMoney(offerSnapshot.totals.exclVat)} excl. VAT`
+                  : (step3?.summary ?? 'Proposal at fixed price')
             }
           >
-            {proposal && <OrderProposalView proposal={proposal} />}
+            {(proposal || offerSnapshot) && (
+              <OrderProposalView
+                proposal={proposal}
+                offer={offerSnapshot}
+                request={structuredRequest}
+                mandateVersion={mandate?.version}
+              />
+            )}
           </Step>
           <Step
             number={4}
             title="Approval"
-            status={proposal ? approvalStatus(proposal) : running ? 'running' : 'idle'}
+            status={step4Status}
             statusWord={proposal ? approvalWord(proposal) : undefined}
-            current={Boolean(proposal)}
-            summary={proposal ? approvalLabel(proposal) : 'Agent decides, or a human signs off'}
+            current={Boolean(proposal || step4 || (errorStep && errorStep.step === 4))}
+            summary={
+              proposal
+                ? approvalLabel(proposal)
+                : errorStep && errorStep.step === 4
+                  ? errorStep.summary
+                  : (step4?.summary ?? 'Agent decides, or a human signs off')
+            }
           >
             {proposal && <DecisionFooter proposal={proposal} mandate={mandate} />}
+            {!proposal && step4 && (
+              <div className="outcome outcome-block" role="status">
+                <p className="outcome-headline">
+                  <AlertCircle size={20} aria-hidden />
+                  <span>
+                    <span className="outcome-word">NO ORDER</span>
+                    {step4.summary}
+                  </span>
+                </p>
+                {step4.explanation?.text && (
+                  <p className="mt-1 text-sm">{step4.explanation.text}</p>
+                )}
+              </div>
+            )}
+            {!proposal && errorStep && errorStep.step === 4 && (
+              <div className="notice notice-error" role="alert">
+                <AlertCircle size={16} aria-hidden />
+                <span>{errorStep.summary}</span>
+              </div>
+            )}
+            {proposal?.state === 'SUPERSEDED' && supersededNext.data && (
+              <div className="mt-2 rounded-lg border border-[var(--ask)] bg-[var(--ask-bg)] p-3 text-sm">
+                <strong>New version decided from scratch:</strong> proposal{' '}
+                <code>{supersededNext.data.proposalId}</code> (offer v
+                {supersededNext.data.offerVersion},{' '}
+                {formatMoney(supersededNext.data.totals.exclVat)} excl. VAT) →{' '}
+                <strong>{supersededNext.data.decision}</strong> ({supersededNext.data.state}).
+              </div>
+            )}
           </Step>
         </ol>
         {proposal && (
@@ -180,9 +405,13 @@ export function Main() {
         <p className="visually-hidden" aria-live="polite">
           {proposal
             ? `Decision ${proposal.decision}. ${approvalLabel(proposal)}.`
-            : running
-              ? 'Running request.'
-              : ''}
+            : clarificationQuestion
+              ? `Clarification needed: ${clarificationQuestion}`
+              : streamError
+                ? `Error: ${streamError.message}`
+                : running
+                  ? 'Running request.'
+                  : ''}
         </p>
       </div>
     </div>

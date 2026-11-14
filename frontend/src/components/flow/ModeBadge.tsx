@@ -6,11 +6,20 @@ import { formatTime } from '../../lib/format'
 import { Eval, RECORDED_CAPTURE_TIME, type PresentationMode } from '../../pages/Eval'
 
 /** Where the data came from: live API, recorded responses, or synthetic UI mocks, plus Eval & Pre-flight controls. */
-export function ModeBadge({ source, proposal }: { source: DataSource; proposal?: Proposal }) {
+export function ModeBadge({
+  source,
+  proposal,
+  healthMode,
+}: {
+  source: DataSource
+  proposal?: Proposal
+  healthMode?: 'LIVE' | 'RECORDED'
+}) {
   const [showPreflight, setShowPreflight] = useState(false)
   const [overrideMode, setOverrideMode] = useState<PresentationMode | null>(null)
 
-  const effectiveMode = overrideMode ?? proposal?.mode
+  const effectiveMode =
+    overrideMode ?? proposal?.mode ?? (source === 'GATEWAY' ? healthMode : undefined)
   const recordedTime = proposal?.recordedAt ?? RECORDED_CAPTURE_TIME
 
   return (
@@ -49,10 +58,7 @@ export function ModeBadge({ source, proposal }: { source: DataSource; proposal?:
         </button>
       </div>
       {showPreflight && (
-        <Eval
-          mode={effectiveMode ?? 'RECORDED'}
-          onModeChange={(next) => setOverrideMode(next)}
-        />
+        <Eval mode={effectiveMode ?? 'RECORDED'} onModeChange={(next) => setOverrideMode(next)} />
       )}
     </div>
   )

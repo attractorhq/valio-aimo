@@ -14,8 +14,15 @@ import {
 } from '../../lib/format'
 
 /** Step 1: the structured request, always shown (read-only in this version). */
-export function RequestCard({ proposal }: { proposal: Proposal }) {
-  const { request } = proposal
+export function RequestCard({
+  proposal,
+  request: directRequest,
+}: {
+  proposal?: Proposal
+  request?: Proposal['request']
+}) {
+  const request = directRequest ?? proposal?.request
+  if (!request) return null
   return (
     <div className="request-card">
       <figure className="request-text">

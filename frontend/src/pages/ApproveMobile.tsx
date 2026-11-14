@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, KeyRound, Smartphone, UserRoundCheck } from 'lucide-react'
-import { useParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { ApprovalCard } from '../components/approver/ApprovalCard'
 import { approverChannel, gateway } from '../lib/gateway'
 
@@ -10,7 +10,9 @@ import { approverChannel, gateway } from '../lib/gateway'
  */
 export function ApproveMobile() {
   const { token = '' } = useParams<{ token: string }>()
+  const [searchParams] = useSearchParams()
   const decodedToken = decodeURIComponent(token)
+  const proposalIdHint = searchParams.get('proposalId') ?? undefined
 
   const mandates = useQuery({
     queryKey: ['mandates'],
@@ -18,8 +20,8 @@ export function ApproveMobile() {
   })
 
   const view = useQuery({
-    queryKey: ['approver-token-view', decodedToken],
-    queryFn: () => approverChannel.viewByToken(decodedToken),
+    queryKey: ['approver-token-view', decodedToken, proposalIdHint],
+    queryFn: () => approverChannel.viewByToken(decodedToken, proposalIdHint),
     enabled: Boolean(decodedToken),
     retry: false,
   })

@@ -1,17 +1,25 @@
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, ScrollText } from 'lucide-react'
 import { DecisionLog } from '../components/log/DecisionLog'
-import { MOCK_LOGS, findMockLog, loadAuditTrail, logPath } from '../components/log/logData'
+import { ModeBadge } from '../components/flow/ModeBadge'
+import { MOCK_LOGS, findMockLog, logPath } from '../components/log/logData'
+import { gateway } from '../lib/gateway'
 
 /** Decision log per proposal (P6 P0-5): readable for the buyer and Valio Aimo without knowing the code. */
 export function Log({ proposalId }: { proposalId?: string }) {
+  const health = useQuery({
+    queryKey: ['gateway-health'],
+    queryFn: () => gateway.checkHealth(),
+    retry: false,
+  })
   const trail = useQuery({
     queryKey: ['audit', proposalId],
-    queryFn: () => loadAuditTrail(proposalId!),
+    queryFn: () => gateway.getAuditTrail(proposalId!),
     enabled: Boolean(proposalId),
     retry: false,
   })
   const current = proposalId ? findMockLog(proposalId) : undefined
+  const source = trail.data?.source ?? (current ? 'MOCK' : gateway.source)
 
   return (
     <div className="grid gap-4">
@@ -22,7 +30,7 @@ export function Log({ proposalId }: { proposalId?: string }) {
         >
           <ArrowLeft size={16} aria-hidden /> Back to the purchasing flow
         </a>
-        <span className="mode-badge mode-mock">Synthetic mock data</span>
+        <ModeBadge source={source} healthMode={health.data?.mode ?? gateway.healthMode} />
       </div>
 
       <section className="panel" aria-labelledby="log-title">
@@ -37,21 +45,23 @@ export function Log({ proposalId }: { proposalId?: string }) {
           a named human), which rule applied and which facts it used, with their trust labels.
         </p>
 
-        <nav aria-label="Proposals with a decision log" className="mt-3">
-          <ul className="flex flex-wrap gap-2">
-            {MOCK_LOGS.map((log) => (
-              <li key={log.proposalId}>
-                <a
-                  href={logPath(log.proposalId)}
-                  aria-current={log.proposalId === current?.proposalId ? 'page' : undefined}
-                  className={`btn ${log.proposalId === current?.proposalId ? 'btn-primary' : 'btn-scenario'}`}
-                >
-                  {log.title}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </nav>
+        {source === 'MOCK' && (
+          <nav aria-label="Proposals with a decision log" className="mt-3">
+            <ul className="flex flex-wrap gap-2">
+              {MOCK_LOGS.map((log) => (
+                <li key={log.proposalId}>
+                  <a
+                    href={logPath(log.proposalId)}
+                    aria-current={log.proposalId === current?.proposalId ? 'page' : undefined}
+                    className={`btn ${log.proposalId === current?.proposalId ? 'btn-primary' : 'btn-scenario'}`}
+                  >
+                    {log.title}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        )}
       </section>
 
       {!proposalId && <p className="notice">Pick a proposal to read its decision log.</p>}
@@ -62,7 +72,7 @@ export function Log({ proposalId }: { proposalId?: string }) {
       )}
       {trail.data && (
         <section aria-label={current ? current.title : `Proposal ${proposalId}`}>
-          <DecisionLog entries={trail.data.entries} />
+          <DecisionLog entries={trail.data.trail.entries} />
         </section>
       )}
     </div>
