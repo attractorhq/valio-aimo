@@ -1396,7 +1396,7 @@ export function ValioView() {
       </section>
 
       <p className="muted text-sm">
-        Catalogue data is shared. Live decision statistics cover your private demo session only.
+        Statistics cover your session only.
       </p>
       {/* Live AUTO / ASK / BLOCK Statistics */}
       <section className="panel" aria-labelledby="live-decision-stats-title">

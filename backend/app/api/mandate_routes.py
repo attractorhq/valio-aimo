@@ -34,7 +34,7 @@ OPEN_STATES = frozenset({"PENDING_APPROVAL", "APPROVED", "AUTO_APPROVED", "PROPO
 
 
 @router.post("/demo/reset", operation_id="resetDemoSandbox",
-             summary="Reset this private demo session, including confirmed simulated orders and its log")
+             summary="Reset this private session, including confirmed orders and its log")
 def reset_demo_sandbox(request: Request, state: State) -> dict:
     scope = request.headers.get("x-admin-reset")
     if scope is not None:
@@ -44,7 +44,7 @@ def reset_demo_sandbox(request: Request, state: State) -> dict:
         expected = hmac.new(key.encode(), b"voa-admin-reset-all", hashlib.sha256).hexdigest()
         supplied = request.headers.get("x-admin-reset-key", "")
         if not key or not hmac.compare_digest(supplied, expected):
-            raise HTTPException(403, "Resetting every demo session requires the architect reset secret.")
+            raise HTTPException(403, "Resetting every session requires the architect reset secret.")
         return {"scope": "all", "resetSandboxes": sandbox_registry().reset_all()}
     ids = list(state.proposal_ids)
     pending = [pid for pid in ids if state.gateway.get_proposal(pid).state == "PENDING_APPROVAL"]

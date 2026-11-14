@@ -144,7 +144,7 @@ class SandboxRegistry:
             entry = self._states.pop(sandbox_id, None)
             if entry is None:
                 if not create:
-                    raise HTTPException(404, "This demo session expired or was evicted; request a new proposal.")
+                    raise HTTPException(404, "This session expired; request a new proposal.")
                 state = self.factory(sandbox_id)
                 if len(self._states) >= self.capacity:
                     self._states.popitem(last=False)
