@@ -48,6 +48,8 @@ function itemCountFromItems(n: number) {
   return `${n} item${n === 1 ? '' : 's'}`
 }
 
+const IN_FLIGHT = new Set(['PENDING_APPROVAL', 'APPROVED', 'AUTO_APPROVED', 'RECHECKED'])
+
 /** A superseded proposal points to the version decided from scratch after it; show the newest one. */
 async function latestVersion(proposalId: string): Promise<Proposal> {
   let proposal = await gateway.getProposal(proposalId)
@@ -100,8 +102,10 @@ export function Main() {
     queryKey: ['proposal', run.data?.proposal?.proposalId],
     queryFn: () => latestVersion(run.data!.proposal!.proposalId),
     enabled: Boolean(run.data?.proposal?.proposalId),
+    // Keep polling through the short re-check after a sign-off (APPROVED → RECHECKED → CONFIRMED), so the
+    // buyer view never stops on a transient state.
     refetchInterval: (query) =>
-      (query.state.data ?? run.data?.proposal)?.state === 'PENDING_APPROVAL' ? 1500 : false,
+      IN_FLIGHT.has((query.state.data ?? run.data?.proposal)?.state ?? '') ? 1500 : false,
   })
 
   // If the proposal was superseded at re-check, also fetch the superseding v2 proposal for display context
