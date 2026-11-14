@@ -2,6 +2,8 @@
 # ARCHITECT MACHINE ONLY: build the catalogue, build the UI, then deploy Worker + Container on one origin.
 #   scripts/deploy                      full deploy (Worker + container image)
 #   scripts/deploy --containers-rollout=none   Worker/UI only, keep the running container image
+# A full deploy ends when /health reports the new build sha (T48). DEPLOY_URL overrides the URL that is read
+# from the wrangler output.
 # Needs: data/raw (event data), Docker (builds and pushes the image), `wrangler login`, secrets set:
 #   (cd edge && npx wrangler secret put VALIO_API_KEY)        # and OPENROUTER_API_KEY, APPROVAL_SIGNING_KEY
 set -euo pipefail
@@ -17,15 +19,22 @@ bash scripts/guard
 scripts/build-catalog
 [ -s data/catalog/catalog.json ] || fail "the catalogue artifact was not built (data/catalog/catalog.json)."
 
+# T48: the commit this deploy ships. /health reports it as "build" once the new container serves traffic.
+# data/catalog/ is gitignored and copied into the image, so the sha also reaches images built by wrangler.
+build_sha="$(git rev-parse --short HEAD)$(git diff --quiet HEAD || echo "-dirty$(date +%s)")"
+printf '%s\n' "$build_sha" > data/catalog/BUILD_SHA
+deploy_log="$(mktemp)"
+trap 'rm -f "$deploy_log"' EXIT
+
 (cd frontend && npm ci && npm run build)
 (cd edge && npm ci && npm run check)
 if docker buildx version >/dev/null 2>&1; then
-  (cd edge && npx wrangler deploy "$@")
+  (cd edge && npx wrangler deploy "$@") 2>&1 | tee "$deploy_log"
 else
   # No docker-buildx (wrangler builds with `docker build --load`): build with the legacy builder, push the
   # image to the Cloudflare registry and deploy a generated config that points at it (gitignored).
-  tag="valio-aimo-gateway:$(git rev-parse --short HEAD)$(git diff --quiet HEAD || echo "-dirty$(date +%s)")"
-  DOCKER_BUILDKIT=0 docker build -q -f backend/Dockerfile -t "$tag" .
+  tag="valio-aimo-gateway:$build_sha"
+  DOCKER_BUILDKIT=0 docker build -q --build-arg "BUILD_SHA=$build_sha" -f backend/Dockerfile -t "$tag" .
   image=$(cd edge && npx wrangler containers push "$tag" | sed -n 's/^Pushed image: //p' | tail -1)
   [ -n "$image" ] || fail "pushing $tag to the Cloudflare registry failed."
   python3 - "$image" <<'EOF'
@@ -35,7 +44,27 @@ cfg["containers"][0]["image"] = sys.argv[1]
 cfg["containers"][0].pop("image_build_context", None)
 open("edge/wrangler.registry.json", "w").write(json.dumps(cfg, indent=2))
 EOF
-  (cd edge && npx wrangler deploy --config wrangler.registry.json "$@")
+  (cd edge && npx wrangler deploy --config wrangler.registry.json "$@") 2>&1 | tee "$deploy_log"
 fi
 
-echo "deploy: ok. Smoke test: curl -fsS https://valio-aimo.<account>.workers.dev/health"
+# Wait for the container rollout (~2 min): the old instance keeps serving until then, and requests in flight
+# during the switch can fail. Done when /health reports this deploy's build sha.
+case " $* " in
+  *" --containers-rollout=none "*)
+    echo "deploy: ok (Worker/UI only; the running container keeps its build)."
+    exit 0 ;;
+esac
+url="${DEPLOY_URL:-$(grep -Eo 'https://[A-Za-z0-9.-]+\.workers\.dev' "$deploy_log" | head -1)}"
+[ -n "$url" ] || fail "deployed, but the URL is unknown; set DEPLOY_URL to wait for the rollout."
+echo "deploy: waiting for $url/health to report build $build_sha (timeout 5 min) ..."
+deadline=$(( $(date +%s) + 300 ))
+while :; do
+  live=$(curl -fsS --max-time 10 "$url/health" 2>/dev/null \
+         | python3 -c 'import json,sys; print(json.load(sys.stdin).get("build",""))' 2>/dev/null || true)
+  if [ "$live" = "$build_sha" ]; then
+    echo "deploy: rollout complete. $url serves build $build_sha."
+    break
+  fi
+  [ "$(date +%s)" -lt "$deadline" ] || fail "rollout not complete after 5 min: /health reports build '${live:-?}', expected $build_sha."
+  sleep 10
+done

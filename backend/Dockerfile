@@ -26,6 +26,11 @@ RUN useradd --create-home gateway \
 
 ENV DATABASE_URL=sqlite:////data/gateway.db
 
+# T48: the git commit this image was built from, reported by /health as "build" (scripts/deploy passes it;
+# without it the app falls back to data/catalog/BUILD_SHA, which scripts/deploy also writes).
+ARG BUILD_SHA=unknown
+ENV BUILD_SHA=${BUILD_SHA}
+
 USER gateway
 WORKDIR /srv/backend
 EXPOSE 8000

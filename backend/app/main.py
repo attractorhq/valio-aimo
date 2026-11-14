@@ -6,6 +6,8 @@ Two channels on one origin:
 `recheckAndConfirm` has no route: the server runs it before every simulated confirmation.
 """
 
+import os
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI
@@ -92,14 +94,30 @@ app.include_router(log_router)
 app.include_router(mcp_router)
 
 
+# T48: the git commit baked into the image (BUILD_SHA build arg), or the file scripts/deploy writes into
+# the gitignored data/catalog/ that the image copies. "dev" for a local run.
+BUILD_SHA_FILE = Path(__file__).resolve().parents[2] / "data" / "catalog" / "BUILD_SHA"
+
+
+def build_sha() -> str:
+    env = os.environ.get("BUILD_SHA", "").strip()
+    if env and env != "unknown":
+        return env
+    try:
+        return BUILD_SHA_FILE.read_text(encoding="utf-8").strip() or "dev"
+    except OSError:
+        return "dev"
+
+
 @app.get("/health", tags=["Operations"], operation_id="health")
 def health(state: Annotated[GatewayState | GatewayUnavailable, Depends(try_state)]) -> dict:
     """Liveness plus whether the gateway can serve orders (catalogue + live key or recorded fixtures)."""
     if isinstance(state, GatewayUnavailable):
-        return {"status": "degraded", "version": VERSION, "ready": False, "reason": str(state)}
+        return {"status": "degraded", "version": VERSION, "build": build_sha(), "ready": False, "reason": str(state)}
     return {
         "status": "ok",
         "version": VERSION,
+        "build": build_sha(),
         "ready": True,
         "mode": state.mode,
         "catalogProducts": len(state.catalog),

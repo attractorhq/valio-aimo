@@ -306,6 +306,23 @@ def test_health_and_legacy_routes_are_gone(api):
         assert client.client.get(legacy).status_code == 404
 
 
+def test_health_reports_the_build_sha(api, monkeypatch, tmp_path):
+    from app import main as main_module
+
+    client, _, _ = api
+    monkeypatch.setenv("BUILD_SHA", "abc1234")
+    assert client.client.get("/health").json()["build"] == "abc1234"
+
+    sha_file = tmp_path / "BUILD_SHA"
+    monkeypatch.setattr(main_module, "BUILD_SHA_FILE", sha_file)
+    for unset in ("", "unknown"):  # no build arg: the file scripts/deploy wrote, else "dev"
+        monkeypatch.setenv("BUILD_SHA", unset)
+        assert client.client.get("/health").json()["build"] == "dev"
+        sha_file.write_text("def5678\n")
+        assert client.client.get("/health").json()["build"] == "def5678"
+        sha_file.unlink()
+
+
 def test_health_reports_an_unconfigured_gateway(monkeypatch):
     from app.api import state as state_module
 
@@ -318,6 +335,7 @@ def test_health_reports_an_unconfigured_gateway(monkeypatch):
         health = client.get("/health")
         assert health.status_code == 200
         assert (health.json()["status"], health.json()["ready"]) == ("degraded", False)
+        assert health.json()["build"]
         offer = client.post("/v0.1/offers", json={"customerId": M1.customerId, "requestedDate": "2026-11-16",
                                                   "items": [{"itemId": "I1", "productId": "X", "quantity": "1",
                                                              "unit": "l"}]})
