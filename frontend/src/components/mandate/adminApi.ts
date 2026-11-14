@@ -6,6 +6,16 @@ export type MandateChange = {
   autoApproveLimitEur?: string
   hardLimitEur?: string
   allergenMode?: 'STANDARD' | 'STRICT'
+  /** T68: category code prefixes; [] allows any category. */
+  allowedCategories?: string[]
+  /** T68: ISO dates; null clears the bound. */
+  validFrom?: string | null
+  validTo?: string | null
+}
+
+/** "2240, 211 ;  " → ["211", "2240"]: unique and sorted, like the gateway stores them. */
+export function parseCategories(input: string): string[] {
+  return [...new Set(input.split(/[\s,;]+/).map((part) => part.trim()).filter(Boolean))].sort()
 }
 
 export type MandateChangeResult = {

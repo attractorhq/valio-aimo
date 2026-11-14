@@ -198,6 +198,19 @@ class Mandate(Contract):
     enforceCutoff: bool = True
     forbiddenAllergens: list[str] = Field(default_factory=list)
     approver: Approver
+    # T68: optional limits on what and until when. Empty / None = no limit (the demo mandates M1/M2).
+    allowedCategories: list[str] = Field(
+        default_factory=list,
+        description="Catalogue category code prefixes the agent may buy from; empty means any category.",
+    )
+    validFrom: date | None = Field(default=None, description="First day (Europe/Helsinki) the mandate applies.")
+    validTo: date | None = Field(default=None, description="Last day (Europe/Helsinki) the mandate applies.")
+
+    @model_validator(mode="after")
+    def _window_in_order(self) -> "Mandate":
+        if self.validFrom and self.validTo and self.validTo < self.validFrom:
+            raise ValueError("validTo must not be before validFrom")
+        return self
 
 
 class AuditEntry(Contract):

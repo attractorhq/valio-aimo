@@ -37,6 +37,8 @@ class ReasonCode(StrEnum):
     REQUOTED = "REQUOTED"
     DEPOSIT_COST_UNVERIFIED = "DEPOSIT_COST_UNVERIFIED"
     VARIABLE_WEIGHT_UNVERIFIED = "VARIABLE_WEIGHT_UNVERIFIED"
+    CATEGORY_NOT_ALLOWED = "CATEGORY_NOT_ALLOWED"
+    MANDATE_NOT_VALID = "MANDATE_NOT_VALID"
 
 
 ReasonEffect = Literal["ASK", "EXCLUDE", "BLOCK", "INFO", "NO_ORDER"]
@@ -104,6 +106,11 @@ REASON_REGISTRY = MappingProxyType({r.code: r for r in (
     _reason("REQUOTED", "INFO", "Re-checked", "Re-checked live before ordering: {changes}."),
     _reason("DEPOSIT_COST_UNVERIFIED", "EXCLUDE", "Deposit not priced",
             "Returnable packaging charges are not priced, so the order total is incomplete."),
+    # T68: mandate scope. Neither is a trade-off a human may sign off: the buyer admin changes the mandate instead.
+    _reason("CATEGORY_NOT_ALLOWED", "EXCLUDE", "Category not allowed",
+            "Category {category} is outside this mandate's allowed categories."),
+    _reason("MANDATE_NOT_VALID", "BLOCK", "Mandate not valid",
+            "The mandate is not valid on {date}. A buyer admin must renew it before the agent can order."),
     # Retained for migration from 0e74e98, but no longer a rejection or an approval request.
     _reason("VARIABLE_WEIGHT_UNVERIFIED", "INFO", "Variable weight",
             "Variable-weight product: 1 kg per sales unit under the challenge quantity rule."),
