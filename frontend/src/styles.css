@@ -563,6 +563,9 @@ main {
 }
 .segment-input {
   position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none; /* the label takes the click; the hidden radio never covers the name */
   opacity: 0;
   width: 1px;
   height: 1px;
@@ -592,15 +595,30 @@ main {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
-/* Touch screens keep a 44 px target. On a phone a long name may take a second line instead of "…". */
+/* Touch screens keep a 44 px target. On a phone the name stays on one line: a slightly smaller font and no
+   check mark (the filled background already marks the selection) leave room for the full name. */
 @media (pointer: coarse) {
   .segment {
     min-height: 44px;
   }
 }
 @media (max-width: 520px) {
+  /* Each buyer takes the width its name needs instead of an equal half. */
+  .segmented {
+    display: flex;
+    gap: var(--space-1);
+    min-width: 0; /* a fieldset is min-content wide by default; never push the page sideways */
+  }
+  .segment {
+    flex: 1 1 auto;
+    padding: 6px 4px;
+    justify-content: center;
+  }
+  .segment-check {
+    display: none;
+  }
   .segment-text strong {
-    white-space: normal;
+    font-size: 12px;
   }
 }
 .key-limits {
