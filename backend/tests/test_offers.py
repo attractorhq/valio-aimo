@@ -174,15 +174,19 @@ def test_valid_until_never_beyond_price_valid_to():
 # --------------------------------------------------------------------------- sizing
 
 
-@pytest.mark.parametrize(("needed", "content", "lot", "units", "delivered"), [
-    ("90", "5", "1", 18, "90"),
-    ("91", "5", "1", 19, "95"),       # ceil: at most one sales unit of over-delivery
-    ("1000", "1", "6", 1002, "1002"),  # allowedLotSize multiples
-    ("0.5", "1", "1", 1, "1"),
+@pytest.mark.parametrize(("needed", "content", "unit", "lot", "units", "delivered"), [
+    ("90", "5", "kg", "1", 18, "90"),
+    ("91", "5", "kg", "1", 19, "95"),         # ceil: at most one sales unit of over-delivery
+    ("1000", "1", "kg", "6", 1002, "1002"),   # allowedLotSize multiples
+    ("0.5", "1", "kg", "1", 1, "1"),
+    ("20", "1.75", "l", "0.01", 12, "21"),    # T37: whole sales units first, even when lot is 0.01
+    ("20", "1", "l", "6", 24, "24"),          # T37: whole sales units rounded up to lot 6
+    ("10", "0.5", "kg", "1", 20, "10"),       # T37: lot 1, 0.5 kg content -> 20 units
+    ("1000", "1", "l", "0.01", 1000, "1000"), # T37: Scenario A 1000 x 1 l -> 1000
 ])
-def test_sizing(needed, content, lot, units, delivered):
-    p = product("SYN-X", content=(content, "kg"), lot=lot)
-    sizing = size(p, Decimal(needed), "kg")
+def test_sizing(needed, content, unit, lot, units, delivered):
+    p = product("SYN-X", content=(content, unit), lot=lot)
+    sizing = size(p, Decimal(needed), unit)
     assert (sizing.quantity_sales_units, sizing.delivered.value) == (Decimal(units), Decimal(delivered))
     assert sizing.basis is ContentBasis.DECLARED
 
@@ -229,6 +233,17 @@ def test_partial_stock_without_another_candidate_stays_partial():
                         products=products, snapshot=snap, mandate=M2).offer
     (line,) = offer.lines
     assert (line.quantitySalesUnits, line.deliveredQuantity.value) == (Decimal(19), Decimal(95))
+
+
+def test_partial_stock_floors_to_whole_sales_units_when_lot_is_fractional():
+    cream = product("SYN-CREAM", sales_unit="ST", content=("1.75", "l"), lot="0.01")
+    products = {"SYN-CREAM": cream}
+    snap = snapshot(M1.customerId, [price_row("SYN-CREAM", 5.83)], [stock_row("SYN-CREAM", 7.43, sales_unit="ST")],
+                    products)
+    offer = build_offer(offer_request(M1.customerId, ("I1", "SYN-CREAM", "20", "l")),
+                        products=products, snapshot=snap, mandate=M1).offer
+    (line,) = offer.lines
+    assert (line.quantitySalesUnits, line.deliveredQuantity.value) == (Decimal(7), Decimal("12.25"))
 
 
 def test_unorderable_candidates_are_excluded_with_reasons():

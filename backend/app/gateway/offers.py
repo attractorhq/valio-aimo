@@ -81,11 +81,13 @@ def content_basis(content: ContentPerSalesUnit | None) -> ContentBasis:
 
 
 def _ceil_to_lot(units: Decimal, lot: Decimal) -> Decimal:
-    return (units / lot).to_integral_value(rounding=ROUND_CEILING) * lot
+    whole = units.to_integral_value(rounding=ROUND_CEILING)
+    return (whole / lot).to_integral_value(rounding=ROUND_CEILING) * lot
 
 
 def _floor_to_lot(units: Decimal, lot: Decimal) -> Decimal:
-    return (units / lot).to_integral_value(rounding=ROUND_FLOOR) * lot
+    whole = units.to_integral_value(rounding=ROUND_FLOOR)
+    return (whole / lot).to_integral_value(rounding=ROUND_FLOOR) * lot
 
 
 def size(product: Product, needed: Decimal, unit: str) -> Sizing:
