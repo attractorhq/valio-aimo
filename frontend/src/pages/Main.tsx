@@ -367,13 +367,18 @@ export function Main() {
               <RequestCard
                 proposal={proposal}
                 request={structuredRequest}
+                lookupDate={run.variables?.lookupDate}
                 disabled={running}
                 onEditAssumption={(nextText) => {
                   const targetCustomerId = customerId ?? proposal?.customerId
                   if (targetCustomerId) {
                     setText(nextText)
                     setStreamedSteps([])
-                    run.mutate({ customerId: targetCustomerId, requestText: nextText })
+                    run.mutate({
+                      customerId: targetCustomerId,
+                      requestText: nextText,
+                      lookupDate: run.variables?.lookupDate,
+                    })
                   }
                 }}
               />
