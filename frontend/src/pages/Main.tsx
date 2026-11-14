@@ -387,6 +387,7 @@ export function Main() {
                 offer={offerSnapshot}
                 request={structuredRequest}
                 mandateVersion={mandate?.version}
+                forbiddenAllergens={mandate?.forbiddenAllergens}
                 plan={step2?.plan}
               />
             )}
