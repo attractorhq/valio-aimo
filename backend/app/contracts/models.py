@@ -3,7 +3,7 @@
 from datetime import date
 from typing import Literal
 
-from pydantic import AwareDatetime, Field
+from pydantic import AwareDatetime, Field, model_validator
 
 from .common import (
     Contract,
@@ -244,6 +244,13 @@ class GetOfferRequest(Contract):
     customerId: Identifier
     requestedDate: date
     items: list[OfferItem] = Field(min_length=1, max_length=1000)
+    lookupDate: date | None = None
+
+    @model_validator(mode="after")
+    def validate_lookup_date(self):
+        if self.lookupDate is not None and self.lookupDate <= self.requestedDate:
+            raise ValueError("lookupDate must be later than requestedDate")
+        return self
 
 
 class CreateProposalRequest(Contract):

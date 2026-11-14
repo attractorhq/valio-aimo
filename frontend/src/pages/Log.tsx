@@ -234,27 +234,28 @@ export function Log({ proposalId }: { proposalId?: string }) {
             </ul>
           </nav>
         )}
-      </section>
-
-      {trail.error instanceof LogNotFound ? (
-        <p className="notice notice-error" role="alert">
-          Proposal not found. The log starts fresh on each deploy; pick a proposal below.
-        </p>
-      ) : (
-        trail.error && (
+        {trail.error instanceof LogNotFound ? (
           <p className="notice notice-error" role="alert">
-            {trail.error.message}
+            Proposal not found. The log starts fresh on each deploy; pick a proposal below.
           </p>
-        )
-      )}
-      {/* T80: without a proposal, or for one the gateway does not know, list the recent proposals. */}
-      {(!proposalId || trail.error instanceof LogNotFound) && <ProposalList />}
-      {proposalId && trail.isPending && <LoadingSection label="decision log" className="panel" />}
-      {trail.data && (
-        <section aria-label={current ? current.title : `Proposal ${proposalId}`}>
-          <DecisionLog entries={trail.data.trail.entries} />
-        </section>
-      )}
+        ) : (
+          trail.error && (
+            <p className="notice notice-error" role="alert">
+              {trail.error.message}
+            </p>
+          )
+        )}
+        {/* T80: without a proposal, or for one the gateway does not know, list the recent proposals. */}
+        {(!proposalId || trail.error instanceof LogNotFound) && <ProposalList />}
+        {proposalId && trail.isPending && (
+          <LoadingSection label="decision log" className="mt-3 border-t border-[var(--line)] pt-3" />
+        )}
+        {trail.data && (
+          <section aria-label={current ? current.title : `Proposal ${proposalId}`}>
+            <DecisionLog entries={trail.data.trail.entries} />
+          </section>
+        )}
+      </section>
     </div>
   )
 }

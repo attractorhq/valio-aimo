@@ -60,7 +60,18 @@ export type AgentStepEvent = {
   explanation?: ExplanationResult | null
   reasons?: ReasonCode[]
   excluded?: ExcludedProduct[]
+  noOrder?: NoOrderDetails | null
   error?: { code: string; message: string } | null
+}
+
+export type NoOrderDetails = {
+  items: {
+    itemId: string
+    searched: string
+    why: string
+    closestMatches: { productId: string; name: string }[]
+  }[]
+  earliestDelivery?: string | null
 }
 
 /** T44: on a hard-limit BLOCK, what would fit under the limit. Information only; never ordered. */
@@ -89,6 +100,7 @@ export type FlowResult = {
 export type RunInput = {
   customerId: string
   requestText: string
+  lookupDate?: string
   onStep?: (step: AgentStepEvent, stepsSoFar: AgentStepEvent[]) => void
 }
 
@@ -798,6 +810,7 @@ export const gateway: Gateway = {
       body: JSON.stringify({
         customerId: input.customerId,
         requestText: input.requestText,
+        lookupDate: input.lookupDate,
       }),
     })
 

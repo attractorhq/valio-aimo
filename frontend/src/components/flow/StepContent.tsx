@@ -264,7 +264,7 @@ export function ResultBanner({
       {proposal.reasons.length > 0 && (
         <ul className="chip-list" aria-label="Decision reasons">
           {uniqueReasons(proposal.reasons).map((code) => (
-            <li key={code} className="chip bg-[var(--surface)]">
+            <li key={code} className="chip">
               {reasonChip(code)}
             </li>
           ))}
@@ -274,29 +274,6 @@ export function ResultBanner({
         <a href="#step-3">Order lines</a>
         <a href="#step-4">Reasons</a>
         {logHref && <a href={logHref}>Decision log</a>}
-      </p>
-    </section>
-  )
-}
-
-/** The result when nothing could be ordered (no compliant product, or the run stopped). */
-export function NoOrderBanner({ summary, detail }: { summary: string; detail?: string }) {
-  return (
-    <section
-      className="outcome outcome-block result-banner"
-      aria-label="Result"
-      data-testid="result-banner"
-    >
-      <p className="outcome-headline">
-        <Ban size={22} aria-hidden />
-        <span>
-          <span className="outcome-word">NO ORDER</span>
-          {summary}
-        </span>
-      </p>
-      {detail && <p className="mt-1 text-sm text-[var(--ink)]">{detail}</p>}
-      <p className="result-links">
-        <a href="#step-2">Excluded candidates</a>
       </p>
     </section>
   )

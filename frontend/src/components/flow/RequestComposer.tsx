@@ -26,7 +26,7 @@ export function RequestComposer({
     onSubmit()
   }
   return (
-    <section className="panel composer" aria-labelledby="composer-heading">
+    <section className="composer" aria-labelledby="composer-heading">
       <h2 id="composer-heading" className="panel-title">
         Buyer request
       </h2>

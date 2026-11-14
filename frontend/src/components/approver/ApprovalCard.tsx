@@ -140,7 +140,7 @@ export function ApprovalCard({
         </div>
         {approvalStatement && !onlyLimit && (
           <p
-            className="mt-1 rounded-[12px] border border-[var(--ask)] bg-[var(--ask-bg)] px-2.5 py-1.5 text-sm font-semibold text-[var(--ink)]"
+            className="mt-1.5 border-t border-[var(--line)] pt-1.5 text-sm font-semibold text-[var(--ink)]"
             role="note"
             aria-label="Approval statement"
           >

@@ -45,13 +45,7 @@ function ExcludedEntry({ entry, item }: { entry: ExcludedProduct; item?: Request
   const facts = entry.facts ?? []
 
   return (
-    <li
-      className={`rounded-[12px] border px-2.5 py-1.5 text-xs ${
-        valioSub
-          ? 'border-[var(--block)] bg-[var(--block-bg)]'
-          : 'border-[var(--line)] bg-[var(--surface)]'
-      }`}
-    >
+    <li className="border-t border-[var(--line)] py-2 text-xs">
       <div className="flex flex-wrap items-center justify-between gap-1.5">
         <div className="min-w-0">
           <span className="font-semibold text-[var(--ink)]">{entry.name}</span>{' '}
@@ -63,7 +57,7 @@ function ExcludedEntry({ entry, item }: { entry: ExcludedProduct; item?: Request
             {entry.reasons.map((code) => (
               <li
                 key={code}
-                className="chip border-[var(--block)] bg-[var(--surface)] text-[var(--block)]"
+                className="inline-flex items-center gap-1 font-semibold text-[var(--block)]"
               >
                 <Ban size={11} aria-hidden />
                 <span>{formatExcludedReasonChip(code, item)}</span>
@@ -176,7 +170,7 @@ export function ExcludedList({
 
       {excluded.length > 0 && (
         <section
-          className="min-w-0 rounded-[24px] border border-[var(--line)] bg-[var(--tint)] px-3.5 py-2.5 [overflow-wrap:break-word]"
+          className="min-w-0 border-t border-[var(--line)] pt-2.5 [overflow-wrap:break-word]"
           aria-label="Excluded candidates"
         >
           <header className="flex flex-wrap items-center justify-between gap-2">

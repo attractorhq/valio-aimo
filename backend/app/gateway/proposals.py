@@ -1599,7 +1599,7 @@ class ProposalGateway:
         wanted = {code for codes in lists.values() for code in codes}
         snapshot = self.provider.lookup(
             dict(lists),
-            proposal.requestedDate,
+            offer_req.lookupDate or proposal.requestedDate,
             proposal.customerId,
             products={code: self.products[code] for code in wanted if code in self.products},
             force_refresh=True,

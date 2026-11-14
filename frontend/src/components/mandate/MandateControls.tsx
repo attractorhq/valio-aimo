@@ -118,7 +118,7 @@ export function MandateStatus({ mandate, live }: { mandate: Mandate; live: boole
 
   return (
     <section
-      className="panel mt-3"
+      className="mandate-status"
       aria-labelledby="mandate-status-heading"
       aria-busy={live && defaults.isPending}
     >
@@ -333,7 +333,7 @@ export function BuyerAdmin() {
         </Link>
       </header>
       <div className="main-grid">
-        <aside className="main-side">
+        <aside className="main-side panel">
           {mandates.error ? (
             <p className="notice notice-error" role="alert">
               Could not load mandates.

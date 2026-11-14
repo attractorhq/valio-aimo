@@ -197,6 +197,31 @@ class AgentPlan(Contract):
     offerRequest: GetOfferRequest
 
 
+class ClosestMatch(Contract):
+    productId: str
+    name: str
+
+
+class NoOrderItem(Contract):
+    itemId: str
+    searched: str
+    why: str
+    closestMatches: list[ClosestMatch] = Field(default_factory=list)
+
+
+class NoOrderDetails(Contract):
+    items: list[NoOrderItem]
+    earliestDelivery: date | None = None
+
+
+def relaxed_name_queries(name: str) -> list[str]:
+    """Drop one name token from the original query each time, keeping a meaningful search term."""
+    cleaned, _ = extract_inline_requirements(name)
+    words = _WORD_RE.findall(cleaned)
+    queries = (" ".join(words[:i] + words[i + 1:]) for i in range(len(words)))
+    return list(dict.fromkeys(query for query in queries if any(char.isalpha() for char in query)))
+
+
 def requirement_display_name(req: Requirement) -> str:
     """Human-readable label for a hard requirement (e.g. 'gluten-free', 'milk-free')."""
     code = req.code.strip().upper()
