@@ -145,24 +145,27 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     await expect(altsLiveA).toContainText('Recommended')
     await expect(altsLiveA).toContainText('Best')
 
-    const shortlistLocator = step(page, 'Lookup').locator('small', { hasText: /^Shortlist \(\d+\):/ })
-    await expect(shortlistLocator).toContainText('464306')
-    const shortlistBefore = (await shortlistLocator.textContent())?.trim() ?? ''
+    // T49: the shortlist ids moved from visible text to a tooltip (data-shortlist / title).
+    const shortlistLocator = step(page, 'Lookup').locator('small[data-shortlist]').first()
+    await expect(shortlistLocator).toHaveAttribute('data-shortlist', /464306/)
+    const shortlistBefore = (await shortlistLocator.getAttribute('data-shortlist')) ?? ''
 
     // 1b. T24: Changing "Any fat %" to "1.5 %" in A re-runs the flow and changes the shortlist
     await step(page, 'Request').getByRole('button', { name: 'Edit assumption: Any fat %' }).click()
-    const fatInput = step(page, 'Request').getByRole('textbox', { name: 'Edit assumption Any fat %' })
+    const fatInput = step(page, 'Request').getByRole('textbox', {
+      name: 'Edit assumption Any fat %',
+    })
     await fatInput.fill('1.5 %')
     await step(page, 'Request').getByRole('button', { name: 'Apply assumption Any fat %' }).click()
     await expect(step(page, 'Request')).toContainText('Preferences: 1.5 %')
     await expect(
       step(page, 'Request').getByRole('button', { name: 'Edit assumption: 1.5 %' }),
     ).toBeVisible()
-    await expect(shortlistLocator).toContainText('464306')
-    await expect(shortlistLocator).not.toHaveText(shortlistBefore)
-    await expect(shortlistLocator).not.toContainText('463335')
-    await expect(shortlistLocator).not.toContainText('464401')
-    await expect(shortlistLocator).not.toContainText('464073')
+    await expect(shortlistLocator).toHaveAttribute('data-shortlist', /464306/)
+    await expect(shortlistLocator).not.toHaveAttribute('data-shortlist', shortlistBefore)
+    await expect(shortlistLocator).not.toHaveAttribute('data-shortlist', /463335/)
+    await expect(shortlistLocator).not.toHaveAttribute('data-shortlist', /464401/)
+    await expect(shortlistLocator).not.toHaveAttribute('data-shortlist', /464073/)
 
     // 2. Scenario B -> ASK -> Approver panel -> Approve -> CONFIRMED_SIMULATED in both views
     await page.getByRole('button', { name: /^Scenario B:/ }).click()

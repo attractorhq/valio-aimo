@@ -116,9 +116,8 @@ export function DecisionFooter({ proposal, mandate }: { proposal: Proposal; mand
       )}
 
       {decision === 'ASK' && proposal.state === 'PENDING_APPROVAL' && (
-        <p className="muted small">
-          The agent cannot approve. {approver} signs off version {proposal.offerVersion} of this
-          proposal in the separate Approver panel.
+        <p className="text-sm">
+          Only {approver} can approve v{proposal.offerVersion}, in the Approver panel.
         </p>
       )}
 

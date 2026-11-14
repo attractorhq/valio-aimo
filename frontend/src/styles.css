@@ -167,29 +167,39 @@ main {
   border-top: 1px solid var(--line);
 }
 
-/* Layout */
+/* Layout (T49): spacing tokens 4/8/12/16/24. Desktop: request + result left, evidence right. */
+:root {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+}
 .main-grid {
   display: grid;
-  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
-  gap: 20px;
+  grid-template-columns: minmax(360px, 440px) minmax(0, 1fr);
+  gap: var(--space-5);
   align-items: start;
 }
+.main-primary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
 .main-side {
-  position: sticky;
-  top: 16px;
+  min-width: 0;
 }
 .main-flow {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-3);
   min-width: 0;
 }
 @media (max-width: 900px) {
   .main-grid {
     grid-template-columns: 1fr;
-  }
-  .main-side {
-    position: static;
+    gap: var(--space-3);
   }
   main {
     padding: 16px;
@@ -215,88 +225,136 @@ main {
   margin-bottom: 10px;
 }
 
-/* Mandate */
-.mandate-picker {
+/* Buyer picker: a segmented control. Selection = filled background + check, never a side bar. */
+.segmented {
   border: 0;
   margin: 0;
-  padding: 0;
+  padding: var(--space-1);
   display: grid;
-  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  grid-auto-flow: column;
+  gap: var(--space-1);
+  background: var(--bg);
+  border-radius: var(--radius);
 }
-.mandate-option {
+.segment {
+  position: relative;
   display: flex;
-  gap: 10px;
-  align-items: center;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  gap: var(--space-2);
+  align-items: flex-start;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius) - 4px);
   cursor: pointer;
+  min-width: 0;
 }
-.mandate-option input {
-  accent-color: var(--green);
-  width: 16px;
-  height: 16px;
+.segment:hover {
+  background: var(--surface);
+}
+.segment.is-selected {
+  background: var(--green);
+  color: #fff;
+}
+.segment.is-selected small {
+  color: rgb(255 255 255 / 0.85);
+}
+.segment:has(.segment-input:focus-visible) {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+.segment-input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
   margin: 0;
 }
-.mandate-option.selected {
-  border-color: var(--green);
-  background: var(--green-soft);
-  box-shadow: inset 3px 0 0 var(--green);
+.segment-check {
+  flex: 0 0 14px;
+  height: 14px;
+  margin-top: 2px;
 }
-.mandate-option strong {
+.segment-text {
+  min-width: 0;
+}
+.segment-text strong {
   display: block;
   font-size: 14px;
+  line-height: 1.3;
 }
-.mandate-option small {
+.segment-text small {
+  display: block;
   color: var(--muted);
   font-size: 12px;
 }
-.mandate-key {
-  font-weight: 700;
-  font-size: 12px;
-  background: var(--ink);
-  color: #fff;
-  border-radius: 6px;
-  padding: 2px 6px;
-}
-.mandate-details {
-  margin-top: 14px;
-}
-.mandate-readonly {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--muted);
-  margin-bottom: 8px;
-}
-.mandate-details dl {
+.key-limits {
   display: grid;
-  gap: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin-top: var(--space-3);
 }
-.mandate-details dl > div {
-  display: grid;
-  grid-template-columns: 1fr 1.2fr;
-  gap: 8px;
-  padding: 7px 0;
-  border-top: 1px solid var(--line);
-  font-size: 13px;
-}
-.mandate-details dt {
+.key-limits dt {
+  font-size: 12px;
   color: var(--muted);
 }
-.mandate-details dd {
+.key-limits dd {
+  font-size: 14px;
   font-weight: 600;
 }
-.mandate-approver {
+.key-limits > div:nth-child(3) {
+  grid-column: 1 / -1;
+}
+.more {
+  margin-top: var(--space-3);
+  border-top: 1px solid var(--line);
+  padding-top: var(--space-2);
+}
+.more > summary {
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-  padding: 10px;
-  background: var(--bg);
-  border-radius: 8px;
-  font-size: 13px;
+  gap: var(--space-2);
+  min-height: 32px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  list-style: none;
+}
+.more > summary::-webkit-details-marker {
+  display: none;
+}
+.more > summary > span:first-child::after {
+  content: ' ▾';
+  color: var(--muted);
+}
+.more[open] > summary > span:first-child::after {
+  content: ' ▴';
+}
+.more-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.rule-list > div {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: var(--space-2);
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+}
+.rule-list dt {
+  color: var(--muted);
+}
+.rule-list dd {
+  font-weight: 600;
+}
+.mandate-details {
+  margin-top: 0;
 }
 
 /* Composer */
@@ -326,9 +384,13 @@ main {
   margin-top: 12px;
 }
 .scenario-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  width: 100%;
+}
+.scenario-buttons .btn {
+  min-width: 0;
 }
 .btn {
   display: inline-flex;
@@ -375,6 +437,10 @@ main {
   display: block;
   font-size: 12px;
   color: var(--muted);
+}
+/* The left column is narrow: scenario buttons show their key and name; the full label stays in aria-label. */
+.main-primary .scenario-text small {
+  display: none;
 }
 .notice {
   display: flex;
@@ -534,11 +600,10 @@ main {
   flex-wrap: wrap;
   gap: 6px 8px;
   align-items: baseline;
-  padding: 10px 12px;
-  border-left: 3px solid var(--line);
+  padding: var(--space-2) var(--space-3);
   background: var(--bg);
-  border-radius: 0 8px 8px 0;
-  margin-bottom: 12px;
+  border-radius: var(--radius);
+  margin-bottom: var(--space-3);
 }
 .request-text blockquote {
   flex: 1 1 260px;
@@ -626,16 +691,24 @@ main {
 }
 .lookup-list li {
   display: grid;
-  grid-template-columns: minmax(100px, 160px) minmax(0, 1fr) auto;
-  gap: 8px;
+  grid-template-columns: minmax(90px, 140px) minmax(0, 1fr);
+  gap: var(--space-1) var(--space-2);
   font-size: 14px;
-  padding: 4px 0;
+  padding: var(--space-1) 0;
   border-bottom: 1px solid var(--line);
+}
+/* The excluded summary sits under the chosen product, so long product names keep their width. */
+.lookup-list li > :nth-child(3) {
+  grid-column: 2;
+  font-size: 12px;
 }
 @media (max-width: 640px) {
   .lookup-list li {
     grid-template-columns: 1fr;
     gap: 2px;
+  }
+  .lookup-list li > :nth-child(3) {
+    grid-column: 1;
   }
 }
 .totals {
@@ -1361,12 +1434,35 @@ main {
   display: none;
 }
 @media (max-width: 900px) {
-  /* Phones: the request and the result first; the mandate and admin controls below. */
+  /* Phones: request, result, the evidence steps, then the buyer mandate. */
+  .main-primary {
+    display: contents;
+  }
+  .buyer-line {
+    order: 0;
+  }
+  .primary-request {
+    order: 1;
+  }
+  .primary-result {
+    order: 2;
+  }
   .main-flow {
-    order: -1;
+    order: 3;
+  }
+  .main-side {
+    order: 4;
+  }
+  .primary-status {
+    order: 5;
   }
   .mobile-only {
     display: block;
+  }
+}
+@media (max-width: 520px) {
+  .key-limits {
+    grid-template-columns: 1fr 1fr;
   }
 }
 @media (max-width: 640px) {
@@ -1400,4 +1496,14 @@ main {
   .scenario-text small {
     display: none;
   }
+}
+
+/* T49: compact scenario buttons in the narrow left column. */
+.main-primary .btn-scenario {
+  padding: var(--space-1) var(--space-2);
+  gap: var(--space-2);
+  justify-content: center;
+}
+.main-primary .scenario-text strong {
+  white-space: nowrap;
 }

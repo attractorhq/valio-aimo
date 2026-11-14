@@ -264,7 +264,7 @@ function stepsFromProposal(proposal: Proposal): AgentStepEvent[] {
       name: 'LOOKUP',
       title: 'Lookup',
       status: 'done',
-      summary: 'Static catalogue first, then live price + availability for the shortlist only',
+      summary: 'Live price & stock for the shortlist',
       request: proposal.request,
       plan: mockPlanForProposal(proposal),
       reasons: [],

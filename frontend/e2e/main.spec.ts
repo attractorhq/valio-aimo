@@ -157,7 +157,10 @@ test('editable assumption chips: changing "Any fat %" to "1.5 %" in Scenario A r
   page,
 }) => {
   await runScenario(page, 'A')
-  await expect(step(page, 'Lookup')).toContainText('Shortlist (2): MOCK-MILK, MOCK-MILK-3PCT')
+  // T49: shortlist ids live in a tooltip (data-shortlist); the visible text is the count.
+  const shortlist = step(page, 'Lookup').locator('small[data-shortlist]').first()
+  await expect(shortlist).toHaveText('2 shortlisted')
+  await expect(shortlist).toHaveAttribute('data-shortlist', 'MOCK-MILK, MOCK-MILK-3PCT')
 
   await step(page, 'Request').getByRole('button', { name: 'Edit assumption: Any fat %' }).click()
   const input = step(page, 'Request').getByRole('textbox', { name: 'Edit assumption Any fat %' })
@@ -168,7 +171,8 @@ test('editable assumption chips: changing "Any fat %" to "1.5 %" in Scenario A r
   await expect(
     step(page, 'Request').getByRole('button', { name: 'Edit assumption: 1.5 %' }),
   ).toBeVisible()
-  await expect(step(page, 'Lookup')).toContainText('Shortlist (1): MOCK-MILK')
+  await expect(shortlist).toHaveText('1 shortlisted')
+  await expect(shortlist).toHaveAttribute('data-shortlist', 'MOCK-MILK')
   await expect(step(page, 'Lookup')).not.toContainText('MOCK-MILK-3PCT')
 })
 

@@ -69,6 +69,14 @@ async function latestVersion(proposalId: string): Promise<Proposal> {
   return proposal
 }
 
+/** Step 2 in one line: "Live price & stock for 8 shortlisted products". */
+function lookupSummary(plan?: ItemPlanSummary[]): string {
+  const ids = new Set((plan ?? []).flatMap((p) => p.shortlistIds ?? []))
+  return ids.size > 0
+    ? `Live price & stock for ${ids.size} shortlisted product${ids.size === 1 ? '' : 's'}`
+    : 'Live price & stock for the shortlist'
+}
+
 /** The one main view: Request → Lookup → Order → Approval, around a structured flow (not a chat). */
 export function Main() {
   const mandates = useQuery({ queryKey: ['mandates'], queryFn: () => gateway.listMandates() })
@@ -225,48 +233,62 @@ export function Main() {
 
   return (
     <div className="main-grid">
-      <aside className="main-side" id="buyer-mandate">
-        {mandates.error ? (
-          <p className="notice notice-error" role="alert">
-            Could not load mandates.
-          </p>
-        ) : (
-          <MandatePanel
-            mandates={mandates.data ?? []}
-            selected={mandate}
-            onSelect={selectMandate}
-            disabled={running}
-          />
-        )}
-        {mandate && (
-          <MandateStatus
-            mandate={mandate}
-            live={sourceState === 'GATEWAY' || gateway.source === 'GATEWAY'}
-          />
-        )}
-      </aside>
-      <div className="main-flow">
+      {/* Left on desktop: buyer, request and the result. Right: the evidence (the four steps).
+          On a phone: request, result, the steps, then the buyer mandate. */}
+      <div className="main-primary">
+        <aside className="main-side" id="buyer-mandate">
+          {mandates.error ? (
+            <p className="notice notice-error" role="alert">
+              Could not load mandates.
+            </p>
+          ) : (
+            <MandatePanel
+              mandates={mandates.data ?? []}
+              selected={mandate}
+              onSelect={selectMandate}
+              disabled={running}
+            />
+          )}
+        </aside>
         {mandate && (
           <p className="buyer-line mobile-only">
             Buying for <strong>{mandate.organisationName}</strong> ·{' '}
             <a href="#buyer-mandate">Change buyer</a>
           </p>
         )}
-        <RequestComposer
-          text={text}
-          onTextChange={setText}
-          onSubmit={submit}
-          onScenario={scenario}
-          scenarios={SCENARIOS}
-          running={running}
-          error={run.error?.message ?? streamError?.message}
-        />
-        {proposal && <ResultBanner proposal={proposal} logHref={logPath(proposal.proposalId)} />}
-        {!proposal && step4 && (
-          <NoOrderBanner summary={step4.summary} detail={step4.explanation?.text} />
+        <div className="primary-request">
+          <RequestComposer
+            text={text}
+            onTextChange={setText}
+            onSubmit={submit}
+            onScenario={scenario}
+            scenarios={SCENARIOS}
+            running={running}
+            error={run.error?.message ?? streamError?.message}
+          />
+        </div>
+        {(proposal || step4) && (
+          <div className="primary-result">
+            {proposal && (
+              <ResultBanner proposal={proposal} logHref={logPath(proposal.proposalId)} />
+            )}
+            {!proposal && step4 && (
+              <NoOrderBanner summary={step4.summary} detail={step4.explanation?.text} />
+            )}
+          </div>
         )}
+        {mandate && (
+          <div className="primary-status">
+            <MandateStatus
+              mandate={mandate}
+              live={sourceState === 'GATEWAY' || gateway.source === 'GATEWAY'}
+            />
+          </div>
+        )}
+      </div>
+      <div className="main-flow">
         <div className="flow-header">
-          <h2 className="panel-title">Flow</h2>
+          <h2 className="panel-title">Evidence</h2>
           <ModeBadge
             source={run.data?.source ?? sourceState}
             proposal={proposal}
@@ -342,7 +364,7 @@ export function Main() {
             summary={
               errorStep && errorStep.step <= 2
                 ? errorStep.summary
-                : 'Static catalogue first, then live price + availability for the shortlist only'
+                : lookupSummary(step2?.plan as ItemPlanSummary[] | undefined)
             }
           >
             {errorStep && errorStep.step <= 2 && (
