@@ -1496,6 +1496,44 @@ button.chip {
   background: transparent;
   color: var(--ink);
 }
+/* T97: one-tap complete requests under a clarification question. */
+.clarification-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--space-2);
+}
+
+/* Phone approval (T97): one row per line, the full table under "Line details". */
+.approval-lines-compact {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.approval-lines-compact li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+.approval-lines-compact li:last-child {
+  border-bottom: 0;
+}
+.approval-line-name {
+  font-weight: 600;
+  min-width: 0;
+}
+.approval-line-meta {
+  color: var(--muted);
+  white-space: nowrap;
+}
+.approval-line-details {
+  margin-top: var(--space-2);
+}
 .approval-reason {
   display: flex;
   flex-wrap: wrap;

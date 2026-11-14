@@ -54,6 +54,7 @@ export type AgentStepEvent = {
   summary: string
   request?: StructuredRequest | null
   clarificationQuestion?: string | null
+  clarificationOptions?: ClarificationOption[]
   plan?: unknown[] | null
   offer?: Offer | null
   proposal?: Proposal | null
@@ -63,6 +64,12 @@ export type AgentStepEvent = {
   excluded?: ExcludedProduct[]
   noOrder?: NoOrderDetails | null
   error?: { code: string; message: string } | null
+}
+
+/** T97: a complete request the buyer can run with one tap when theirs was too vague. */
+export type ClarificationOption = {
+  label: string
+  requestText: string
 }
 
 export type NoOrderDetails = {
@@ -88,6 +95,7 @@ export type FlowResult = {
   steps: AgentStepEvent[]
   request?: StructuredRequest | null
   clarificationQuestion?: string | null
+  clarificationOptions?: ClarificationOption[]
   offer?: Offer | null
   decision?: Decision | null
   explanation?: ExplanationResult | null
@@ -912,6 +920,10 @@ export const gateway: Gateway = {
       ((finalPayload?.clarificationQuestion as string | null | undefined) ??
         lastStep?.clarificationQuestion) ||
       null
+    const clarificationOptions =
+      (finalPayload?.clarificationOptions as ClarificationOption[] | undefined) ??
+      lastStep?.clarificationOptions ??
+      []
     const offer =
       ((finalPayload?.offer as Offer | null | undefined) ??
         lastStep?.offer ??
@@ -945,6 +957,7 @@ export const gateway: Gateway = {
       steps,
       request,
       clarificationQuestion,
+      clarificationOptions,
       offer,
       decision,
       explanation,

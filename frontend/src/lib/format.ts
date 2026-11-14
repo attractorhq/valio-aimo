@@ -31,6 +31,29 @@ export function formatDate(value: string): string {
   return `${WEEKDAYS[weekday]} ${day} ${MONTHS[month - 1]}`
 }
 
+function dayNumber(value: string): number {
+  const [year, month, day] = value.slice(0, 10).split('-').map(Number)
+  return Date.UTC(year, month - 1, day) / 86_400_000
+}
+
+/**
+ * T97: delivery before the requested date is a trade-off for a kitchen (storage, freshness), so it is said
+ * out loud: "Arrives Mon 16 Nov, 4 days early". "Part arrives" when only some lines come early. Null when
+ * nothing arrives before the requested date.
+ */
+export function earlyDeliveryNote(
+  lines: ReadonlyArray<{ deliveryDate: string }>,
+  requestedDate: string,
+): string | null {
+  const requested = dayNumber(requestedDate)
+  const early = lines.map((line) => line.deliveryDate).filter((d) => dayNumber(d) < requested)
+  if (early.length === 0) return null
+  const first = early.sort()[0]
+  const days = requested - dayNumber(first)
+  const who = early.length === lines.length ? 'Arrives' : 'Part arrives'
+  return `${who} ${formatDate(first)}, ${days} ${days === 1 ? 'day' : 'days'} early`
+}
+
 const helsinki = new Intl.DateTimeFormat('en-GB', {
   timeZone: 'Europe/Helsinki',
   year: 'numeric',

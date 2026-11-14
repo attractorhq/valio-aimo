@@ -576,10 +576,15 @@ def test_t24_real_catalog_scenario_a_any_fat_to_1_5_pct_changes_backend_shortlis
     assert "464306" in shortlist_any
     assert "463335" in shortlist_any
 
+    # A fresh gateway: since T97 the first (confirmed) order's stock would otherwise be held for the second run.
+    fresh = ProposalGateway(products=products_by_id, mandates=MandateBook(DEMO_MANDATES), provider=provider)
+    fresh_channel = GatewayAgentChannel(GatewayState(
+        gateway=fresh, catalog=list(products_by_id.values()), mode="RECORDED", clock=lambda: now,
+    ))
     run_15 = run_agent(
         "nordic-harbour-hotels",
         "We need 1,000 litres of lactose-free milk by Monday (1.5 %).",
-        channel=channel,
+        channel=fresh_channel,
         now=now,
     )
     assert run_15.request is not None

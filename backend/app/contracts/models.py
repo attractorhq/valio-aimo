@@ -174,6 +174,9 @@ class Proposal(Decision):
     lines: list[OfferLine]
     excluded: list[ExcludedProduct] = Field(default_factory=list)
     totals: Totals
+    # T97: the decision's own wording where a code alone is not enough, e.g. OVER_AUTO_LIMIT from the same-day
+    # total: "€297.96 already committed for delivery on Mon 16 Nov; with this order €595.92 > €500.00 …".
+    reasonDetails: dict[ReasonCode, str] = Field(default_factory=dict)
     supersededBy: Identifier | None = None
     simulationNotice: Literal["Simulated order — mock environment"] = "Simulated order — mock environment"
 

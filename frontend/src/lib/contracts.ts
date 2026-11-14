@@ -221,6 +221,7 @@ export type Proposal = {
   lines: Array<OfferLine>;
   excluded?: Array<ExcludedProduct>;
   totals: Totals;
+  reasonDetails?: { [key: string]: string };
   supersededBy?: string | null;
   simulationNotice?: "Simulated order \u2014 mock environment";
 };
