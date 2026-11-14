@@ -276,7 +276,8 @@ _FI_PLACE_CASE_RE = re.compile(
 _HEADCOUNT_RE = re.compile(
     r"\b(?:for\s+)?\d+\s+(?:guests?|people|persons?|pax|diners?|students?|pupils?|children|kids|customers?|"
     r"employees?|covers)\b|\b\d+\s+(?:vieraalle|hengelle|henkilölle|oppilaalle|lapselle|asiakkaalle|"
-    r"ruokailijalle|työntekijälle)\b",
+    r"ruokailijalle|työntekijälle|vierasta|henkeä|henkilöä|oppilasta|lasta|asiakasta|ruokailijaa|"
+    r"työntekijää)\b",
     re.IGNORECASE,
 )
 # Occasion words kept for a clarifying question ("Which product do you need for dessert for 200 guests …?").
@@ -302,6 +303,37 @@ _TIME_RE = re.compile(
     r"\b(?:klo|kello)\s*(?P<fh>\d{1,2})(?:[:.](?P<fm>\d{2}))?(?:\s+(?:mennessä|asti|saakka))?(?!\w)"
     r"|" + _TIME_LEAD + r"(?<![\d.,:])(?P<h>\d{1,2})(?::(?P<m>\d{2}))?\s*(?P<ap>[ap])\.?m\b\.?"
     r"|" + _TIME_LEAD + r"(?<![\d.,:])(?P<h24>\d{1,2}):(?P<m24>\d{2})(?![\d:])",
+    re.IGNORECASE,
+)
+# Greetings are not deadlines ("Good morning, we need …").
+_GREETING_RE = re.compile(
+    r"\bgood\s+(?:morning|afternoon|evening)\b|\bhyvää\s+(?:huomenta|päivää|iltaa)\b|\bhuomenta\b",
+    re.IGNORECASE,
+)
+# A time of day is a deadline on the delivery day as well (T53): (pattern, phrase shown, latest clock it allows).
+_DAYPARTS: tuple[tuple[str, str, str], ...] = (
+    (r"(?:early\s+)?(?:in\s+the\s+)?morning|aamulla|aamuksi|aamuun(?:\s+mennessä)?|aamusta",
+     "in the morning", "10:00"),
+    (r"(?:by|before|at)\s+(?:noon|midday)|noon|midday|aamupäivällä|aamupäiväksi|"
+     r"(?:aamupäivään|puoleenpäivään|keskipäivään)(?:\s+mennessä)?", "by noon", "12:00"),
+    (r"(?:by|before)\s+lunch(?:time)?|ennen\s+lounasta|lounaaseen\s+mennessä", "before lunch", "11:00"),
+    (r"(?:in\s+the\s+)?afternoon|iltapäivällä|iltapäiväksi|iltapäivään(?:\s+mennessä)?",
+     "in the afternoon", "16:00"),
+    (r"(?:by|before)\s+dinner|ennen\s+päivällistä", "before dinner", "17:00"),
+    (r"(?:in\s+the\s+)?evening|tonight|illalla|illaksi|iltaan(?:\s+mennessä)?", "in the evening", "20:00"),
+)
+_DAYPART_RES = tuple((re.compile(rf"\b(?:{p})\b", re.IGNORECASE), phrase, clock) for p, phrase, clock in _DAYPARTS)
+# The occasion or booking behind a request ("unexpected banquet booking") is context, never the product.
+_OCCASION_CONTEXT_RE = re.compile(
+    r"\b(?:an?\s+)?(?:(?:unexpected|sudden|surprise|last[\s-]minute|extra|big|large|private|corporate|company|"
+    r"wedding|birthday|christmas|school|staff)\s+)*(?:banquet|party|event|function|reception|conference|buffet|"
+    r"celebration|catering|gala)(?:\s+(?:booking|order|reservation|guests))?\b",
+    re.IGNORECASE,
+)
+# "or similar" / "tai vastaavaa": an accepted alternative, recorded as an assumption, never part of the item.
+_SIMILAR_RE = re.compile(
+    r"\bor\s+(?:something\s+)?(?:similar|equivalent|comparable)\b|\bor\s+an?\s+(?:equivalent|alternative)\b|"
+    r"\btai\s+(?:muu\s+|muuta\s+|jotain\s+)?vastaava\w*",
     re.IGNORECASE,
 )
 # The buyer's language decides the language of a clarifying question (fi or en; English when unsure).
@@ -402,9 +434,15 @@ def _is_finnish(text: str) -> bool:
     return len(_FI_HINT_RE.findall(text)) > len(_EN_HINT_RE.findall(text))
 
 
-def _take_time(text: str) -> tuple[str | None, str]:
-    """Return the first clock time as "HH:MM" and the text with every clock time cut out."""
-    found: list[str] = []
+@dataclass(frozen=True)
+class _Deadline:
+    phrase: str  # as shown: "by 14:00", "in the morning"
+    clock: str  # the latest "HH:MM" it allows, to read a deadline without a date as today or tomorrow
+
+
+def _take_deadline(text: str) -> tuple[_Deadline | None, str]:
+    """The first deadline (a clock time, else a time of day) and the text with every such phrase cut out."""
+    found: list[_Deadline] = []
 
     def take(m: re.Match) -> str:
         hour = int(m["fh"] or m["h"] or m["h24"])
@@ -415,11 +453,63 @@ def _take_time(text: str) -> tuple[str | None, str]:
             hour = hour % 12 + (12 if m["ap"].lower() == "p" else 0)
         if hour > 23 or minute > 59:
             return m.group(0)
-        found.append(f"{hour:02d}:{minute:02d}")
+        clock = f"{hour:02d}:{minute:02d}"
+        found.append(_Deadline(f"by {clock}", clock))
         return " "
 
-    rest = _TIME_RE.sub(take, text)
+    rest = _TIME_RE.sub(take, _GREETING_RE.sub(" ", text))
+    for pattern, phrase, clock in _DAYPART_RES:
+        if pattern.search(rest):
+            found.append(_Deadline(phrase, clock))
+            rest = pattern.sub(" ", rest)
+    # Clock times are found first, so an exact time wins over a time of day ("tomorrow morning by 9:00").
     return (found[0] if found else None), rest
+
+
+# Finnish compounds take their meaning from the last part (T53): "jauhelihakastike" is a meat *sauce*, not
+# mince. (head pattern at the end of the word, English head, needs a modifier in front). Explicit inflected
+# endings keep "salaattijuusto" (a cheese) from reading as a salad.
+_COMPOUND_HEADS: tuple[tuple[re.Pattern, str, bool], ...] = tuple(
+    (re.compile(pattern + "$"), english, needs_modifier) for pattern, english, needs_modifier in (
+        (r"kastik(?:e|etta|keen|keet|keita|keeseen|keena)", "sauce", False),
+        (r"keit(?:to|toa|on|ot|toja|toon)", "soup", False),
+        (r"pull(?:a|aa|an|at|ia|ien|iin)", "balls", True),
+        (r"laatik(?:ko|koa|on|ot|oita|koon)", "casserole", True),
+        (r"pihv(?:i|iä|in|it|ejä|eihin)", "steak", False),
+        (r"salaat(?:ti|tia|in|it|teja)", "salad", False),
+        (r"piira(?:kka|kkaa|kan|kat|koita|s)", "pie", True),
+        (r"kak(?:ku|kua|un|ut|kuja)", "cake", True),
+    )
+)
+_COMPOUND_MODIFIERS = {
+    "liha": "meat", "jauheliha": "meat", "kala": "fish", "lohi": "salmon", "juusto": "cheese", "kerma": "cream",
+    "kana": "chicken", "broileri": "chicken", "sieni": "mushroom", "tomaatti": "tomato", "peruna": "potato",
+    "kasvis": "vegetable", "makaroni": "macaroni", "porkkana": "carrot", "herne": "pea", "kaali": "cabbage",
+    "nauta": "beef", "naudan": "beef", "porsaan": "pork", "possu": "pork", "kanan": "chicken", "riisi": "rice",
+    "mansikka": "strawberry", "suklaa": "chocolate", "omena": "apple", "marja": "berry", "mustikka": "blueberry",
+    "vihannes": "vegetable", "kinkku": "ham", "pinaatti": "spinach", "maksa": "liver", "ruis": "rye",
+}
+_COMPOUND_SPECIAL = {"meat balls": "meatballs", "fish balls": "fish balls", "chicken balls": "chicken balls"}
+
+
+def _compound(lower: str) -> str | None:
+    """"jauhelihakastiketta" -> "meat sauce", "kalakeittoa" -> "fish soup", "lihapullia" -> "meatballs"."""
+    for pattern, head, needs_modifier in _COMPOUND_HEADS:
+        m = pattern.search(lower)
+        if m is None:
+            continue
+        prefix = lower[: m.start()].rstrip("-")
+        if not prefix:
+            return None if needs_modifier else head
+        modifier = _COMPOUND_MODIFIERS.get(prefix)
+        if modifier is None and len(prefix) >= 3:
+            # A modifier the table does not know is kept as written ("sienikastike" -> "sieni sauce").
+            modifier = prefix
+        if modifier is None:
+            return None
+        english = f"{modifier} {head}"
+        return _COMPOUND_SPECIAL.get(english, english)
+    return None
 
 
 def _translate(token: str) -> tuple[str, bool]:
@@ -429,6 +519,8 @@ def _translate(token: str) -> tuple[str, bool]:
     (T04), so the request and the search speak the same vocabulary.
     """
     lower = token.lower()
+    if compound := _compound(lower):
+        return compound, True
     for pattern, english in _FINNISH_FORMS:
         if pattern.fullmatch(lower):
             return english, True
@@ -489,6 +581,7 @@ def _extract(fragment: str) -> tuple[str, list[Requirement], list[Preference], s
     for _kind, pattern in _DATE_RES:
         rest = pattern.sub(" ", rest)
     rest = _HEADCOUNT_RE.sub(" ", rest)
+    rest = _OCCASION_CONTEXT_RE.sub(" ", rest)
     rest = _PURPOSE_RE.sub(" ", rest)
     rest = _DESTINATION_RE.sub(" ", rest)
     rest = _BENIGN_NEGATION_RE.sub(" ", rest)
@@ -523,6 +616,11 @@ def _words(rest: str, finnish: bool = False) -> tuple[str | None, list[str]]:
     return " ".join(words).strip(" -") or None, [original for original, _e, _k in tokens]
 
 
+def _is_genitive_word(token: tuple[str, str, bool]) -> bool:
+    original, _english, known = token
+    return not known and original[:1].islower() and len(original) >= 4 and original.lower().endswith("n")
+
+
 def _cut_finnish_tail(tokens: list[tuple[str, str, bool]]) -> list[tuple[str, str, bool]]:
     """Drop destination and circumstance words ("koulukeittiöön yhdellä oppilaalla") from a Finnish item."""
 
@@ -531,11 +629,18 @@ def _cut_finnish_tail(tokens: list[tuple[str, str, bool]]) -> list[tuple[str, st
 
     known_at = [n for n, (_o, _e, known) in enumerate(tokens) if known]
     if known_at:
-        # After the product noun, the first place-case word starts the tail: everything from there goes.
+        # After the product noun, the first place-case word starts the tail: everything from there goes,
+        # with the genitives that lead into it ("koulun lounaalle": for the school's lunch).
         for n in range(known_at[-1] + 1, len(tokens)):
             if place(tokens[n][0], tokens[n][2]):
+                while n - 1 > known_at[-1] and _is_genitive_word(tokens[n - 1]):
+                    n -= 1
                 return tokens[:n]
-        return tokens
+        # A genitive left dangling at the end modified something already removed ("… koulun [lounaalle]").
+        end = len(tokens)
+        while end - 1 > known_at[-1] and _is_genitive_word(tokens[end - 1]):
+            end -= 1
+        return tokens[:end]
     kept = [t for t in tokens if not place(t[0], t[2])]
     return kept or tokens
 
@@ -611,9 +716,9 @@ def _which_product_question(raw_quantity: str, finnish: bool) -> str:
     return f"Mitä tuotetta tarvitsette {raw_quantity}?" if finnish else f"Which product do you need {raw_quantity} of?"
 
 
-def _deadline_note(deadline: str, requested: date, today: date) -> str:
+def _deadline_note(deadline: _Deadline, requested: date, today: date) -> str:
     day = f"today ({format_date(requested)})" if requested == today else f"on {format_date(requested)}"
-    return f"Needed {day} by {deadline}: a later delivery does not meet this request"
+    return f"Needed {day} {deadline.phrase}: a later delivery does not meet this request"
 
 
 def _fallback(
@@ -629,14 +734,14 @@ def _fallback(
     for finding in sorted(ignored, key=lambda f: f.start, reverse=True):
         clean = clean[: finding.start] + ", " + clean[finding.end :]
     clean = _normalise_words(clean)
-    deadline, clean = _take_time(clean)
+    deadline, clean = _take_deadline(clean)
 
     dates = _find_dates(clean, today)
     explicit = dates[0] if dates else None
     deadline_day: date | None = None
     if deadline is not None:
         # A clock time without a date means today while that time is still ahead, otherwise tomorrow.
-        ahead = clock is None or clock < deadline
+        ahead = clock is None or clock < deadline.clock
         deadline_day = explicit.value if explicit else (today if ahead else today + timedelta(days=1))
 
     items: list[_ItemDraft] = []
@@ -659,6 +764,8 @@ def _fallback(
             else:
                 pending = f"{pending} {chunk}".strip()
         for fragment in fragments:
+            similar = bool(_SIMILAR_RE.search(fragment))
+            fragment = _SIMILAR_RE.sub(" ", fragment)
             first = _QUANTITY_RE.search(fragment)
             assert first is not None
             before, after = fragment[: first.start()], fragment[first.end() :]
@@ -676,6 +783,8 @@ def _fallback(
                 notes.append(f"{_plain(value)} {unit} read as {_plain(converted)} {target}")
                 value, unit = converted, target
             preferences = pref_b + pref_a + [Preference(kind="PACK_SIZE", value=p) for p in packs]
+            if similar:
+                notes.append(f"Similar products accepted for {what or 'this item'}")
             items.append(_ItemDraft(value, unit, first.group(0), what, id_a or id_b, requirements, preferences, notes))
 
     for item in items:
@@ -723,7 +832,9 @@ def _fallback(
             assumptions.append(f"No delivery date given: assumed {format_date(requested)} (tomorrow)")
         elif explicit is None:
             day = "today" if requested == today else "tomorrow"
-            assumptions.append(f"No delivery date given: “by {deadline}” read as {format_date(requested)} ({day})")
+            assumptions.append(
+                f"No delivery date given: “{deadline.phrase}” read as {format_date(requested)} ({day})"
+            )
         elif explicit.kind in ("weekday", "weekday_fi"):
             assumptions.append(f"Delivered on or before {format_date(requested)}")
         assumptions.extend(notes)

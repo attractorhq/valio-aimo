@@ -219,3 +219,118 @@ def test_finnish_safety_questions_are_finnish(text, start):
 ])
 def test_language_detection(text, finnish):
     assert _is_finnish(text) is finnish
+
+
+# --------------------------------------------------------------------------- T53: item-name leaks
+
+LATE_MORNING = datetime(2026, 11, 14, 11, 0, tzinfo=HKI)
+
+
+def test_judge_salmon_request_keeps_the_morning_as_the_deadline():
+    result = parse_request(
+        "We need 15 kg of fresh salmon fillet, organic and lactose-free, delivered tomorrow morning", LATE_MORNING
+    )
+    request = result.request
+    (item,) = request.items
+    assert item.what == "fresh salmon fillet"
+    assert request.requestedDate == TOMORROW
+    assert "Needed on Sun 15 Nov in the morning: a later delivery does not meet this request" in request.assumptions
+
+
+def test_judge_butter_request_drops_the_booking_context():
+    ((what, quantity, unit),) = items_of("50 kg salted butter, unexpected banquet booking", LATE_MORNING)
+    assert (what, quantity, unit) == ("salted butter", Decimal(50), "kg")
+
+
+def test_judge_school_request_is_a_meat_sauce_with_similar_accepted():
+    result = parse_request(
+        "40 kg gluteenitonta ja maidotonta jauhelihakastiketta tai vastaavaa koulun lounaalle, 300 oppilasta",
+        LATE_MORNING,
+    )
+    (item,) = result.request.items
+    assert item.what == "meat sauce"
+    assert [(r.kind, r.code) for r in item.requirements] == [("CLAIM", "FREE_FROM_GLUTEN"), ("AVOID_ALLERGEN", "AM")]
+    assert "Similar products accepted for meat sauce" in result.request.assumptions
+
+
+@pytest.mark.parametrize(("text", "phrase"), [
+    ("10 l milk tomorrow morning", "in the morning"),
+    ("10 l milk by noon tomorrow", "by noon"),
+    ("10 l milk before lunch tomorrow", "before lunch"),
+    ("10 l milk tomorrow afternoon", "in the afternoon"),
+    ("10 l milk tomorrow evening", "in the evening"),
+    ("10 litraa maitoa huomenna aamulla", "in the morning"),
+    ("10 litraa maitoa huomenna aamupäivällä", "by noon"),
+    ("10 litraa maitoa huomenna iltapäivällä", "in the afternoon"),
+    ("10 litraa maitoa huomenna illalla", "in the evening"),
+    ("10 litraa maitoa huomenna ennen lounasta", "before lunch"),
+])
+def test_time_of_day_is_a_deadline_not_an_item_word(text, phrase):
+    request = parse_request(text, LATE_MORNING).request
+    (item,) = request.items
+    assert item.what == "milk"
+    assert request.requestedDate == TOMORROW
+    assert f"Needed on Sun 15 Nov {phrase}: a later delivery does not meet this request" in request.assumptions
+
+
+def test_a_clock_time_wins_over_a_time_of_day():
+    request = parse_request("10 l milk tomorrow morning by 9:00", LATE_MORNING).request
+    assert "Needed on Sun 15 Nov by 09:00: a later delivery does not meet this request" in request.assumptions
+
+
+def test_a_greeting_is_not_a_deadline():
+    request = parse_request("Good morning, we need 10 l of milk tomorrow", LATE_MORNING).request
+    assert not any(a.startswith("Needed") for a in request.assumptions)
+    assert [i.what for i in request.items] == ["milk"]
+
+
+def test_a_time_of_day_without_a_date_is_today_while_it_is_still_ahead():
+    request = parse_request("We need 10 l of milk this evening", LATE_MORNING).request
+    assert request.requestedDate == TODAY
+    assert "Needed today (Sat 14 Nov) in the evening: a later delivery does not meet this request" in (
+        request.assumptions
+    )
+
+
+@pytest.mark.parametrize(("text", "what"), [
+    ("10 kg cheese for the banquet tomorrow", "cheese"),
+    ("10 kg cheese, last-minute party booking, tomorrow", "cheese"),
+    ("10 kg cheese for a wedding reception tomorrow", "cheese"),
+    ("10 kg juustoa juhliin huomiseksi", "cheese"),
+    ("10 kg juustoa koulun lounaalle huomiseksi", "cheese"),
+    ("10 kg Valio voita ravintolan keittiöön huomiseksi", "Valio butter"),
+    ("40 kg pastaa koululle, 300 oppilasta, huomiseksi", "pasta"),
+])
+def test_occasion_and_context_end_the_item_name(text, what):
+    ((parsed, _q, _u),) = items_of(text, LATE_MORNING)
+    assert parsed == what
+
+
+@pytest.mark.parametrize(("text", "what"), [
+    ("10 kg cheese or similar tomorrow", "cheese"),
+    ("10 kg cheese or equivalent tomorrow", "cheese"),
+    ("10 kg cheese or an alternative tomorrow", "cheese"),
+    ("10 kg juustoa tai vastaavaa huomiseksi", "cheese"),
+    ("10 kg juustoa tai muuta vastaavaa huomiseksi", "cheese"),
+])
+def test_or_similar_is_an_assumption_not_part_of_the_item(text, what):
+    request = parse_request(text, LATE_MORNING).request
+    (item,) = request.items
+    assert item.what == what
+    assert f"Similar products accepted for {what}" in request.assumptions
+
+
+@pytest.mark.parametrize(("text", "what"), [
+    ("40 kg jauhelihakastiketta huomiseksi", "meat sauce"),
+    ("5 kg juustokastiketta huomiseksi", "cheese sauce"),
+    ("20 litraa kalakeittoa huomiseksi", "fish soup"),
+    ("20 litraa lohikeittoa huomiseksi", "salmon soup"),
+    ("10 kg lihapullia huomiseksi", "meatballs"),
+    ("20 kg makaronilaatikkoa huomiseksi", "macaroni casserole"),
+    ("5 litraa kermavaahtoa huomiseksi", "whipping cream"),
+    ("10 kg jauhelihaa huomiseksi", "minced meat"),  # mince stays mince
+    ("5 kg tuorejuustoa huomiseksi", "cream cheese"),
+])
+def test_finnish_compounds_take_their_meaning_from_the_last_part(text, what):
+    ((parsed, _q, _u),) = items_of(text, LATE_MORNING)
+    assert parsed == what
