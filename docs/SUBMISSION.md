@@ -54,7 +54,9 @@ A trusted trade gateway for Valio Aimo plus a demo purchasing agent. It separate
 1. Open the live demo and run "I need 1,000 litres of lactose-free milk by Monday."
 2. Pick Scenario B and open the Approver panel in a second window, or on a phone via its QR code. Approve.
 3. Pick Scenario C.
-4. Open the decision log of any proposal, `/spec` and `/valio`.
+4. On the official example, change the "Any fat %" assumption chip to "1.5 %". The flow re-runs and the shortlist changes.
+5. With Scenario B pending, change the school's auto-approve limit in `/admin`. The open proposal is re-decided, and the change appears in its decision log. "Reset" restores the defaults.
+6. Open the decision log of any proposal: actors, rules, evidence, the final re-check, and JSON/CSV download. Then open `/spec` and `/valio`.
 
 ## Limits and production path
 
