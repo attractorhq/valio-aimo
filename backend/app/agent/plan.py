@@ -37,8 +37,11 @@ from app.catalog.vocab import (
     CONCEPTS_BY_ID,
     ProductConcept,
     extract_inline_requirements,
+    extract_requested_form,
     match_concept_in_text,
+    product_form_difference,
     resolve_query_concepts,
+    split_query_alternatives,
 )
 from app.contracts import (
     ExcludedProduct,
@@ -758,15 +761,46 @@ def _format_tradeoff(
     return " · ".join(parts) if parts else product.name
 
 
-def _concept_for_item(item: RequestItem) -> tuple[ProductConcept | None, ProductConcept | None]:
-    cleaned_query, _ = extract_inline_requirements(item.what)
+def _concept_for_query(query: str) -> tuple[ProductConcept | None, ProductConcept | None]:
+    cleaned_query, _ = extract_inline_requirements(query)
     concepts = resolve_query_concepts(cleaned_query)
     primary = concepts[0] if concepts else None
     parent = CONCEPTS_BY_ID.get(primary.parent_concept) if primary and primary.parent_concept else None
     return primary, parent
 
 
-def _requested_brand(item: RequestItem) -> tuple[str, str] | None:
+def _concept_for_item(item: RequestItem) -> tuple[ProductConcept | None, ProductConcept | None]:
+    return _concept_for_query(item.what)
+
+
+def _item_alternatives(item: RequestItem) -> tuple[str, ...]:
+    cleaned, _ = extract_inline_requirements(item.what)
+    alts = split_query_alternatives(cleaned)
+    return alts if len(alts) > 1 else (item.what,)
+
+
+def _item_same_product_family(
+    product_names: tuple[str, ...],
+    item: RequestItem,
+    *,
+    category: str = "",
+) -> bool:
+    req_codes = tuple(r.code for r in item.requirements)
+    for alt_what in _item_alternatives(item):
+        primary_c, parent_c = _concept_for_query(alt_what)
+        if same_product_family(
+            alt_what,
+            product_names,
+            concept_id=primary_c.concept_id if primary_c else None,
+            parent_concept_id=parent_c.concept_id if parent_c else None,
+            category=category,
+            requirement_codes=req_codes,
+        ):
+            return True
+    return False
+
+
+def _requested_brand(item: RequestItem, query: str | None = None) -> tuple[str, str] | None:
     """Return `(needle_lower, display_label)` when the buyer explicitly asked for a known brand."""
     if item.productId is not None:
         return None
@@ -777,24 +811,23 @@ def _requested_brand(item: RequestItem) -> tuple[str, str] | None:
                 if needle == low or re.search(rf"\b{re.escape(needle)}\b", low):
                     return needle, label
             return low, pref.value.strip()
-    q_lower = item.what.lower()
+    q_lower = (query if query is not None else item.what).lower()
     for needle, label in _KNOWN_BRANDS:
         if re.search(rf"\b{re.escape(needle)}\b", q_lower):
             return needle, label
     return None
 
 
-def requested_type_match(product: Product, item: RequestItem) -> TypeMatch:
-    """Is `product` exactly the product type the buyer asked for (e.g. whipping, not cooking cream)? (T34, T22)"""
-    primary, _ = _concept_for_item(item)
+def _single_requested_type_match(product: Product, item: RequestItem, query_what: str) -> TypeMatch:
+    primary, _ = _concept_for_query(query_what)
     codes = tuple(r.code for r in item.requirements)
     names = (product.name, *product.names.values())
     base = product_type_match(
-        item.what, names, concept_id=primary.concept_id if primary else None, requirement_codes=codes
+        query_what, names, concept_id=primary.concept_id if primary else None, requirement_codes=codes
     )
     differences = list(base.differences)
     text_lower = " ".join(n for n in names if n).lower()
-    q_lower = item.what.lower()
+    q_lower = query_what.lower()
 
     if primary is not None and primary.concept_id == "milk":
         asked_sour = any(t in q_lower for t in ("sour", "piimä", "surmjölk", "filmjölk", "buttermilk", "gefilus"))
@@ -814,15 +847,22 @@ def requested_type_match(product: Product, item: RequestItem) -> TypeMatch:
     elif primary is None:
         # No known product concept (e.g. fish): every product noun the buyer used must be in the name,
         # so "salmon fillet" never matches a flounder fillet (T39).
-        missing = _missing_query_nouns(item.what, text_lower)
+        missing = _missing_query_nouns(query_what, text_lower)
         if missing:
             differences.append(f"not {' '.join(missing)}")
+
+    # T87: product form (grated, sliced, block, shredded, cubed, whole, powder) is a hard requirement when stated.
+    req_form = extract_requested_form(query_what, item.preferences)
+    if req_form is not None:
+        form_diff = product_form_difference(names, product.category, req_form)
+        if form_diff is not None and form_diff not in differences:
+            differences.append(form_diff)
 
     # T52: stated attributes are hard. A product that does not prove one is only an agent substitute, with
     # the difference named; it is never the recommended exact match.
     if any(p.kind == "ORGANIC" for p in item.preferences) and not is_organic(product):
         differences.append("not organic (no organic label)")
-    target_fat = requested_fat_percent(item.preferences, item.what)
+    target_fat = requested_fat_percent(item.preferences, query_what)
     if target_fat is not None:
         fats = product_fat_percents(product)
         if not fats:
@@ -831,7 +871,7 @@ def requested_type_match(product: Product, item: RequestItem) -> TypeMatch:
             shown = " / ".join(_pct(f) for f in sorted(fats))
             differences.append(f"{shown} % fat, not {_pct(target_fat)} %")
 
-    req_brand = _requested_brand(item)
+    req_brand = _requested_brand(item, query_what)
     if req_brand is not None:
         brand_needle, brand_label = req_brand
         prod_brand = _extract_brand(product)
@@ -844,6 +884,29 @@ def requested_type_match(product: Product, item: RequestItem) -> TypeMatch:
                 differences.append(diff)
 
     return TypeMatch(exact=not differences, differences=tuple(differences))
+
+
+def requested_type_match(product: Product, item: RequestItem) -> TypeMatch:
+    """Is `product` exactly the product type the buyer asked for (e.g. whipping, not cooking cream)? (T34, T22, T87)"""
+    alts = _item_alternatives(item)
+    if len(alts) <= 1:
+        return _single_requested_type_match(product, item, item.what)
+    names = (product.name, *product.names.values())
+    req_codes = tuple(r.code for r in item.requirements)
+    family_matches = [
+        _single_requested_type_match(product, item, alt)
+        for alt in alts
+        if same_product_family(
+            alt,
+            names,
+            concept_id=_concept_for_query(alt)[0].concept_id if _concept_for_query(alt)[0] else None,
+            parent_concept_id=_concept_for_query(alt)[1].concept_id if _concept_for_query(alt)[1] else None,
+            category=product.category,
+            requirement_codes=req_codes,
+        )
+    ]
+    candidates = family_matches or [_single_requested_type_match(product, item, alt) for alt in alts]
+    return min(candidates, key=lambda tm: (0 if tm.exact else 1, len(tm.differences)))
 
 
 def _pct(value: Decimal) -> str:
@@ -880,6 +943,21 @@ def _matches_primary_concept(product: Product, primary: ProductConcept | None, q
     return matches, is_specialty
 
 
+def _item_matches_primary_concept(product: Product, item: RequestItem) -> tuple[bool, bool]:
+    alts = _item_alternatives(item)
+    if len(alts) <= 1:
+        primary, _ = _concept_for_item(item)
+        return _matches_primary_concept(product, primary, item.what.lower())
+    results = [
+        _matches_primary_concept(product, _concept_for_query(alt)[0], alt.lower())
+        for alt in alts
+    ]
+    matched_results = [r for r in results if r[0]]
+    if matched_results:
+        return True, all(r[1] for r in matched_results)
+    return False, any(r[1] for r in results)
+
+
 def rank_candidates(
     candidates: Sequence[Product],
     *,
@@ -901,14 +979,11 @@ def rank_candidates(
     Non-compliant or non-deliverable candidates are excluded and never returned here.
     """
     obs_map = observations or {}
-    primary_concept, parent_concept = _concept_for_item(item)
-    q_lower = item.what.lower()
     target_id = item.productId or (named_product.productId if named_product else None)
     valio_subs_of_named: frozenset[str] = (
         frozenset(named_product.substitutions) if named_product is not None else frozenset()
     )
     target_fat = requested_fat_percent(item.preferences, item.what)
-    req_codes = tuple(r.code for r in item.requirements)
 
     scored: list[
         tuple[tuple, Product, CandidateObservation | None, SubstitutionKind | None, str | None, tuple[str, ...], bool]
@@ -917,14 +992,11 @@ def rank_candidates(
     for prod in candidates:
         named = target_id is not None and prod.productId == target_id
         # T51 product family guard: a candidate may be offered (even as AGENT_SUBSTITUTE) only if it is
-        # in the same product family as the item.
-        if not named and not same_product_family(
-            item.what,
+        # in the same product family as the item (or any of its 'X or Y' / 'X tai Y' alternatives, T87).
+        if not named and not _item_same_product_family(
             (prod.name, *prod.names.values()),
-            concept_id=primary_concept.concept_id if primary_concept else None,
-            parent_concept_id=parent_concept.concept_id if parent_concept else None,
+            item,
             category=prod.category,
-            requirement_codes=req_codes,
         ):
             continue
         static_reasons, _ = evaluate_product_static_requirements(
@@ -967,7 +1039,7 @@ def rank_candidates(
             if _floor_to_lot(obs.available_quantity, prod.allowedLotSize) <= 0:
                 continue
 
-        matches_primary, is_specialty = _matches_primary_concept(prod, primary_concept, q_lower)
+        matches_primary, is_specialty = _item_matches_primary_concept(prod, item)
         # A product of a different type (whipping vs cooking cream, dairy vs alternative) is never an
         # exact match: it can only be offered as an agent substitute, after every exact match (T34).
         type_match = requested_type_match(prod, item)
@@ -1519,15 +1591,11 @@ def _is_valid_feasible_line(ln: OfferLine, item: RequestItem | None, mandate: Ma
                 if req.kind == "AVOID_ALLERGEN" and fact.value in ("CONTAINS", "MAY_CONTAIN", None):
                     return False
         if item.productId != ln.productId:
-            primary_c, parent_c = _concept_for_item(item)
             is_syn = ln.productId.startswith("SYN-") or ln.name.lower().startswith("synthetic syn-")
-            if not same_product_family(
-                item.what,
+            if not _item_same_product_family(
                 (ln.name, *([ln.nameFi] if ln.nameFi else [])),
-                concept_id=primary_c.concept_id if primary_c else None,
-                parent_concept_id=parent_c.concept_id if parent_c else None,
+                item,
                 category="synthetic" if is_syn else "",
-                requirement_codes=tuple(r.code for r in item.requirements),
             ):
                 return False
     return True

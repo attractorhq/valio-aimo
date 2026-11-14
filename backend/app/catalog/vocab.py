@@ -1,9 +1,10 @@
 """Multilingual FI ↔ EN ↔ SV vocabulary, Finnish compound matching, and inline requirement extraction."""
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 
-from app.contracts import Requirement
+from app.contracts import Preference, Requirement
 
 
 @dataclass(frozen=True)
@@ -282,6 +283,35 @@ PRODUCT_CONCEPTS: tuple[ProductConcept, ...] = (
         sv_stems=("apelsinjuice", "äppeljuice", "juice"),
     ),
     ProductConcept(
+        concept_id="meat_sauce",
+        category_prefixes=("173", "219", "417"),
+        en_terms=("minced meat sauce", "meat sauce", "mince sauce", "bolognese sauce", "bolognese"),
+        fi_stems=("jauhelihakastik", "lihakastik", "bolognesekastik", "jauhelihabolognese"),
+        sv_stems=("köttfärssås", "bolognesesås"),
+        exclude_stems=(
+            "spaghetti", "spagetti", "pasta", "lasagne", "lasagna", "lasagnette", "pizza",
+            "babyfood", "baby food", "lastenateria", "lastenruoka", "dry mix", "kuivaseos",
+        ),
+    ),
+    ProductConcept(
+        concept_id="minced_meat",
+        category_prefixes=("187", "172", "417"),
+        en_terms=(
+            "minced meat", "minced beef", "beef mince", "pork mince", "chicken mince",
+            "ground meat", "ground beef", "mince",
+        ),
+        fi_stems=("jauheliha",),
+        sv_stems=("malet kött", "köttfärs", "nötfärs", "blandfärs"),
+        exclude_stems=(
+            "kastike", "sauce", "bolognese", "keitto", "soup", "pihvi", "patty", "patties",
+            "burger", "hampurilainen", "mureke", "meatloaf", "pyörykkä", "meatball",
+            "laatikko", "vuoka", "casserole", "pizza", "lasagne", "lasagna", "lasagnette",
+            "piirakka", "pasteija", "varras", "skewer", "kebakko", "mauste", "seasoning",
+            "spice", "maksa", "liver", "kala", "fish", "lohi", "salmon", "kirjoloh",
+            "trout", "hauki", "pike",
+        ),
+    ),
+    ProductConcept(
         concept_id="Disposable tableware",
         category_prefixes=("640", "200"),
         en_terms=("plastic cup", "paper cup", "disposable cup", "disposable plate", "tumbler"),
@@ -453,6 +483,8 @@ FI_SV_TO_EN_SYNONYMS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("hunaja", ("honey",)),
     ("honung", ("honey",)),
     ("suola", ("salt",)),
+    ("jauhelihakastik", ("meat sauce", "bolognese", "minced meat sauce")),
+    ("jauheliha", ("minced meat", "mince", "ground meat", "ground beef")),
     ("luomu", ("organic", "ekologisk")),
     ("ekologisk", ("organic", "luomu")),
     ("organic", ("organic", "luomu", "ekologisk")),
@@ -477,7 +509,256 @@ QUERY_STOPWORDS: frozenset[str] = frozenset({
     "litres", "litre", "liters", "liter", "kg", "kgs", "kilos", "g", "grams", "l", "dl", "cl", "ml",
     "pcs", "pc", "packs", "pack", "bags", "bag", "cases", "case", "boxes", "box", "bottles",
     "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "today", "tomorrow",
+    "grated", "raaste", "raasteena", "raastetta", "raastettu", "raastettua", "raastettuna",
+    "sliced", "slices", "viipale", "viipaleena", "viipaleina", "viipaleita", "viipaloitu", "viipaloitua",
+    "viipaloituna", "siivu", "siivuna", "siivuina", "siivuja", "siivutettu", "siivutettua",
+    "block", "blocks", "palana", "paloina", "kimpale", "kimpaleena", "kimpaleina", "kimpaleita", "tahko", "tahkona",
+    "shredded", "strips", "strip", "suikale", "suikaleena", "suikaleina", "suikaleita", "suikaloitu", "suikaloitua",
+    "cubed", "cubes", "diced", "kuutio", "kuutiona", "kuutioina", "kuutioita", "kuutioitu", "kuutioitua",
+    "kokonainen", "kokonaisena", "kokonaisia", "kokonaiset", "kokonaista", "kokonaisen",
+    "powder", "powdered", "jauhe", "jauheena", "jauhetta",
 })
+
+# T87: Product form is a hard requirement when stated. A product in another form is never an exact match:
+# it is excluded or at most offered as an AGENT_SUBSTITUTE (ASK), never AUTO.
+
+
+@dataclass(frozen=True)
+class ProductForm:
+    form_id: str
+    label: str
+    query_patterns: tuple[re.Pattern[str], ...]
+    product_patterns: tuple[re.Pattern[str], ...]
+    category_prefixes: tuple[str, ...] = ()
+    category_exclude_terms: tuple[str, ...] = ()
+
+
+def _compile_patterns(*patterns: str) -> tuple[re.Pattern[str], ...]:
+    return tuple(re.compile(p, re.IGNORECASE) for p in patterns)
+
+
+PRODUCT_FORMS: tuple[ProductForm, ...] = (
+    ProductForm(
+        form_id="grated",
+        label="Grated",
+        query_patterns=_compile_patterns(
+            r"\bgrated\b",
+            r"\b(?:tuore)?raaste(?:ena|tta|en|et|ita|eseen|ella|elta|essa|eksi)?\b",
+            r"\braastet(?:tu|tua|tun|tuja|tuina|tuna|ut)?\b",
+            r"\b[^\W\d_]+-?raaste(?:ena|tta|en|et|ita|eseen)?\b",
+            r"\briven\b|\brivet\b|\brivna\b|\b[^\W\d_]*riven\b",
+        ),
+        product_patterns=_compile_patterns(
+            r"\bgrated?\b|\bgrat\b",
+            r"\b\w*raaste\w*|\b\w*raastet\w*|\braast\b",
+            r"\b\w*riven\w*|\brivet\b|\brivna\b",
+        ),
+        category_prefixes=("10603",),
+        category_exclude_terms=(
+            "cottage", "raejuusto", "rae ", "keso", "crumble", "muru", "murennet",
+            "cube", "kuutio", "flake", "lastu", "shav", "scaglie", "granelli", "slice", "viipale",
+        ),
+    ),
+    ProductForm(
+        form_id="sliced",
+        label="Sliced",
+        query_patterns=_compile_patterns(
+            r"\bsliced\b|\bslices\b|\bin\s+slices\b",
+            r"\bviipale(?:ena|ina|ita|et|en|eseen|ella|eksi)?\b",
+            r"\bviipaloi(?:tu|tua|tun|tuja|tuna|dut)?\b",
+            r"\bsiivu(?:na|ina|ja|t|n)?\b|\bsiivutet(?:tu|tua|tun|tuja|tuna)?\b",
+            r"\b[^\W\d_]+-?(?:viipale|siivu)(?:ena|ina|ita|et|en|ja|t|n)?\b",
+            r"\bviipale-?[^\W\d_]+\b",
+            r"\bskivad\b|\bskivat\b|\bskivor\b|\b[^\W\d_]+skivor\b",
+        ),
+        product_patterns=_compile_patterns(
+            r"\bsliced\b|\bslices\b|\bslice\b|\bsalmonslice\w*",
+            r"\b\w*viipale\w*|\b\w*viipaloi\w*|\b\w*siivu\w*",
+            r"\b\w*skivad\w*|\bskivat\b|\b\w*skivor\w*",
+        ),
+        category_prefixes=("10602",),
+    ),
+    ProductForm(
+        form_id="block",
+        label="Block",
+        query_patterns=_compile_patterns(
+            r"\bblocks?\b|\bin\s+a?\s*blocks?\b|\bloaf\b",
+            r"\bpalana\b|\bpaloina\b|\bpalajuust\w*\b|\bjuustopala\w*\b",
+            r"\bkimpale(?:ena|ina|ita|et|en)?\b|\btahko(?:na|ja|t|n)?\b",
+            r"\b[^\W\d_]+-?kimpale(?:ena|ina|ita|et|en)?\b",
+            r"\bhelbit\b",
+        ),
+        product_patterns=_compile_patterns(
+            r"\bblocks?\b|\bloaf\b|\blog\b",
+            r"\b\w*kimpale\w*|\bpalana\b|\bpalajuust\w*|\bjuustopala\w*|\b\w*tahko\w*",
+            r"\bhelbit\b",
+        ),
+        category_prefixes=("10600",),
+        category_exclude_terms=(
+            "grated", "raaste", "sliced", "slices", "viipale", "cube", "kuutio",
+            "shredded", "suikale", "crumble", "muru", "bit", "pala ",
+        ),
+    ),
+    ProductForm(
+        form_id="shredded",
+        label="Shredded",
+        query_patterns=_compile_patterns(
+            r"\bshredded\b|\bstrips?\b|\bin\s+strips\b",
+            r"\bsuikale(?:ena|ina|ita|et|en|eseen|ella)?\b",
+            r"\bsuikaloi(?:tu|tua|tun|tuja|tuna|dut)?\b",
+            r"\b[^\W\d_]+-?suikale(?:ena|ina|ita|et|en)?\b",
+            r"\bstrimlor\b|\bstrimlad\b|\bstrimlat\b|\b[^\W\d_]+strimlor\b",
+        ),
+        product_patterns=_compile_patterns(
+            r"\bshredded\b|\bstrips?\b",
+            r"\b\w*suikale\w*|\b\w*suikaloi\w*",
+            r"\b\w*striml\w*",
+        ),
+    ),
+    ProductForm(
+        form_id="cubed",
+        label="Cubed",
+        query_patterns=_compile_patterns(
+            r"\bcubed\b|\bcubes\b|\bdiced\b|\bin\s+cubes\b",
+            r"\bkuutio(?:na|ina|ita|t|n|iksi)?\b",
+            r"\bkuutioi(?:tu|tua|tun|tuja|tuna|dut)?\b",
+            r"\b[^\W\d_]+-?kuutio(?:na|ina|ita|t|n)?\b",
+            r"\btärnad\b|\btärnat\b|\btärningar\b|\bkuber\b",
+        ),
+        product_patterns=_compile_patterns(
+            r"\bcubed?\b|\bcubes\b|\bdiced?\b",
+            r"\b\w*kuutio\w*",
+            r"\b\w*tärna\w*|\bkuber\b",
+        ),
+    ),
+    ProductForm(
+        form_id="whole",
+        label="Whole",
+        query_patterns=_compile_patterns(
+            r"\bwhole\b(?!\s*(?:milk|grain|wheat|meal|oat|rye|barley|spelt|corn|bean|beans|peeled))",
+            r"\bkokonai(?:nen|sena|sia|set|sta|sen|siksi)\b",
+            r"\bhela\b|\bhel\b(?!\s*mjölk)",
+        ),
+        product_patterns=_compile_patterns(
+            r"\bwhole\b(?!\s*(?:milk|grain|wheat|meal|oat|rye|barley|spelt|corn|bean|beans|peeled))",
+            r"\b\w*kokonai\w*|\bfull\s+about\b",
+            r"\bhela\b|\bhel\b(?!\s*mjölk)",
+        ),
+    ),
+    ProductForm(
+        form_id="powder",
+        label="Powder",
+        query_patterns=_compile_patterns(
+            r"\bpowder(?:ed)?\b",
+            r"\bjauhe(?:ena|tta|en|et|ita|eseen|eksi)?\b",
+            r"\b(?!jauhelih)[^\W\d_]+-?jauhe(?:ena|tta|en|et|ita|eseen|eksi)?\b",
+            r"\bpulver\b|\b[^\W\d_]+pulver\b",
+        ),
+        product_patterns=_compile_patterns(
+            r"\bpowder(?:ed)?\b",
+            r"\b(?!jauhelih)\w*jauhe(?:ena|tta|en|et|ita)?\b",
+            r"\b\w*pulver\w*",
+        ),
+        category_prefixes=("10405", "21394"),
+    ),
+)
+
+FORMS_BY_ID: dict[str, ProductForm] = {f.form_id: f for f in PRODUCT_FORMS}
+FORMS_BY_LABEL: dict[str, ProductForm] = {f.label.lower(): f for f in PRODUCT_FORMS}
+
+
+def extract_requested_form(text: str = "", preferences: Sequence[Preference] = ()) -> ProductForm | None:
+    """Return the first stated product form from `preferences` or `text` (EN/FI/SV), or None."""
+    for pref in preferences:
+        if pref.kind == "OTHER":
+            key = pref.value.strip().lower()
+            if key in FORMS_BY_ID:
+                return FORMS_BY_ID[key]
+            if key in FORMS_BY_LABEL:
+                return FORMS_BY_LABEL[key]
+    if not text:
+        return None
+    hits: list[tuple[int, int, ProductForm]] = []
+    for order, form in enumerate(PRODUCT_FORMS):
+        starts = [m.start() for pat in form.query_patterns for m in pat.finditer(text)]
+        if starts:
+            hits.append((min(starts), order, form))
+    if not hits:
+        return None
+    hits.sort(key=lambda h: (h[0], h[1]))
+    return hits[0][2]
+
+
+def product_forms(product_names: Sequence[str], category: str = "") -> frozenset[str]:
+    """Return all product forms proven by `product_names` (EN/FI/SV) and `category`."""
+    text = " " + " ".join(n for n in product_names if n).lower() + " "
+    cat = (category or "").strip()
+    found: set[str] = set()
+    for form in PRODUCT_FORMS:
+        if any(pat.search(text) for pat in form.product_patterns):
+            found.add(form.form_id)
+    for form in PRODUCT_FORMS:
+        if form.form_id in found or not form.category_prefixes:
+            continue
+        if any(cat.startswith(pref) for pref in form.category_prefixes):
+            if any(bad in text for bad in form.category_exclude_terms):
+                continue
+            if form.form_id == "block" and found:
+                continue
+            found.add(form.form_id)
+    return frozenset(found)
+
+
+def product_form_difference(
+    product_names: Sequence[str],
+    category: str,
+    requested_form: ProductForm | None,
+) -> str | None:
+    """Return None when `product` proves `requested_form`, else a plain-language difference string."""
+    if requested_form is None:
+        return None
+    forms = product_forms(product_names, category)
+    if requested_form.form_id in forms:
+        return None
+    for other in PRODUCT_FORMS:
+        if other.form_id != requested_form.form_id and other.form_id in forms:
+            return f"{other.form_id}, not {requested_form.form_id}"
+    return f"not {requested_form.form_id}"
+
+
+_SIMILAR_ALT_RE = re.compile(
+    r"\b(?:or\s+(?:something\s+)?(?:similar|equivalent|comparable)|or\s+an?\s+(?:equivalent|alternative)|"
+    r"tai\s+(?:muu\s+|muuta\s+|jotain\s+)?vastaava\w*)\b",
+    re.IGNORECASE,
+)
+_ALT_CONJUNCTION_RE = re.compile(r"\s+\b(?:or|tai)\b\s+", re.IGNORECASE)
+
+
+def split_query_alternatives(query: str) -> tuple[str, ...]:
+    """Split an 'X or Y' / 'X tai Y' item query into acceptable alternative queries (T87)."""
+    cleaned = _SIMILAR_ALT_RE.sub(" ", query or "").strip()
+    if not cleaned or not _ALT_CONJUNCTION_RE.search(cleaned):
+        return (cleaned,) if cleaned else ()
+    raw_parts = [p.strip(" ,;-") for p in _ALT_CONJUNCTION_RE.split(cleaned) if p.strip(" ,;-")]
+    if len(raw_parts) < 2:
+        return (cleaned,)
+    # Handle elliptical phrases like "Emmental or Edam cheese" / "salted or unsalted butter"
+    # where the last alternative carries the shared product head noun.
+    last_words = raw_parts[-1].split()
+    shared_tail = last_words[-1] if len(last_words) >= 2 else None
+    resolved_parts: list[str] = []
+    for idx, part in enumerate(raw_parts):
+        if (
+            idx < len(raw_parts) - 1
+            and shared_tail is not None
+            and len(part.split()) == 1
+            and not resolve_query_concepts(part)
+            and shared_tail.lower() not in part.lower()
+        ):
+            resolved_parts.append(f"{part} {shared_tail}")
+        else:
+            resolved_parts.append(part)
+    return tuple(resolved_parts)
 
 _WORD_SPLIT_RE = re.compile(r"[^\wåäöÅÄÖ%-]+", re.UNICODE)
 _QUANTITY_STRIP_RE = re.compile(
