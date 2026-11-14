@@ -5,7 +5,8 @@ import type { AuditEntry } from '../lib/contracts'
 import { DecisionLog } from '../components/log/DecisionLog'
 import { LogDownloads } from '../components/log/LogDownloads'
 import { isRecheck, recheckResult } from '../components/log/LogEntry'
-import { MOCK_LOGS, findMockLog, logPath } from '../components/log/logData'
+import { LogNotFound, MOCK_LOGS, findMockLog, logPath } from '../components/log/logData'
+import { ProposalList } from '../components/log/ProposalList'
 import { gateway } from '../lib/gateway'
 import { LoadingSection } from '../components/Loading'
 
@@ -233,12 +234,19 @@ export function Log({ proposalId }: { proposalId?: string }) {
             </ul>
           </nav>
         )}
-        {!proposalId && <p className="notice">Select a proposal to view its decision log.</p>}
-        {trail.error && (
+        {trail.error instanceof LogNotFound ? (
           <p className="notice notice-error" role="alert">
-            {trail.error.message}
+            Proposal not found. The log starts fresh on each deploy; pick a proposal below.
           </p>
+        ) : (
+          trail.error && (
+            <p className="notice notice-error" role="alert">
+              {trail.error.message}
+            </p>
+          )
         )}
+        {/* T80: without a proposal, or for one the gateway does not know, list the recent proposals. */}
+        {(!proposalId || trail.error instanceof LogNotFound) && <ProposalList />}
         {proposalId && trail.isPending && (
           <LoadingSection label="decision log" className="mt-3 border-t border-[var(--line)] pt-3" />
         )}
