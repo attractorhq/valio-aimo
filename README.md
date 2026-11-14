@@ -2,35 +2,82 @@
 
 A Valio Aimo-side gateway plus a demo purchasing agent for the Valio Aimo Junction 2026 challenge. Together they run the flow **Request → Lookup → Order → Approval** against the challenge's mock Valio Aimo API.
 
-**Core rule.** The agent may act alone only when every fact it relies on is strong enough (Agent Trust Labels v0.1) **and** the order is inside the buyer's mandate. Everything else goes to a named human, who signs off one exact proposal version with one tap.
+**Core rule.** The agent may act alone only when every decisive fact is strong enough (Agent Trust Labels v0.1) **and** the order is inside the buyer's mandate. Approvable trade-offs go to a named human for one exact proposal version. Missing hard-requirement evidence is excluded; a hard-limit breach is blocked, not sent for approval.
 
 **Every order is simulated: "Simulated order — mock environment".** Nothing is ordered from Valio. The challenge API and data are themselves synthetic.
 
+## Demo and verification status
+
+The full flow has been verified locally against the live mock API and private recorded captures. **A public deployment has not yet been verified; no public demo URL is claimed here.** See [the submission](docs/SUBMISSION.md), [pitch](docs/PITCH.md), and [rehearsal guide](docs/DEMO.md).
+
+Expected reference walkthrough: **A AUTO** (€1,010.00) → **B ASK** (€506.16, only `OVER_AUTO_LIMIT`) → **C BLOCK** (€20,200.00, with `INSTRUCTION_IGNORED`). These are checks, not hardcoded decisions or guarantees about today's live data. Run pre-flight before presenting.
+
 ## Run locally
 
-Requires Python 3.12+ and Node 22+. From the repository root:
+Requires Python 3.12+, Node 22+, and your own Junction 2026 Valio Aimo event access. From the repository root:
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -e 'backend[test]'
-cp -n .env.example .env          # never overwrite an existing .env with keys
-cd backend && ../.venv/bin/uvicorn app.main:app --reload --port 8000
+python3 -m venv .venv
+.venv/bin/pip install -e 'backend[test]'
+cp -n .env.example .env          # preserve any existing credentials
+# Edit .env locally: set VALIO_API_KEY to your own event API key.
+# OPENROUTER_API_KEY and LLM_MODEL are optional; the parser has a deterministic fallback.
+.venv/bin/python scripts/download_valio_data.py
+scripts/build-catalog
+.venv/bin/uvicorn app.main:app --app-dir backend --reload --port 8000
 ```
+
+In a second terminal, from the repository root:
 
 ```bash
-cd frontend && npm ci && npm run dev     # UI on http://localhost:5173
+cd frontend
+npm ci
+npm run dev                            # UI on http://localhost:5173
 ```
 
-OpenAPI 3.1: `http://localhost:8000/docs` and `/openapi.json`. Health: `/health`.
+The Vite dev server proxies gateway requests to `:8000`. Open the buyer view at `http://localhost:5173/` and the separate human view at `/approver`. OpenAPI 3.1: `http://localhost:8000/docs` and `/openapi.json`.
 
-**Data.** The gateway needs the catalogue artifact `data/catalog/catalog.json`, built from the challenge data with `scripts/build-catalog`. Fetch the data with your own event access first: `.venv/bin/python scripts/download_valio_data.py`. Everything under `data/` is gitignored: the dataset may only be used for Junction 2026 and is never committed.
+```bash
+curl -sS http://localhost:8000/health
+# Require status=ok, ready=true and mode=LIVE or RECORDED; HTTP 200 alone is not readiness.
+```
+
+**Fetch data with your own event access.** Obtain your API key through the [Valio Aimo event portal](https://junction26.valioaimo.fi/); do not reuse or publish somebody else's credentials. The downloader reads `VALIO_API_KEY` from the server `.env` and downloads products plus delivery-reliability and carbon-footprint CSVs to `data/raw/` through the authenticated download endpoints. Existing files are skipped; use `--refresh` only when you intend to replace them. `scripts/build-catalog` creates the normalised `data/catalog/catalog.json` and prints recomputed statistics. Optional schema validation requires a privately obtained `data/raw/product-schema.json`.
+
+The dataset is restricted to Junction 2026 and is not fully accurate product information. Never commit or publish `.env`, keys, portal credentials, raw data, catalogue artifacts, or recorded API responses. `data/` is gitignored. Committed test records are hand-made synthetic examples, not dataset copies. This private repository's sanitised brief is an internal exception and must be removed, including its history, before public release.
 
 **Valio source.** One of:
 - **LIVE:** `VALIO_API_KEY` set. Live price and availability are fetched for the shortlist only.
-- **RECORDED:** no key, but recorded responses in `data/fixtures/` (or `VALIO_FIXTURES_DIR`). Recorded mode is labelled everywhere and runs on the capture's clock.
+- **RECORDED:** no key, but a private capture with `manifest.json` under `data/fixtures/` (or `VALIO_FIXTURES_DIR`). To force a capture even with a key configured, launch with `VALIO_MODE=recorded`. Recorded mode runs on the capture's clock and must show its capture time; it is not live validation.
 
-Without either, `/health` reports `"status": "degraded"` and the order operations return `503 GATEWAY_UNAVAILABLE`.
+```bash
+# From the repository root; obtain a permitted private capture first.
+VALIO_MODE=recorded .venv/bin/uvicorn app.main:app --app-dir backend --port 8000
+```
+
+The gateway also requires the catalogue in recorded mode. Without a catalogue or usable source, `/health` reports `"status": "degraded"` and order operations return `503 GATEWAY_UNAVAILABLE`. A browser badge saying **Synthetic mock data** means a UI fallback, not a working live/recorded gateway. `MOCK_MODE` in the legacy env example does not select the v0.1 source; use `VALIO_MODE`.
 
 `docker compose up --build` runs the production image locally. Deployment (Cloudflare Worker + Container, one origin) is in `docs/WORKFLOW.md`. State lives in memory and **resets on every restart or deploy**; a durable database is the production path.
+
+## Architecture
+
+```text
+Buyer UI / external purchasing client
+  → Agent channel (REST + OpenAPI; streamed /v0.1/agent/run for the UI)
+  → parser → static catalogue shortlist (≤20 candidates per item)
+  → batched Valio mock price + availability → fixed-price offer
+  → deterministic gateway policy + buyer mandate → proposal: AUTO / ASK / BLOCK
+
+Separate human Approver UI → Approver channel → exact-version approval/rejection
+  → server-only re-check → simulated confirmation OR superseded proposal
+All proposal transitions → decision log
+
+Hosting design: Cloudflare Worker (UI assets + API proxy) → FastAPI Container
+```
+
+Domain modules are deterministic; adapters own network reads. Money uses `Decimal` and decimal strings on the wire. A proposal binds the customer, mandate version, structured request, offer ID/version/hash and totals. A re-check change invalidates the old approval and creates a new decision; a human cannot approve different terms implicitly.
+
+Decisive facts carry `VERIFIED`, `DECLARED`, `ESTIMATE` or `UNKNOWN`, their source, retrieval time where available, method and any conflict. A declared product claim is not independently certified by the agent. Reliability and carbon estimates do not become verified facts.
 
 ## API v0.1
 
@@ -49,7 +96,7 @@ Two channels on one origin. The full contract is in `docs/API.md`, and JSON Sche
 | Operations | health | `GET /health` |
 
 - **The agent never decides.** The deterministic gateway policy returns AUTO, ASK or BLOCK with reason codes.
-  - AUTO proposals are re-checked live and confirmed (simulated) at once.
+  - AUTO proposals are re-checked against the selected source and confirmed (simulated) at once.
   - ASK waits for the approver of that exact version.
   - BLOCK can never be approved.
 - **The approval link never reaches the agent.** Only the approver view carries the single-use demo token, bound to `proposalId + offerVersion + offerHash`. Agent-channel responses never contain a token, URL or QR payload. `recheckAndConfirm` has no route; the server runs it before every confirmation. If anything changed, the proposal becomes SUPERSEDED.
@@ -65,7 +112,7 @@ Two channels on one origin. The full contract is in `docs/API.md`, and JSON Sche
   | 422 | `VALIDATION_ERROR`, `NO_ORDER` (with reasons) |
   | 502 | `UPSTREAM_ERROR` |
   | 503 | `GATEWAY_UNAVAILABLE` |
-- **Demo access:** there is no authentication. The approver channel is a demo link. Production needs named, authenticated approvers (SSO/OIDC) and per-customer agent credentials.
+- **Demo access:** there is no authentication. Anyone who can reach the demo approver channel can obtain demo approval permissions; channel separation is not production access control. Links/tokens are labelled **Demo approval link — single use**, expire with the offer and are bound to `proposalId + offerVersion + offerHash`. The QR and phone link exist only in the Approver view, never an agent response. The demo audit actor is `human:Head Chef (demo, link-based)`, not an authenticated identity. Production needs named approvers (SSO/OIDC) and per-customer agent credentials; buyer-admin routes also need authorisation. Export `APPROVAL_SIGNING_KEY` into the backend process environment if configuring a stable local signing key.
 
 Walkthrough, scenario B (school kitchen, €500 auto-approve limit):
 
@@ -88,17 +135,18 @@ curl -s $API/v0.1/proposals -H 'Content-Type: application/json' -d '{
 curl -s $API/v0.1/approver/proposals/<proposalId>          # approver only: approvalToken
 curl -s $API/v0.1/approver/proposals/<proposalId>/decision -H 'Content-Type: application/json' \
   -d '{"offerVersion": 1, "approvalToken": "<token>", "action": "APPROVE"}'
-# → re-checked live → CONFIRMED_SIMULATED
+# → source re-checked → CONFIRMED_SIMULATED, or SUPERSEDED if decisive terms changed
 curl -s "$API/v0.1/audit?proposalId=<proposalId>"           # the decision log
 ```
 
 ### Second client (`scripts/second-client`)
 
-`scripts/second-client` is a standalone Python script (stdlib + `urllib` only, no repo imports). It reads `/openapi.json` to discover the public Agent channel operations and runs Scenario B end-to-end through the Agent channel, printing the identical `decision`, `reasons`, `totals` and `offerHash`:
+`scripts/second-client` is a standalone Python script (stdlib + `urllib` only, no repo imports). It reads `/openapi.json`, runs Scenario B through the Agent channel to `PENDING_APPROVAL`, and prints `decision`, `reasons`, `totals` and `offerHash`. It cannot approve. The same bound offer produces the same deterministic decision; independently fetched live offers need not share a hash because facts and retrieval times may differ.
 
 ```bash
 scripts/second-client http://localhost:8000
-scripts/second-client https://valio-aimo.<account>.workers.dev
+# Once the architect supplies a verified deployment URL:
+# scripts/second-client "$GATEWAY_URL"
 ```
 
 A copy-pasteable `curl` + `jq` equivalent is in `docs/API.md` → *Second client*.
@@ -107,11 +155,49 @@ A copy-pasteable `curl` + `jq` equivalent is in `docs/API.md` → *Second client
 
 ```bash
 scripts/check                      # guard + ruff + pytest + frontend build (the merge gate)
-cd frontend && npm run test:e2e    # Playwright on the synthetic UI mocks
-cd edge && npm run check           # the edge Worker
+scripts/eval                       # 24-row report; inspect source, failures AND pending rows
+scripts/preflight                  # live mock API A/B/C/B2; inspect GREEN/RED, not just exit status
+scripts/demo                       # local pre-flight + reset + 3 rehearsals + second client
+# In frontend/ (install Chromium once with npx playwright install chromium):
+# npm run test:e2e                 # synthetic UI tests plus the demo flow
+# npm run test:live                # opt-in gateway browser tests
+# In edge/: npm ci && npm run check
 ```
 
 Committed tests use synthetic, hand-made records only. Tests that need recorded responses read `data/fixtures/` and skip without it.
+
+### Evaluation: 8/24, not 24/24
+
+On 14 Nov 2026, `scripts/eval` on this developer checkout reports **8/24**: **8/8 active rows passed, 0 failed, 16 pending**. Source: **`REFERENCE_FIXTURES`**, frozen at `2026-11-13T21:52:02+02:00`; private recorded responses were absent. This is a reference-fixture check, not a recorded-data or deployed score. The active rows are 1, 2, 4, 8 and 21–24; the remaining rows await the missing evaluation definitions in the internal brief. Pending does not mean passed. The suite bypasses free-text parsing by using explicit shortlists, so browser/agent tests provide separate end-to-end evidence.
+
+To report a recorded-data score, supply permitted private captures and run `scripts/eval --fixtures-dir /path/to/private/fixtures`; retain the source, capture time and pending count alongside N/24. Do not infer all 24 passed from exit code zero.
+
+For context, the architect's [T18 review](https://github.com/attractorhq/valio-aimo/pull/62#issuecomment-6870722109) reports three consecutive local live rehearsals, three on a real recorded capture, and 46/46 browser tests. Those are local results, not deployment evidence.
+
+Before presenting, run `scripts/preflight`. GREEN permits a live walkthrough; RED means show the differences and use an explicitly labelled private recorded capture, with its capture time. `scripts/preflight --reference` is only an offline self-test. The browser's simulated passed-cut-off preview is not proof that the backend changed source; check backend health and launch the actual recorded source as above. See [the stage guide](docs/DEMO.md) for rehearsal timing.
+
+## Assumptions & observed behaviour
+
+Supplier mock observations below were recorded on **13 Nov 2026**, not promises about current responses. Re-run pre-flight before relying on them.
+
+| Observation or constraint | Gateway consequence |
+|---|---|
+| Availability ignored `requestedDate` in observed calls and returned Mon 16 Nov 2026. | Validate the returned date; never invent delivery on the requested date. |
+| Price responses could be outside `validFrom..validTo`. | Check validity independently; an API response alone does not prove an applicable price. |
+| Unknown IDs returned `error: true` and empty `scheduleLines`. | Treat absent price/availability as missing evidence, not zero cost or available stock. |
+| Terminal stock `999999` is a supplier-stock sentinel. | Quantity is `UNKNOWN`, not 999,999 verified units; a passed cut-off remains non-approvable. |
+| Many Monday stock cut-offs were Sun 15 Nov 17:00 EET. | Once passed, Monday delivery cannot be promised; report RED rather than alter the live clock. |
+| Lactose-free is not milk-free; oat drink is not automatically gluten-free. | Require the appropriate declared claim/allergen evidence. X99 only proves EU-14 free-from, never lactose-free. |
+| A supplier-listed substitute can violate the buyer's requirements. | Recheck every hard requirement; exclude the substitute rather than silently swap. |
+| No real order API is supplied; demo state is process-local and volatile. | Confirmations are simulated and logs/proposals disappear on restart or deploy. |
+
+## Path to production (not delivered production capabilities)
+
+1. **Identity and authority:** per-customer agent credentials, authenticated named approvers via SSO/OIDC, buyer-admin authorisation and audit identities from authentication. Replace demo links as the authority mechanism.
+2. **Durability:** transactional proposal, approval-token consumption, mandate and audit storage in a durable database, with recovery, concurrency controls, retention and monitoring. The current in-memory state is not a production record.
+3. **Real fulfilment:** integrate a supplier order API and explicit idempotency/reconciliation. Challenge confirmations do not create orders or payments.
+4. **Open agent access:** REST/OpenAPI and JSON Schemas work today; an MCP adapter is roadmap, not an implemented service. Forwarding `/mcp` at the edge does not supply MCP tools. Expose only agent-channel operations—never `decideApproval` or confirmation.
+5. **Data assurance:** validate supplier declarations and freshness under production agreements; surface unresolved conflicts and missing evidence instead of allowing a human to waive them. Hash-chain audit evidence and export are roadmap, not current guarantees.
 
 ## Repository
 
