@@ -3,6 +3,7 @@ import { AlertTriangle, Smartphone, UserRoundCheck } from 'lucide-react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { ApprovalCard } from '../components/approver/ApprovalCard'
 import { approverChannel, gateway } from '../lib/gateway'
+import { LoadingSection } from '../components/Loading'
 
 /**
  * `/approve/:token` phone sign-off page (P3, P10 S3).
@@ -45,11 +46,7 @@ export function ApproveMobile() {
         </div>
       </header>
 
-      {view.isPending && (
-        <p className="panel muted" role="status">
-          Loading proposal…
-        </p>
-      )}
+      {view.isPending && <LoadingSection label="proposal" variant="approval" className="panel" />}
 
       {view.error && (
         <div className="panel notice notice-error" role="alert">

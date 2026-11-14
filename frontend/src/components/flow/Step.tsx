@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Ban, CheckCircle2, Circle, Hourglass, LoaderCircle } from 'lucide-react'
 
 export type StepStatus = 'idle' | 'running' | 'done' | 'waiting' | 'blocked'
@@ -29,6 +29,7 @@ export function Step({
   status,
   statusWord,
   current,
+  liveStatus,
   children,
 }: {
   number: number
@@ -37,9 +38,19 @@ export function Step({
   status: StepStatus
   statusWord?: string
   current?: boolean
+  liveStatus?: string
   children?: ReactNode
 }) {
   const id = `step-${number}`
+  const content = useRef<HTMLDivElement>(null)
+  const [height, setHeight] = useState<number>()
+  useLayoutEffect(() => {
+    const element = content.current
+    if (!element) return
+    const observer = new ResizeObserver(() => setHeight(element.getBoundingClientRect().height))
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
   return (
     <li
       className={`step step-${status}`}
@@ -56,11 +67,21 @@ export function Step({
               <span className="visually-hidden">Step {number}: </span>
               {title}
             </h2>
-            {summary && <p className="step-summary">{summary}</p>}
+            <p className="step-summary" aria-live="polite">
+              {status === 'running' ? (liveStatus ?? 'Working…') : summary}
+            </p>
           </div>
           <StatusPill status={status} word={statusWord} />
         </header>
-        {children && <div className="step-content">{children}</div>}
+        <div className="step-reveal" style={{ height }}>
+          <div ref={content}>
+            {children && (
+              <div key={status} className="step-content">
+                {children}
+              </div>
+            )}
+          </div>
+        </div>
       </section>
     </li>
   )

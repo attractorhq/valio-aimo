@@ -14,6 +14,7 @@ import {
 import { REASON_REGISTRY, type DecisionOutcome, type Product, type Proposal, type ReasonCode, type ReasonEffect } from '../lib/contracts'
 import { formatMoney, reasonChip } from '../lib/format'
 import { gateway } from '../lib/gateway'
+import { LoadingSection, Skeleton } from '../components/Loading'
 import { ALLOW_MOCK } from '../lib/env'
 import scenarioA from '../mocks/scenario-a.json'
 import scenarioB from '../mocks/scenario-b.json'
@@ -1236,6 +1237,38 @@ function EffectBadge({ effect, approvable }: { effect: string; approvable?: bool
   )
 }
 
+function ReadinessLoading() {
+  return (
+    <div className="grid grid-cols-1 gap-3" aria-label="Loading readiness insights" aria-busy="true">
+      <div className="readiness-toolbar">
+        <Skeleton className="skeleton-heading" />
+      </div>
+      <section className="panel valio-catalogue-panel">
+        <h1 className="text-lg font-bold text-[var(--ink)]">
+          Valio Aimo Agent-Readiness View · Data quality = autonomous sales
+        </h1>
+        <p className="muted small mt-1 max-w-3xl">
+          Autonomous sales (<strong>AUTO</strong>) require verified or declared facts without
+          conflict. Missing allergens, weak pack sizing, unpriced deposits and unsafe substitutes
+          block AUTO.
+        </p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {[0, 1, 2, 3].map((i) => (
+            <LoadingSection key={i} label="catalogue statistics" variant="stats" />
+          ))}
+        </div>
+      </section>
+      <LoadingSection
+        label="decision statistics"
+        variant="stats"
+        className="panel valio-decisions-panel"
+      />
+      <LoadingSection label="catalogue data gaps" variant="table" className="panel" />
+      <LoadingSection label="supplier readiness" variant="table" className="panel" />
+    </div>
+  )
+}
+
 /** Valio Aimo readiness view (§14, D6, T27): data quality = autonomous sales. */
 export function ValioView() {
   const [supplierQuery, setSupplierQuery] = useState('')
@@ -1315,20 +1348,15 @@ export function ValioView() {
     [fixList, fixScopeFilter],
   )
 
-  if (!ALLOW_MOCK && !query.data) {
+  if (query.isPending) return <ReadinessLoading />
+  if (!query.data || (query.isError && !ALLOW_MOCK)) {
     return (
-      <section className="panel" aria-busy={!query.isError}>
-        {query.isError ? (
-          <p>
-            Readiness data is unavailable right now.{' '}
-            <button type="button" className="btn btn-scenario text-xs" onClick={() => query.refetch()}>
-              Retry
-            </button>
-          </p>
-        ) : (
-          <p className="muted">Loading readiness data…</p>
-        )}
-      </section>
+      <p className="notice notice-error" role="alert">
+        Readiness data is unavailable right now.{' '}
+        <button type="button" className="btn btn-scenario text-xs" onClick={() => query.refetch()}>
+          Retry
+        </button>
+      </p>
     )
   }
 
@@ -1355,7 +1383,7 @@ export function ValioView() {
       </div>
 
       {/* Hero & Catalogue Summary */}
-      <section className="panel" aria-labelledby="valio-readiness-title">
+      <section className="panel valio-catalogue-panel" aria-labelledby="valio-readiness-title">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 id="valio-readiness-title" className="text-lg font-bold text-[var(--ink)]">
@@ -1442,7 +1470,7 @@ export function ValioView() {
         Statistics cover your session only.
       </p>
       {/* Live AUTO / ASK / BLOCK Statistics */}
-      <section className="panel" aria-labelledby="live-decision-stats-title">
+      <section className="panel valio-decisions-panel" aria-labelledby="live-decision-stats-title">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 id="live-decision-stats-title" className="panel-title mb-0 inline-flex items-center gap-2">

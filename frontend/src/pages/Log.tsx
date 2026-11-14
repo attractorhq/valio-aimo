@@ -7,6 +7,7 @@ import { LogDownloads } from '../components/log/LogDownloads'
 import { isRecheck, recheckResult } from '../components/log/LogEntry'
 import { MOCK_LOGS, findMockLog, logPath } from '../components/log/logData'
 import { gateway } from '../lib/gateway'
+import { LoadingSection } from '../components/Loading'
 
 const GENESIS_HASH = '0'.repeat(64)
 
@@ -240,6 +241,7 @@ export function Log({ proposalId }: { proposalId?: string }) {
           {trail.error.message}
         </p>
       )}
+      {proposalId && trail.isPending && <LoadingSection label="decision log" className="panel" />}
       {trail.data && (
         <section aria-label={current ? current.title : `Proposal ${proposalId}`}>
           <DecisionLog entries={trail.data.trail.entries} />

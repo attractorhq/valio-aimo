@@ -6,6 +6,7 @@ import type { Mandate } from '../../lib/contracts'
 import { formatMoney } from '../../lib/format'
 import { gateway, subscribeGatewaySource, type DataSource } from '../../lib/gateway'
 import { MandatePanel } from '../flow/MandatePanel'
+import { LoadingSection, Skeleton } from '../Loading'
 import {
   changeMandate,
   getMandateDefault,
@@ -116,7 +117,11 @@ export function MandateStatus({ mandate, live }: { mandate: Mandate; live: boole
   const changed = (defaults.data?.changedFromDefault ?? false) || differences.length > 0
 
   return (
-    <section className="panel mt-3" aria-labelledby="mandate-status-heading">
+    <section
+      className="panel mt-3"
+      aria-labelledby="mandate-status-heading"
+      aria-busy={live && defaults.isPending}
+    >
       <div className="flex items-center justify-between gap-3">
         <h2 id="mandate-status-heading" className="panel-title inline-flex items-center gap-2">
           <Lock size={14} aria-hidden /> Mandate v{mandate.version} · read-only
@@ -125,7 +130,8 @@ export function MandateStatus({ mandate, live }: { mandate: Mandate; live: boole
           Buyer admin
         </Link>
       </div>
-      {changed && differences.length > 0 && (
+      {live && defaults.isPending && <Skeleton className="skeleton-status" />}
+      {!(live && defaults.isPending) && changed && differences.length > 0 && (
         <p className="notice small mt-1" role="note">
           {changedFromDefaultText(differences)}
         </p>
@@ -193,6 +199,9 @@ export function MandateControls({
   const error = apply.error ?? reset.error
   const differences = defaults.data?.differences ?? fallbackDifferences(mandate)
   const changed = (defaults.data?.changedFromDefault ?? false) || differences.length > 0
+
+  if (live && defaults.isPending)
+    return <LoadingSection label="admin controls" variant="admin" className="panel" />
 
   return (
     <section className="panel" aria-labelledby="mandate-controls-heading">
@@ -334,10 +343,14 @@ export function BuyerAdmin() {
               mandates={mandates.data ?? []}
               selected={mandate}
               onSelect={setCustomerId}
+              loading={mandates.isPending || (Boolean(mandates.data?.length) && !mandate)}
             />
           )}
         </aside>
         <div className="main-flow">
+          {mandates.isPending && (
+            <LoadingSection label="admin controls" variant="admin" className="panel" />
+          )}
           {mandate && (
             <MandateControls
               mandate={mandate}

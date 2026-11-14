@@ -4,6 +4,7 @@ import { Check, ChevronRight, UserRoundCheck } from 'lucide-react'
 import { approverChannel, gateway, type ApproverItem } from '../lib/gateway'
 import { formatClock, formatMoney, reasonChip } from '../lib/format'
 import { ApprovalCard } from '../components/approver/ApprovalCard'
+import { LoadingSection, Skeleton } from '../components/Loading'
 import {
   approvalReasons,
   contextReasons,
@@ -43,6 +44,8 @@ export function Approver() {
     refetchInterval: 2000,
   })
   const items = list.data ?? []
+  const loading = mandates.isPending || list.isPending
+  const error = mandates.error ?? list.error
   const pending = items.filter((i) => i.proposal.state === 'PENDING_APPROVAL')
   const selected: ApproverItem | undefined =
     items.find((i) => i.proposal.proposalId === selectedId) ?? pending[0] ?? items[0]
@@ -55,23 +58,31 @@ export function Approver() {
           <h1>Approver — {mandate?.approver.role ?? 'Head Chef'}</h1>
           <p>Human sign-off channel · not the agent</p>
         </div>
-        {mandates.data && mandates.data.length > 1 && (
-          <label className="approver-switch">
+        {mandates.isPending ? (
+          <label className="approver-switch" aria-hidden="true">
             <span>Signed in as</span>
-            <select
-              value={customerId}
-              onChange={(e) => {
-                setCustomerId(e.target.value)
-                setSelectedId(undefined)
-              }}
-            >
-              {mandates.data.map((m) => (
-                <option key={m.customerId} value={m.customerId}>
-                  {m.approver.role} · {m.organisationName}
-                </option>
-              ))}
-            </select>
+            <Skeleton className="skeleton-select" />
           </label>
+        ) : (
+          mandates.data &&
+          mandates.data.length > 1 && (
+            <label className="approver-switch">
+              <span>Signed in as</span>
+              <select
+                value={customerId}
+                onChange={(e) => {
+                  setCustomerId(e.target.value)
+                  setSelectedId(undefined)
+                }}
+              >
+                {mandates.data.map((m) => (
+                  <option key={m.customerId} value={m.customerId}>
+                    {m.approver.role} · {m.organisationName}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )
         )}
       </header>
 
@@ -80,11 +91,19 @@ export function Approver() {
           <h2
             id="approver-queue"
             className="panel-title"
-            aria-label={`Proposals for you (${pending.length} waiting)`}
+            aria-label={
+              loading ? 'Proposals for you' : `Proposals for you (${pending.length} waiting)`
+            }
           >
-            Queue ({pending.length} waiting)
+            {loading ? 'Queue' : `Queue (${pending.length} waiting)`}
           </h2>
-          {items.length === 0 ? (
+          {error ? (
+            <p className="notice notice-error" role="alert">
+              Could not load the approver queue.
+            </p>
+          ) : loading ? (
+            <LoadingSection label="approver queue" />
+          ) : items.length === 0 ? (
             <p className="muted small">Nothing to approve.</p>
           ) : (
             <ul className="approver-queue">
@@ -113,7 +132,9 @@ export function Approver() {
                           </strong>
                         </span>
                         <span className="inline-flex items-center gap-1">
-                          <span className={`queue-state queue-state-${proposal.state.toLowerCase()}`}>
+                          <span
+                            className={`queue-state queue-state-${proposal.state.toLowerCase()}`}
+                          >
                             {STATE_WORD[proposal.state] ?? proposal.state}
                           </span>
                           <ChevronRight size={14} aria-hidden className="queue-chevron" />
@@ -147,15 +168,17 @@ export function Approver() {
         </section>
 
         <div className="approver-detail">
-          {selected ? (
+          {loading && !error ? (
+            <LoadingSection label="approval details" variant="approval" className="panel" />
+          ) : selected ? (
             <ApprovalCard
               key={`${selected.proposal.proposalId}-${selected.proposal.state}`}
               item={selected}
               mandate={mandate}
             />
-          ) : (
+          ) : !error ? (
             <p className="panel muted">Select a proposal.</p>
-          )}
+          ) : null}
         </div>
       </div>
     </div>

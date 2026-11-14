@@ -1,6 +1,7 @@
 import { Check } from 'lucide-react'
 import type { Mandate } from '../../lib/contracts'
 import { allergenName, formatMoney } from '../../lib/format'
+import { LoadingSection } from '../Loading'
 
 function yesNo(value: boolean, yes: string, no: string) {
   return value ? yes : no
@@ -15,12 +16,18 @@ export function MandatePanel({
   selected,
   onSelect,
   disabled,
+  loading,
 }: {
   mandates: Mandate[]
   selected?: Mandate
   onSelect: (customerId: string) => void
   disabled?: boolean
+  loading?: boolean
 }) {
+  if (loading)
+    return (
+      <LoadingSection label="buyer mandate" variant="mandate" className="panel mandate-panel" />
+    )
   return (
     <section className="panel mandate-panel" aria-labelledby="mandate-heading">
       <h2 id="mandate-heading" className="panel-title">

@@ -1,5 +1,5 @@
 import type { FormEvent } from 'react'
-import { AlertCircle, Play } from 'lucide-react'
+import { AlertCircle, LoaderCircle, Play } from 'lucide-react'
 import type { Scenario, ScenarioId } from '../../lib/gateway'
 
 export function RequestComposer({
@@ -9,6 +9,7 @@ export function RequestComposer({
   onScenario,
   scenarios,
   running,
+  disabled,
   error,
 }: {
   text: string
@@ -17,6 +18,7 @@ export function RequestComposer({
   onScenario: (id: ScenarioId) => void
   scenarios: Scenario[]
   running: boolean
+  disabled?: boolean
   error?: string
 }) {
   function submit(event: FormEvent) {
@@ -46,7 +48,7 @@ export function RequestComposer({
                 type="button"
                 key={s.id}
                 className="btn btn-scenario"
-                disabled={running}
+                disabled={running || disabled}
                 onClick={() => onScenario(s.id)}
                 aria-label={`Scenario ${s.id}: ${s.title} (expected ${s.expected})`}
               >
@@ -61,9 +63,14 @@ export function RequestComposer({
           <button
             type="submit"
             className="btn btn-primary composer-run"
-            disabled={running || !text.trim()}
+            disabled={running || disabled || !text.trim()}
+            aria-busy={running}
           >
-            <Play size={15} aria-hidden />
+            {running ? (
+              <LoaderCircle size={15} className="spin" aria-hidden />
+            ) : (
+              <Play size={15} aria-hidden />
+            )}
             {running ? 'Running…' : 'Run request'}
           </button>
         </div>

@@ -28,6 +28,7 @@ import { DecisionFooter } from '../components/order/DecisionFooter'
 import { ExcludedList } from '../components/order/ExcludedList'
 import { OrderProposalView } from '../components/order/OrderProposalView'
 import { logPath } from '../components/log/logData'
+import { LoadingSection, Skeleton } from '../components/Loading'
 
 function approvalStatus(proposal: Proposal): StepStatus {
   if (proposal.decision === 'BLOCK') return 'blocked'
@@ -131,7 +132,7 @@ export function Main() {
   const proposal = rawProposal
   const running = run.isPending
 
-  const activeSteps = run.data?.steps ?? streamedSteps
+  const activeSteps = running ? streamedSteps : (run.data?.steps ?? streamedSteps)
   const step1 = activeSteps.find((s) => s.step === 1 && s.name === 'REQUEST')
   const step2 = activeSteps.find((s) => s.step === 2 && s.name === 'LOOKUP')
   const step3 = activeSteps.find((s) => s.step === 3 && s.name === 'ORDER')
@@ -219,8 +220,15 @@ export function Main() {
           ? 'running'
           : 'idle'
 
-  const currentStepNumber =
-    proposal || step4 || (errorStep && errorStep.step === 4)
+  const currentStepNumber = running
+    ? step3?.status === 'done'
+      ? 4
+      : step2?.status === 'done'
+        ? 3
+        : step1?.status === 'done'
+          ? 2
+          : 1
+    : proposal || step4 || (errorStep && errorStep.step === 4)
       ? 4
       : step3 || (errorStep && errorStep.step === 3)
         ? 3
@@ -246,13 +254,20 @@ export function Main() {
               selected={mandate}
               onSelect={selectMandate}
               disabled={running}
+              loading={mandates.isPending || (Boolean(mandates.data?.length) && !mandate)}
             />
           )}
         </aside>
-        {mandate && (
+        {(mandate || mandates.isPending) && (
           <p className="buyer-line mobile-only">
-            Buying for <strong>{mandate.organisationName}</strong> ·{' '}
-            <a href="#buyer-mandate">Change buyer</a>
+            {mandate ? (
+              <>
+                Buying for <strong>{mandate.organisationName}</strong>
+              </>
+            ) : (
+              <Skeleton className="skeleton-inline" />
+            )}{' '}
+            · <a href="#buyer-mandate">Change buyer</a>
           </p>
         )}
         <div className="primary-request">
@@ -263,6 +278,7 @@ export function Main() {
             onScenario={scenario}
             scenarios={SCENARIOS}
             running={running}
+            disabled={!mandate}
             error={run.error?.message ?? streamError?.message}
           />
         </div>
@@ -284,6 +300,11 @@ export function Main() {
             />
           </div>
         )}
+        {mandates.isPending && (
+          <div className="primary-status">
+            <LoadingSection label="mandate status" variant="status" className="panel mt-3" />
+          </div>
+        )}
       </div>
       <div className="main-flow">
         <div className="flow-header">
@@ -294,6 +315,7 @@ export function Main() {
             number={1}
             title="Request"
             status={step1Status}
+            liveStatus="Reading the request…"
             current={currentStepNumber === 1 && !proposal}
             summary={
               clarificationQuestion
@@ -352,6 +374,12 @@ export function Main() {
             number={2}
             title="Lookup"
             status={step2Status}
+            liveStatus={
+              lookupSummary(step2?.plan as ItemPlanSummary[] | undefined).replace(
+                'Price & stock',
+                'Checking price & stock',
+              ) + '…'
+            }
             current={currentStepNumber === 2 && !proposal}
             summary={
               errorStep && errorStep.step <= 2
@@ -379,6 +407,7 @@ export function Main() {
             number={3}
             title="Order"
             status={step3Status}
+            liveStatus="Building the fixed-price proposal…"
             current={currentStepNumber === 3 && !proposal}
             summary={
               proposal
@@ -403,8 +432,9 @@ export function Main() {
             number={4}
             title="Approval"
             status={step4Status}
+            liveStatus="Deciding against the buyer mandate…"
             statusWord={proposal ? approvalWord(proposal) : undefined}
-            current={Boolean(proposal || step4 || (errorStep && errorStep.step === 4))}
+            current={currentStepNumber === 4}
             summary={
               proposal
                 ? approvalLabel(proposal)
