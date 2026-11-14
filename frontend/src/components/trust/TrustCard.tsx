@@ -39,9 +39,9 @@ function factLabel(factName: string): string {
   if (factName === 'co2') return 'Carbon footprint'
   if (factName === 'origin') return 'Origin'
   if (factName === 'substitute.valio') return 'Valio substitute check'
-  if (factName.startsWith('claim.')) return `Claim (${factName.slice(6)})`
-  if (factName.startsWith('allergen.')) return `Allergen (${factName.slice(9)})`
-  if (factName.startsWith('label.')) return `Label (${factName.slice(6)})`
+  if (factName.startsWith('claim.')) return 'Claim'
+  if (factName.startsWith('allergen.')) return 'Allergen'
+  if (factName.startsWith('label.')) return 'Label'
   return factName
 }
 
