@@ -1,7 +1,7 @@
 import { Ban, CheckCircle2, Hourglass, Info, ShieldCheck } from 'lucide-react'
 import type { Mandate, Proposal, ReasonCode } from '../../lib/contracts'
 import { REASON_REGISTRY } from '../../lib/contracts'
-import { uniqueReasons } from '../approver/explain'
+import { explainWhyNotAuto, plainReason, uniqueReasons } from '../approver/explain'
 import {
   formatClock,
   formatDate,
@@ -152,7 +152,7 @@ function explain(code: ReasonCode, proposal: Proposal, mandate?: Mandate): strin
     )
   }
   const text = reasonText(code, params)
-  return /\{\w+\}/.test(text) ? reasonChip(code) : text
+  return /\{\w+\}/.test(text) ? (plainReason(code, proposal, mandate) ?? reasonChip(code)) : text
 }
 
 /** Step 4: the server's decision. The agent view never shows an approve button (P3). */
@@ -246,6 +246,11 @@ export function ResultBanner({ proposal, logHref }: { proposal: Proposal; logHre
           </li>
         ))}
       </ul>
+      {proposal.decision === 'ASK' && proposal.state === 'PENDING_APPROVAL' && (
+        <p className="text-xs text-[var(--ink)]" data-testid="result-why">
+          Not auto-approved because {explainWhyNotAuto(proposal, undefined, { omitTotalAmount: true })}.
+        </p>
+      )}
       {proposal.reasons.length > 0 && (
         <ul className="chip-list" aria-label="Decision reasons">
           {uniqueReasons(proposal.reasons).map((code) => (

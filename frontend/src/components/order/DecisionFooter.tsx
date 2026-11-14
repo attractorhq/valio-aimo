@@ -2,9 +2,9 @@ import { Ban, CheckCircle2, Hourglass, Info, ShieldCheck } from 'lucide-react'
 import { REASON_REGISTRY, type Mandate, type Proposal, type ReasonCode } from '../../lib/contracts'
 import { formatMoney, reasonChip, reasonText } from '../../lib/format'
 import { proposalRequirementChecks, requirementsStatement } from '../../lib/requirements'
-import { plainReason, uniqueReasons } from '../approver/explain'
+import { explainWhyNotAuto, plainReason, uniqueReasons } from '../approver/explain'
 
-/** The reason in plain words, or null when that would only repeat the chip (T45). */
+/** The reason in plain words, filled with proposal/mandate values so every ASK/INFO row has a clear explanation (T45, T86). */
 function explainReason(code: ReasonCode, proposal: Proposal, mandate?: Mandate): string | null {
   const params: Record<string, string> = { total: formatMoney(proposal.totals.exclVat) }
   if (mandate) {
@@ -13,17 +13,32 @@ function explainReason(code: ReasonCode, proposal: Proposal, mandate?: Mandate):
     )
   }
   const text = reasonText(code, params)
-  return /\{\w+\}/.test(text) ? plainReason(code, proposal, mandate) : text
+  if (!/\{\w+\}/.test(text)) {
+    return text
+  }
+  const explained = plainReason(code, proposal, mandate)
+  if (explained) {
+    return explained
+  }
+  if (code === 'AGENT_SUBSTITUTE') {
+    return 'A compliant substitute product was selected instead of the exact requested item.'
+  }
+  if (code === 'VALIO_SUBSTITUTE') {
+    return 'Listed by Valio Aimo as a compliant substitute for the requested product.'
+  }
+  return null
 }
 
 /**
  * The "proven" statement is derived from the same requirement facts the trust cards show (T41): it is
  * made only when every hard requirement on every line is proven by its evidence.
+ * On ASK, always states in plain language why the order was not auto-approved (T86).
  */
 function decisionSummary(
   proposal: Proposal,
   statement: ReturnType<typeof requirementsStatement>,
   approver?: string,
+  mandate?: Mandate,
 ): string {
   if (!statement.allProven && proposal.decision !== 'BLOCK') {
     return `${statement.clause}, so this proposal must not be ordered as it stands.`
@@ -38,7 +53,12 @@ function decisionSummary(
     return 'This proposal version will not be ordered.'
   }
   if (proposal.decision === 'ASK') {
-    return `${statement.clause}; this proposal version waits for ${approver ?? 'Head Chef (demo)'} to sign off the trade-off below.`
+    const whyClause = explainWhyNotAuto(proposal, mandate)
+    const who = approver ?? 'Head Chef (demo)'
+    if (statement.hasRequirements) {
+      return `${statement.clause}, but this order was not auto-approved because ${whyClause}. Waiting for ${who} to sign off.`
+    }
+    return `This order was not auto-approved because ${whyClause}. Waiting for ${who} to sign off.`
   }
   return 'Deterministic gateway policy blocked this proposal because it breaches a non-overridable mandate rule.'
 }
@@ -94,7 +114,7 @@ export function DecisionFooter({ proposal, mandate }: { proposal: Proposal; mand
       </p>
 
       <p className="mt-2 text-sm" data-testid="decision-summary">
-        {decisionSummary(proposal, statement, approver)}
+        {decisionSummary(proposal, statement, approver, mandate)}
       </p>
 
       {proposal.reasons.length > 0 && (

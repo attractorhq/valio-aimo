@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
 import type { Proposal } from '../src/lib/contracts'
+import { explainWhyNotAuto, plainReason } from '../src/components/approver/explain'
 import { proposalRequirementChecks, requirementsStatement } from '../src/lib/requirements'
 
 // T41: the trust card's requirement rows and the decision footer's "proven" statement come from the
@@ -40,9 +41,10 @@ test('the card rows and the footer statement read the same requirement facts', a
 
   const statement = requirementsStatement(checks)
   expect(statement.allProven).toBe(true)
+  expect(statement.hasRequirements).toBe(true)
   await expect(page.getByTestId('decision-summary')).toContainText(statement.clause)
   await expect(page.getByTestId('decision-summary')).toContainText(
-    'Every hard requirement (gluten-free) is proven',
+    'Every hard requirement (gluten-free) is proven, but this order was not auto-approved because the order total (€506.16 excl. VAT) is above your €500.00 auto-approve limit.',
   )
 })
 
@@ -95,4 +97,86 @@ test('declared free-from allergen evidence is proven', () => {
   expect(requirementsStatement(checks).clause).toBe(
     'Every hard requirement (gluten-free, no egg) is proven',
   )
+})
+
+test('T86: empty requirement list never says "No hard requirements were stated" and plainReason fills all ASK/INFO templates', () => {
+  const emptyStatement = requirementsStatement([])
+  expect(emptyStatement.allProven).toBe(true)
+  expect(emptyStatement.hasRequirements).toBe(false)
+  expect(emptyStatement.clause).not.toContain('No hard requirements were stated')
+
+  const multiAskProposal: Proposal = {
+    ...proposalB,
+    requestedDate: '2026-11-13',
+    reasons: [
+      'DATE_LATER',
+      'PARTIAL_AVAILABILITY',
+      'LOW_RELIABILITY',
+      'SUPPLIER_STOCK_UNKNOWN',
+      'QUANTITY_BASIS_WEAK',
+      'OVER_AUTO_LIMIT',
+    ],
+    request: {
+      ...proposalB.request,
+      requestedDate: '2026-11-13',
+      items: [
+        {
+          ...proposalB.request.items[0],
+          quantity: '120',
+          requirements: [],
+        },
+        {
+          ...proposalB.request.items[1],
+          requirements: [],
+        },
+      ],
+    },
+    lines: proposalB.lines.map((line, idx) =>
+      idx === 0
+        ? {
+            ...line,
+            deliveredQuantity: { value: '95', unit: 'kg' },
+            facts: [
+              ...line.facts.filter((f) => f.fact !== 'reliability'),
+              {
+                fact: 'reliability',
+                value: 0.91,
+                display: 'Delivered in full 91.0% historically',
+                level: 'ESTIMATE',
+                source: {
+                  system: 'valio-aimo.delivery-reliability',
+                  field: 'deliveryReliability',
+                  retrievedAt: null,
+                },
+              },
+            ],
+          }
+        : line,
+    ),
+  }
+
+  expect(plainReason('DATE_LATER', multiAskProposal)).toBe(
+    'Earliest delivery Mon 16 Nov. You asked for Fri 13 Nov.',
+  )
+  expect(plainReason('PARTIAL_AVAILABILITY', multiAskProposal)).toBe(
+    'Only 95 kg of macaroni in stock; 120 kg needed.',
+  )
+  expect(plainReason('LOW_RELIABILITY', multiAskProposal)).toBe(
+    'Delivered in full only 91 % of the time historically.',
+  )
+  expect(plainReason('SUPPLIER_STOCK_UNKNOWN', multiAskProposal)).toBe(
+    "Ships from the supplier's warehouse. Valio Aimo can't see the quantity.",
+  )
+  expect(plainReason('QUANTITY_BASIS_WEAK', multiAskProposal)).toBe(
+    'Pack size read from the product name only.',
+  )
+  expect(plainReason('REQUOTED', multiAskProposal)).toBe(
+    'Re-checked live against current price, stock, cut-off and mandate before ordering.',
+  )
+
+  const combined = explainWhyNotAuto(multiAskProposal)
+  expect(combined).toContain('earliest delivery is Mon 16 Nov instead of requested Fri 13 Nov')
+  expect(combined).toContain('only 95 kg of the requested 120 kg of macaroni is available in stock')
+  expect(combined).toContain('historical delivery reliability (91 %) is below the mandate threshold')
+  expect(combined).toContain('the order total (€506.16 excl. VAT) is above your €500.00 auto-approve limit')
 })

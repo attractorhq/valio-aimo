@@ -82,6 +82,12 @@ test('scenario B: waiting for approver, exactly one reason, no approve button', 
   const approval = step(page, 'Approval')
   await expect(approval).toContainText('Waiting for approver')
   await expect(approval).toContainText('Waiting for Head Chef (demo)')
+  await expect(page.getByTestId('result-why')).toHaveText(
+    'Not auto-approved because the order total exceeds your €500.00 auto-approve limit.',
+  )
+  await expect(page.getByTestId('decision-summary')).toContainText(
+    'this order was not auto-approved because the order total (€506.16 excl. VAT) is above your €500.00 auto-approve limit',
+  )
   await expect(approval.getByRole('list', { name: 'Reasons' }).getByRole('listitem')).toHaveCount(1)
   await expect(approval).toContainText(
     '€506.16 excl. VAT is above your €500.00 auto-approve limit.',
@@ -361,4 +367,141 @@ test('T46: /admin holds buyer-admin controls and reset; buyer page shows mandate
   await expect(page.getByRole('status')).toContainText(
     'Policy reset to default by buyer admin · mandate v3 · auto-approve limit €500.00',
   )
+})
+
+test('T86: ASK proposal without hard requirements explains why it was not auto-approved and never says "No hard requirements were stated"', async ({
+  page,
+}) => {
+  const defaultM2 = {
+    customerId: 'northbay-school-kitchen',
+    version: 1,
+    organisationName: 'Northbay School Kitchen (demo)',
+    segment: 'school kitchen',
+    allergenMode: 'STRICT' as const,
+    autoApproveLimitEur: '500.00',
+    hardLimitEur: '3000.00',
+    autoAcceptValioSubstitutes: false,
+    autoAcceptAgentSubstitutes: false,
+    autoAcceptSupplierStock: false,
+    minReliability: '0.95',
+    enforceCutoff: true,
+    forbiddenAllergens: [] as string[],
+    approver: { name: 'Head Chef (demo)', role: 'Head Chef (demo)' },
+  }
+  const askNoReqProposal = {
+    proposalId: 'PR-T86-v1',
+    customerId: 'northbay-school-kitchen',
+    mandateVersion: 1,
+    offerId: 'OF-T86',
+    offerVersion: 1,
+    offerHash: 'hash-t86',
+    decision: 'ASK',
+    reasons: ['DATE_LATER', 'PARTIAL_AVAILABILITY', 'LOW_RELIABILITY'],
+    approverRole: 'Head Chef (demo)',
+    state: 'PENDING_APPROVAL',
+    requestedDate: '2026-11-15',
+    createdAt: '2026-11-14T10:00:00+02:00',
+    validUntil: '2026-11-14T10:15:00+02:00',
+    mode: 'RECORDED',
+    recordedAt: '2026-11-13T21:50:00+02:00',
+    request: {
+      requestText: '60 kg of macaroni by Sunday.',
+      requestedDate: '2026-11-15',
+      assumptions: [],
+      items: [
+        {
+          itemId: 'I1',
+          what: 'macaroni',
+          quantity: '60',
+          unit: 'kg',
+          requirements: [],
+          preferences: [],
+        },
+      ],
+    },
+    lines: [
+      {
+        lineId: 'L1',
+        itemId: 'I1',
+        productId: 'MOCK-PASTA',
+        name: 'Synthetic macaroni 5 kg',
+        salesUnit: 'ST',
+        salesUnitLabel: 'bag',
+        contentPerSalesUnit: { value: '5', unit: 'kg', level: 'DECLARED', method: 'unitConversions' },
+        quantitySalesUnits: '8',
+        deliveredQuantity: { value: '40', unit: 'kg' },
+        unitPriceExclVat: '20.00',
+        lineTotalExclVat: '160.00',
+        vatRate: '0.14',
+        deliveryDate: '2026-11-16',
+        closingTime: '2026-11-15T17:00:00+02:00',
+        facts: [
+          {
+            fact: 'reliability',
+            value: 0.91,
+            display: 'Delivered in full 91.0% historically',
+            level: 'ESTIMATE',
+            source: {
+              system: 'valio-aimo.delivery-reliability',
+              field: 'deliveryReliability',
+              retrievedAt: null,
+            },
+          },
+        ],
+        reasons: ['DATE_LATER', 'PARTIAL_AVAILABILITY', 'LOW_RELIABILITY'],
+      },
+    ],
+    excluded: [],
+    totals: { exclVat: '160.00', vat: '22.40', inclVat: '182.40', currency: 'EUR' },
+  }
+  const json = (body: unknown, status = 200) => ({
+    status,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  await page.route('**/health', (route) =>
+    route.fulfill(json({ status: 'ok', ready: true, mode: 'RECORDED', version: '0.1' })),
+  )
+  await page.route('**/v0.1/**', (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === '/v0.1/mandates') return route.fulfill(json([defaultM2]))
+    if (url.pathname === '/v0.1/agent/run') {
+      const event = {
+        type: 'result',
+        proposal: askNoReqProposal,
+        request: askNoReqProposal.request,
+        decision: 'ASK',
+        reasons: askNoReqProposal.reasons,
+        mode: 'RECORDED',
+      }
+      return route.fulfill({
+        status: 200,
+        headers: { 'Content-Type': 'application/x-ndjson' },
+        body: JSON.stringify(event) + '\n',
+      })
+    }
+    if (url.pathname.startsWith('/v0.1/proposals/')) return route.fulfill(json(askNoReqProposal))
+    return route.fulfill(json({ error: { code: 'NOT_FOUND', message: 'not faked' } }, 404))
+  })
+
+  await page.goto('/')
+  await page.getByLabel('What do you need, and by when?').fill('60 kg of macaroni by Sunday.')
+  await page.getByRole('button', { name: 'Run request' }).click()
+
+  await expect(page.getByText('No hard requirements were stated')).toHaveCount(0)
+  await expect(page.getByTestId('result-why')).toContainText(
+    'earliest delivery is Mon 16 Nov instead of requested Sun 15 Nov',
+  )
+  await expect(page.getByTestId('result-why')).toContainText(
+    'only 40 kg of the requested 60 kg of macaroni is available in stock',
+  )
+  await expect(page.getByTestId('decision-summary')).toContainText(
+    'This order was not auto-approved because earliest delivery is Mon 16 Nov instead of requested Sun 15 Nov, only 40 kg of the requested 60 kg of macaroni is available in stock, and historical delivery reliability (91 %) is below the mandate threshold. Waiting for Head Chef (demo) to sign off.',
+  )
+
+  const approval = step(page, 'Approval')
+  await expect(approval).toContainText('Earliest delivery Mon 16 Nov. You asked for Sun 15 Nov.')
+  await expect(approval).toContainText('Only 40 kg of macaroni in stock; 60 kg needed.')
+  await expect(approval).toContainText('Delivered in full only 91 % of the time historically.')
 })

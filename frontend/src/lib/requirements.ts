@@ -75,20 +75,23 @@ function names(checks: readonly RequirementCheck[]): string {
  */
 export function requirementsStatement(checks: readonly RequirementCheck[]): {
   allProven: boolean
+  hasRequirements: boolean
   clause: string
 } {
   const unproven = checks.filter((c) => !c.proven)
   if (unproven.length > 0) {
     return {
       allProven: false,
+      hasRequirements: true,
       clause: `Not every hard requirement is proven (${names(unproven)}: see the trust cards)`,
     }
   }
   return {
     allProven: true,
+    hasRequirements: checks.length > 0,
     clause:
       checks.length > 0
         ? `Every hard requirement (${names(checks)}) is proven`
-        : 'No hard requirements were stated',
+        : 'Every decisive fact on this order is verified or declared',
   }
 }
