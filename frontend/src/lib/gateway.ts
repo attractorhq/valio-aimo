@@ -120,6 +120,8 @@ export type DecideInput = {
 /** Approver channel. Never used by the agent view. */
 export interface ApproverChannel {
   listProposals(customerId: string): Promise<ApproverItem[]>
+  /** T80: every buyer's proposals, newest first (any decision), for the log list and the approver's default. */
+  listAllProposals(): Promise<ApproverItem[]>
   view(proposalId: string): Promise<ApproverView & { loggedAt?: string }>
   viewByToken(
     approvalToken: string,
@@ -462,6 +464,13 @@ export const mockGateway: Gateway = {
 }
 
 export const mockApproverChannel: ApproverChannel = {
+  async listAllProposals() {
+    const store = load()
+    return Object.keys(store)
+      .map((id) => current(store, id))
+      .sort((a, b) => b.proposal.createdAt.localeCompare(a.proposal.createdAt))
+      .map(({ proposal, loggedAt }) => ({ proposal, loggedAt }))
+  },
   async listProposals(customerId) {
     const store = load()
     return Object.keys(store)
@@ -969,6 +978,13 @@ export const gateway: Gateway = {
 }
 
 export const approverChannel: ApproverChannel = {
+  async listAllProposals() {
+    const src = await ensureSource()
+    if (src === 'MOCK') return mockApproverChannel.listAllProposals()
+    const res = await fetch('/v0.1/approver/proposals', { headers: { Accept: 'application/json' } })
+    if (!res.ok) throw await parseErrorResponse(res)
+    return ((await res.json()) as Proposal[]).map((proposal) => ({ proposal }))
+  },
   async listProposals(customerId) {
     const src = await ensureSource()
     if (src === 'MOCK') return mockApproverChannel.listProposals(customerId)

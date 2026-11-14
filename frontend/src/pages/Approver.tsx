@@ -28,13 +28,25 @@ export function Approver() {
   const [customerId, setCustomerId] = useState<string>()
   const [selectedId, setSelectedId] = useState<string>()
 
-  // Default to the school kitchen's Head Chef, the approver in the main demo.
+  // T80: every buyer's pending items, newest first: the panel opens on the approver who has the newest one,
+  // and the role switch shows how many each approver has waiting.
+  const allProposals = useQuery({
+    queryKey: ['approver-all-proposals'],
+    queryFn: () => approverChannel.listAllProposals(),
+    refetchInterval: 2000,
+  })
+  const pendingAll = (allProposals.data ?? [])
+    .map((i) => i.proposal)
+    .filter((p) => p.state === 'PENDING_APPROVAL')
+  const pendingCount = (id: string) => pendingAll.filter((p) => p.customerId === id).length
+
   useEffect(() => {
-    if (!customerId && mandates.data?.length) {
-      const strict = mandates.data.find((m) => m.allergenMode === 'STRICT')
-      setCustomerId((strict ?? mandates.data[0]).customerId)
-    }
-  }, [customerId, mandates.data])
+    if (customerId || !mandates.data?.length || allProposals.isPending) return
+    const newest = pendingAll.find((p) => mandates.data.some((m) => m.customerId === p.customerId))
+    // Nothing waiting: the school kitchen's Head Chef, the approver in the main demo.
+    const strict = mandates.data.find((m) => m.allergenMode === 'STRICT')
+    setCustomerId(newest?.customerId ?? (strict ?? mandates.data[0]).customerId)
+  }, [customerId, mandates.data, allProposals.isPending, pendingAll])
 
   const mandate = mandates.data?.find((m) => m.customerId === customerId)
   const list = useQuery({
@@ -75,11 +87,15 @@ export function Approver() {
                   setSelectedId(undefined)
                 }}
               >
-                {mandates.data.map((m) => (
-                  <option key={m.customerId} value={m.customerId}>
-                    {m.approver.role} · {m.organisationName}
-                  </option>
-                ))}
+                {mandates.data.map((m) => {
+                  const waiting = pendingCount(m.customerId)
+                  return (
+                    <option key={m.customerId} value={m.customerId}>
+                      {m.approver.role} · {m.organisationName}
+                      {waiting ? ` (${waiting} waiting)` : ''}
+                    </option>
+                  )
+                })}
               </select>
             </label>
           )
