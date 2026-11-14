@@ -214,6 +214,7 @@ class ApprovalStore:
         proposal: Proposal,
         approver: Approver,
         *,
+        approval_statement: str | None = None,
         approval_url: str | None = None,
         qr_payload: str | None = None,
     ) -> ApproverView:
@@ -235,6 +236,7 @@ class ApprovalStore:
                 return ApproverView(
                     proposal=proposal,
                     approver=existing.approver,
+                    approvalStatement=approval_statement,
                     approvalToken=existing.token,
                     approvalUrl=approval_url,
                     qrPayload=qr_payload,
@@ -257,6 +259,7 @@ class ApprovalStore:
         return ApproverView(
             proposal=proposal,
             approver=approver,
+            approvalStatement=approval_statement,
             approvalToken=token,
             approvalUrl=approval_url,
             qrPayload=qr_payload,

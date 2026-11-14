@@ -16,6 +16,7 @@ export type Approver = {
 export type ApproverView = {
   proposal: Proposal;
   approver: Approver;
+  approvalStatement?: string | null;
   approvalToken: string;
   approvalUrl?: string | null;
   qrPayload?: string | null;

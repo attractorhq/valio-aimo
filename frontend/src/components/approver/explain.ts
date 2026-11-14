@@ -1,5 +1,85 @@
 import { REASON_REGISTRY, type Mandate, type Proposal, type ReasonCode } from '../../lib/contracts'
-import { formatMoney, reasonChip, reasonText } from '../../lib/format'
+import { formatDate, formatMoney, formatNumber, reasonChip, reasonText } from '../../lib/format'
+
+const WEEKDAY_NAMES = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+] as const
+
+function parseIsoDay(iso: string): Date {
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d))
+}
+
+/** Plain-language summary of what approving this proposal version means (patch P8 B2, P10). */
+export function formatApprovalStatement(proposal: Proposal, mandate?: Mandate): string | null {
+  if (proposal.decision !== 'ASK') return null
+  const reasons = new Set(proposal.reasons)
+
+  const deliveredByItem = new Map<string, number>()
+  for (const line of proposal.lines) {
+    deliveredByItem.set(
+      line.itemId,
+      (deliveredByItem.get(line.itemId) ?? 0) + Number(line.deliveredQuantity.value),
+    )
+  }
+
+  const shortfalls: string[] = []
+  if (reasons.has('PARTIAL_AVAILABILITY')) {
+    for (const item of proposal.request.items) {
+      const deliv = deliveredByItem.get(item.itemId) ?? 0
+      const req = Number(item.quantity)
+      if (deliv > 0 && deliv < req) {
+        shortfalls.push(
+          `${formatNumber(String(deliv))} ${item.unit} instead of ${formatNumber(String(req))} ${item.unit}`,
+        )
+      }
+    }
+  }
+
+  let dateClause: string | null = null
+  if (reasons.has('DATE_LATER') && proposal.lines.length > 0) {
+    const earliestIso = proposal.lines.reduce(
+      (max, l) => (l.deliveryDate > max ? l.deliveryDate : max),
+      proposal.lines[0].deliveryDate,
+    )
+    if (earliestIso > proposal.requestedDate) {
+      const reqLower = proposal.request.requestText.toLowerCase()
+      const refTodayIso = proposal.createdAt.slice(0, 10)
+      const askedToday =
+        proposal.requestedDate === refTodayIso ||
+        ['today', 'tänään', 'idag'].some((w) => reqLower.includes(w))
+      const reqLabel = askedToday ? 'today' : formatDate(proposal.requestedDate)
+      const delivDate = parseIsoDay(earliestIso)
+      const reqDate = parseIsoDay(proposal.requestedDate)
+      const daysAhead = Math.round((delivDate.getTime() - reqDate.getTime()) / 86_400_000)
+      const delivLabel =
+        daysAhead > 0 && daysAhead <= 7
+          ? WEEKDAY_NAMES[delivDate.getUTCDay()]
+          : formatDate(earliestIso)
+      dateClause = `on ${delivLabel} instead of ${reqLabel}`
+    }
+  }
+
+  if (shortfalls.length > 0 && dateClause) {
+    return `Approving means ${shortfalls.join(', ')}, ${dateClause}.`
+  }
+  if (shortfalls.length > 0) {
+    return `Approving means ${shortfalls.join(', ')}.`
+  }
+  if (dateClause) {
+    return `Approving means delivery ${dateClause}.`
+  }
+  if (proposal.reasons.length === 1 && proposal.reasons[0] === 'OVER_AUTO_LIMIT' && mandate) {
+    return `${formatMoney(proposal.totals.exclVat)} is above your ${formatMoney(mandate.autoApproveLimitEur)} auto-approve limit. Everything else is verified or declared.`
+  }
+  return null
+}
 
 /** The reason in plain language, filled from the registry template where the values are known. */
 export function plainReason(code: ReasonCode, proposal: Proposal, mandate?: Mandate): string {

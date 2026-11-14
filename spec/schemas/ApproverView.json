@@ -889,6 +889,18 @@
     "approver": {
       "$ref": "#/$defs/Approver"
     },
+    "approvalStatement": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Approvalstatement"
+    },
     "approvalToken": {
       "minLength": 1,
       "title": "Approvaltoken",
