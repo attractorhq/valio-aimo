@@ -12,7 +12,7 @@ No approval token, URL or QR payload may ever be stored in a decision-log entry 
 import hashlib
 import json
 from collections.abc import Iterable, Sequence
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from types import MappingProxyType
 
@@ -31,6 +31,8 @@ from app.contracts import (
     ProposalState,
     ReasonCode,
     TrustLabel,
+    TrustSource,
+    format_date,
     format_money,
 )
 from app.contracts.common import Contract
@@ -276,13 +278,25 @@ def decision_summary(
     *,
     total_excl_vat: Decimal,
     mandate: Mandate,
+    available_date: date | None = None,
+    requested_date: date | None = None,
 ) -> str:
     """Readable summary of the gateway's policy decision for the decision log."""
     total_text = format_money(total_excl_vat)
     auto_text = format_money(mandate.autoApproveLimitEur)
     hard_text = format_money(mandate.hardLimitEur)
-    chips = [REASON_REGISTRY[code].chipText for code in reasons if code in REASON_REGISTRY]
-    reason_suffix = f" Reasons: {', '.join(chips)}." if chips else ""
+    reason_details: list[str] = []
+    for code in reasons:
+        if code not in REASON_REGISTRY:
+            continue
+        chip = REASON_REGISTRY[code].chipText
+        if code == ReasonCode.DATE_LATER and available_date is not None and requested_date is not None:
+            reason_details.append(
+                f"{chip} ({REASON_REGISTRY[code].template.format(availableDate=format_date(available_date), requestedDate=format_date(requested_date))})"
+            )
+        else:
+            reason_details.append(chip)
+    reason_suffix = f" Reasons: {', '.join(reason_details)}." if reason_details else ""
     if decision == "AUTO":
         return (
             f"AUTO: all requirements proven and {total_text} excl. VAT is within the "
@@ -306,11 +320,130 @@ def decision_summary(
     return f"BLOCK: proposal violates a hard mandate constraint.{reason_suffix}"
 
 
-def decisive_facts(lines: Sequence[OfferLine]) -> list[TrustLabel]:
+def _parse_iso_date(value: object) -> date | None:
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value[:10])
+        except ValueError:
+            return None
+    return None
+
+
+def _infer_requested_date_from_entry(
+    *,
+    offer_id: str | None = None,
+    proposal_id: str | None = None,
+    reasons: Sequence[ReasonCode] = (),
+    facts: Sequence[TrustLabel] = (),
+) -> date | None:
+    """Infer `requestedDate` for a transition entry when not yet present in `facts`."""
+    for fact in facts:
+        if fact.fact == "delivery.requestedDate" and fact.value is not None:
+            parsed = _parse_iso_date(fact.value)
+            if parsed is not None:
+                return parsed
+    for ident in (offer_id, proposal_id):
+        if not ident:
+            continue
+        stem = ident.removeprefix("OF-").removeprefix("PR-")
+        if len(stem) >= 10:
+            parsed = _parse_iso_date(stem[:10])
+            if parsed is not None:
+                return parsed
+    if ReasonCode.DATE_LATER not in reasons:
+        for fact in facts:
+            if fact.fact == "delivery.date" and fact.value is not None:
+                parsed = _parse_iso_date(fact.value)
+                if parsed is not None:
+                    return parsed
+    return None
+
+
+def _fill_summary_reason_templates(
+    summary: str,
+    *,
+    reasons: Sequence[ReasonCode],
+    facts: Sequence[TrustLabel],
+) -> str:
+    """Append filled reason template text (such as DATE_LATER) to `summary` when not already present."""
+    if not summary:
+        return summary
+    delivery_dates = [
+        d
+        for f in facts
+        if f.fact == "delivery.date" and f.value is not None and (d := _parse_iso_date(f.value)) is not None
+    ]
+    req_dates = [
+        d
+        for f in facts
+        if f.fact == "delivery.requestedDate" and f.value is not None and (d := _parse_iso_date(f.value)) is not None
+    ]
+    if ReasonCode.DATE_LATER in reasons and delivery_dates and req_dates:
+        avail_date = max(delivery_dates)
+        req_date = req_dates[0]
+        filled = REASON_REGISTRY[ReasonCode.DATE_LATER].template.format(
+            availableDate=format_date(avail_date),
+            requestedDate=format_date(req_date),
+        )
+        if filled not in summary and format_date(avail_date) not in summary:
+            summary = f"{summary.rstrip()} {filled}"
+    return summary
+
+
+def _requested_date_label(
+    lines: Sequence[OfferLine],
+    *,
+    requested_date: date | None = None,
+    retrieved_at: datetime | None = None,
+) -> TrustLabel | None:
+    """Return a `delivery.requestedDate` TrustLabel when `requested_date` is known and not yet in `lines`."""
+    if requested_date is None:
+        return None
+    for line in lines:
+        for fact in line.facts:
+            if fact.fact == "delivery.requestedDate":
+                return None
+    ts = retrieved_at
+    if ts is None:
+        for line in lines:
+            for fact in line.facts:
+                if fact.source.retrievedAt is not None:
+                    ts = fact.source.retrievedAt
+                    break
+            if ts is not None:
+                break
+    return TrustLabel(
+        fact="delivery.requestedDate",
+        value=requested_date.isoformat(),
+        display=f"Requested delivery: {format_date(requested_date)}",
+        level="VERIFIED",
+        source=TrustSource(
+            system="derived",
+            field="request.requestedDate",
+            retrievedAt=ts,
+        ),
+        method=None,
+        conflict=None,
+    )
+
+
+def decisive_facts(
+    lines: Sequence[OfferLine],
+    *,
+    requested_date: date | None = None,
+    retrieved_at: datetime | None = None,
+) -> list[TrustLabel]:
     """Collect the trust-labelled facts across the proposal lines for the decision log."""
     collected: list[TrustLabel] = []
     for line in lines:
         collected.extend(line.facts)
+    req_label = _requested_date_label(lines, requested_date=requested_date, retrieved_at=retrieved_at)
+    if req_label is not None:
+        collected.append(req_label)
     return collected
 
 
@@ -518,6 +651,44 @@ class DecisionLog:
         validate_transition(from_state, to_state)
         seq = len(self.entries()) + 1
         prefix = proposal_id or offer_id or customer_id
+        facts_list = list(facts)
+        if facts_list and not any(f.fact == "delivery.requestedDate" for f in facts_list):
+            req_date = _infer_requested_date_from_entry(
+                offer_id=offer_id,
+                proposal_id=proposal_id,
+                reasons=reasons,
+                facts=facts_list,
+            )
+            if req_date is None:
+                for prev in reversed(self._entries):
+                    if (proposal_id and prev.proposalId == proposal_id) or (offer_id and prev.offerId == offer_id):
+                        req_date = _infer_requested_date_from_entry(
+                            offer_id=prev.offerId,
+                            proposal_id=prev.proposalId,
+                            reasons=prev.reasons,
+                            facts=prev.facts,
+                        )
+                        if req_date is not None:
+                            break
+            if req_date is None and ReasonCode.DATE_LATER in reasons:
+                req_date = timestamp.date()
+            if req_date is not None:
+                facts_list.append(
+                    TrustLabel(
+                        fact="delivery.requestedDate",
+                        value=req_date.isoformat(),
+                        display=f"Requested delivery: {format_date(req_date)}",
+                        level="VERIFIED",
+                        source=TrustSource(
+                            system="derived",
+                            field="request.requestedDate",
+                            retrievedAt=timestamp,
+                        ),
+                        method=None,
+                        conflict=None,
+                    )
+                )
+        filled_summary = _fill_summary_reason_templates(summary, reasons=reasons, facts=facts_list)
         entry = AuditEntry(
             entryId=entry_id or f"{prefix}-e{seq}",
             customerId=customer_id,
@@ -533,8 +704,8 @@ class DecisionLog:
             toState=to_state,
             reasons=list(reasons),
             rule=rule,
-            facts=list(facts),
-            summary=summary,
+            facts=facts_list,
+            summary=filled_summary,
             comment=comment,
         )
         return self.append(entry)
