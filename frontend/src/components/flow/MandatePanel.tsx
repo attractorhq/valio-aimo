@@ -25,9 +25,7 @@ export function MandatePanel({
   loading?: boolean
 }) {
   if (loading)
-    return (
-      <LoadingSection label="buyer mandate" variant="mandate" className="mandate-panel" />
-    )
+    return <LoadingSection label="buyer mandate" variant="mandate" className="mandate-panel" />
   return (
     <section className="mandate-panel" aria-labelledby="mandate-heading">
       <h2 id="mandate-heading" className="panel-title">
@@ -41,6 +39,7 @@ export function MandatePanel({
             <label
               key={mandate.customerId}
               className={`segment ${isSelected ? 'is-selected' : ''}`}
+              title={`${mandate.organisationName} · ${mandate.segment}`}
             >
               <input
                 type="radio"
@@ -50,9 +49,11 @@ export function MandatePanel({
                 checked={isSelected}
                 onChange={() => onSelect(mandate.customerId)}
               />
-              <span className="segment-check" aria-hidden>
-                {isSelected && <Check size={14} />}
-              </span>
+              {isSelected && (
+                <span className="segment-check" aria-hidden>
+                  <Check size={14} />
+                </span>
+              )}
               <span className="segment-text">
                 <strong>{mandate.organisationName}</strong>
                 <small>{mandate.segment}</small>

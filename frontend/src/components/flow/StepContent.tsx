@@ -1,7 +1,12 @@
-import { Ban, CheckCircle2, Hourglass, Info, ShieldCheck } from 'lucide-react'
+import { Ban, CheckCircle2, Hourglass, Info } from 'lucide-react'
 import type { Mandate, Proposal, ReasonCode } from '../../lib/contracts'
 import { REASON_REGISTRY } from '../../lib/contracts'
-import { committedLimitSentence, explainWhyNotAuto, plainReason, uniqueReasons } from '../approver/explain'
+import {
+  committedLimitSentence,
+  explainWhyNotAuto,
+  plainReason,
+  uniqueReasons,
+} from '../approver/explain'
 import {
   formatClock,
   formatDate,
@@ -122,8 +127,8 @@ export function approvalLabel(proposal: Proposal): string {
   switch (proposal.state) {
     case 'CONFIRMED_SIMULATED':
       return proposal.decision === 'ASK'
-        ? `Approved by ${proposal.approverRole ?? 'the approver'} → Confirmed (simulated)`
-        : 'Agent decided → Confirmed (simulated)'
+        ? `Approved by ${proposal.approverRole ?? 'the approver'} → Confirmed`
+        : 'Agent decided → Confirmed'
     case 'PENDING_APPROVAL':
       return 'Waiting for approver'
     case 'BLOCKED':
@@ -166,8 +171,8 @@ export function ApprovalOutcome({ proposal, mandate }: { proposal: Proposal; man
       <p className="outcome-headline">
         <Icon size={22} aria-hidden />
         <span>
-          <span className="outcome-word">{decision}</span>
-          {decision === 'AUTO' && 'Every required fact is verified or declared, inside the mandate.'}
+          {decision === 'AUTO' &&
+            'Every required fact is verified or declared, inside the mandate.'}
           {decision === 'ASK' && `Waiting for ${approver ?? 'the approver'}`}
           {decision === 'BLOCK' && 'This order breaks the mandate.'}
         </span>
@@ -192,12 +197,6 @@ export function ApprovalOutcome({ proposal, mandate }: { proposal: Proposal; man
         <p className="muted small">
           The agent cannot approve. {approver ?? 'The approver'} signs off this exact version in the
           separate Approver panel.
-        </p>
-      )}
-      {decision !== 'BLOCK' && (
-        <p className="simulation-notice">
-          <ShieldCheck size={14} aria-hidden />
-          {proposal.simulationNotice ?? 'Simulated order — mock environment'}
         </p>
       )}
     </div>
@@ -235,10 +234,7 @@ export function ResultBanner({
       <div className="result-head">
         <p className="outcome-headline">
           <Icon size={22} aria-hidden />
-          <span>
-            <span className="outcome-word">{proposal.decision}</span>
-            {approvalLabel(proposal)}
-          </span>
+          <span>{approvalLabel(proposal)}</span>
         </p>
         <p className="result-total">
           <strong>{formatMoney(proposal.totals.exclVat)}</strong>

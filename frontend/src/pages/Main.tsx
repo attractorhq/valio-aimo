@@ -91,7 +91,11 @@ export function Main() {
     return subscribeGatewaySource((next) => setSourceState(next))
   }, [])
 
-  const run = useMutation<FlowResult, Error, Pick<RunInput, 'customerId' | 'requestText' | 'lookupDate'>>({
+  const run = useMutation<
+    FlowResult,
+    Error,
+    Pick<RunInput, 'customerId' | 'requestText' | 'lookupDate'>
+  >({
     mutationFn: (input) => {
       setStreamedSteps([])
       return gateway.run({
@@ -294,9 +298,13 @@ export function Main() {
                 detail={step4.explanation?.text}
                 noOrder={step4.noOrder}
                 hasExclusions={Boolean(step4.excluded?.length)}
-                onRetry={running ? undefined : (lookupDate) => {
-                  if (run.variables) run.mutate({ ...run.variables, lookupDate })
-                }}
+                onRetry={
+                  running
+                    ? undefined
+                    : (lookupDate) => {
+                        if (run.variables) run.mutate({ ...run.variables, lookupDate })
+                      }
+                }
               />
             )}
           </div>
@@ -343,7 +351,7 @@ export function Main() {
                 <p className="outcome-headline">
                   <HelpCircle size={20} aria-hidden />
                   <span>
-                    <span className="outcome-word">CLARIFICATION NEEDED</span>
+                    <strong>Needs one detail · </strong>
                     {clarificationQuestion}
                   </span>
                 </p>

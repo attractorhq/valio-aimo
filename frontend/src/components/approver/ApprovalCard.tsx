@@ -36,7 +36,7 @@ export function ApprovalState({ item }: { item: ApproverItem }) {
         <p className="approval-state approval-state-done" role="status">
           <CheckCircle2 size={18} aria-hidden />
           Approved · {proposal.mode === 'LIVE' ? 're-checked live' : 're-checked (recorded data)'} ·
-          Confirmed (simulated){logged}
+          Confirmed{logged}
         </p>
       )
     case 'REJECTED':

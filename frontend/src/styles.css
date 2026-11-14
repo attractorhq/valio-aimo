@@ -232,7 +232,9 @@ select {
 .loading-stats .skeleton-row:not(:first-child) {
   display: none;
 }
-.mandate-panel {
+/* Only the loading skeleton reserves the panel's height (no layout shift); a loaded panel is as tall as
+   its content, so there is no empty block under "Details". */
+.loading-section.mandate-panel {
   min-height: 312px;
 }
 .approver-header {
@@ -273,7 +275,7 @@ select {
   .buyer-line {
     min-height: 38px;
   }
-  .mandate-panel {
+  .loading-section.mandate-panel {
     min-height: 332px;
   }
   .valio-catalogue-panel {
@@ -536,9 +538,10 @@ main {
   position: relative;
   display: flex;
   gap: var(--space-2);
-  align-items: flex-start;
-  min-height: 44px;
-  padding: var(--space-2) var(--space-3);
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 10px;
   border: 0;
   border-radius: var(--radius-input);
   cursor: pointer;
@@ -560,28 +563,63 @@ main {
 }
 .segment-input {
   position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none; /* the label takes the click; the hidden radio never covers the name */
   opacity: 0;
   width: 1px;
   height: 1px;
   margin: 0;
 }
 .segment-check {
-  flex: 0 0 14px;
-  height: 14px;
-  margin-top: 2px;
+  flex: 0 0 auto;
+  display: inline-flex;
 }
 .segment-text {
   min-width: 0;
 }
+/* One line per buyer: the name never wraps (a long one ends in "…"); the segment is for screen readers. */
 .segment-text strong {
   display: block;
-  font-size: 14px;
-  line-height: 1.3;
+  font-size: 13px;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .segment-text small {
-  display: block;
-  color: var(--muted);
-  font-size: 12px;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+/* Touch screens keep a 44 px target. On a phone the name stays on one line: a slightly smaller font and no
+   check mark (the filled background already marks the selection) leave room for the full name. */
+@media (pointer: coarse) {
+  .segment {
+    min-height: 44px;
+  }
+}
+@media (max-width: 520px) {
+  /* Each buyer takes the width its name needs instead of an equal half. */
+  .segmented {
+    display: flex;
+    gap: var(--space-1);
+    min-width: 0; /* a fieldset is min-content wide by default; never push the page sideways */
+  }
+  .segment {
+    flex: 1 1 auto;
+    padding: 6px 4px;
+    justify-content: center;
+  }
+  .segment-check {
+    display: none;
+  }
+  .segment-text strong {
+    font-size: 12px;
+  }
 }
 .key-limits {
   display: grid;
@@ -902,6 +940,11 @@ main {
 .step-idle .step-summary {
   color: var(--muted);
   font-weight: 400;
+  font-size: 14px;
+}
+/* Before the first run the four steps are a compact outline, not four tall empty rows. */
+.step.step-idle {
+  padding: var(--space-2) 0;
 }
 .step-content {
   margin-top: 10px;
@@ -1040,6 +1083,10 @@ button.chip {
   font-size: 14px;
   padding: var(--space-1) 0;
   border-bottom: 1px solid var(--line);
+}
+/* The last row has no own line: the next section's divider is the only one (no double rule). */
+.lookup-list li:last-child {
+  border-bottom: 0;
 }
 /* The excluded summary sits under the chosen product, so long product names keep their width. */
 .lookup-list li > :nth-child(3) {

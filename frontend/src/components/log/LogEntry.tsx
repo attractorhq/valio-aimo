@@ -17,7 +17,7 @@ const STATE_LABELS: Record<ProposalState, string> = {
   PENDING_APPROVAL: 'Waiting for approver',
   APPROVED: 'Approved',
   RECHECKED: 'Re-checked live',
-  CONFIRMED_SIMULATED: 'Confirmed (simulated)',
+  CONFIRMED_SIMULATED: 'Confirmed',
   BLOCKED: 'Blocked by mandate',
   REJECTED: 'Rejected',
   EXPIRED: 'Expired',
@@ -38,8 +38,8 @@ const EVENT_TITLES: Record<string, string> = {
   APPROVAL_REJECTED: 'Rejected by a human',
   RECHECKED: 'Re-checked before confirming',
   PROPOSAL_RECHECKED: 'Re-checked before confirming',
-  CONFIRMED_SIMULATED: 'Confirmed (simulated)',
-  ORDER_CONFIRMED_SIMULATED: 'Confirmed (simulated)',
+  CONFIRMED_SIMULATED: 'Confirmed',
+  ORDER_CONFIRMED_SIMULATED: 'Confirmed',
   SUPERSEDED: 'Superseded',
   PROPOSAL_SUPERSEDED: 'Superseded',
   EXPIRED: 'Expired',
@@ -279,9 +279,7 @@ export function LogEntry({ entry }: { entry: AuditEntry }) {
             )}
           </span>
           <span className="log-col-meta">
-            {metaParts.length > 0 && (
-              <span className="log-meta-pill">{metaParts.join(' · ')}</span>
-            )}
+            {metaParts.length > 0 && <span className="log-meta-pill">{metaParts.join(' · ')}</span>}
             <span className="log-chevron" aria-hidden="true">
               ▾
             </span>

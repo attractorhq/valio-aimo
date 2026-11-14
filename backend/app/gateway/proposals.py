@@ -1671,7 +1671,7 @@ class ProposalGateway:
                 rule="P1.3",
                 facts=refreshed_facts or decisive_facts(proposal.lines),
                 summary=(
-                    f"Simulated order — mock environment. Confirmed {proposal.proposalId} at "
+                    f"Confirmed {proposal.proposalId} at "
                     f"{format_money(proposal.totals.exclVat)} excl. VAT."
                 ),
             )

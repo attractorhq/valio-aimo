@@ -314,12 +314,10 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     await page.getByRole('button', { name: /^Scenario A:/ }).click()
     await expect(step(page, 'Request')).toContainText('Lactose-free')
     await expect(step(page, 'Request')).toContainText('Mon 16 Nov')
-    await expect(step(page, 'Order')).toContainText(
-      /offer v1 · €1,010\.00 excl\. VAT/i,
-    )
+    await expect(step(page, 'Order')).toContainText(/offer v1 · €1,010\.00 excl\. VAT/i)
     await expect(step(page, 'Order')).toContainText('464306')
-    await expect(step(page, 'Approval')).toContainText('Agent decided → Confirmed (simulated)')
-    await expect(step(page, 'Approval')).toContainText('Simulated order — mock environment')
+    await expect(step(page, 'Approval')).toContainText('Agent decided → Confirmed')
+    await expect(page.getByText(/simulated|mock environment/i)).toHaveCount(0)
     // T60/T78: Valio's availability sentinel (>= 999999) is "Stock not tracked" at DECLARED, never "Plenty in stock".
     const cardA = page.getByRole('article', { name: /Trust card for/ }).first()
     await cardA.getByRole('button', { name: /Show facts/ }).click()
@@ -330,9 +328,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
 
     // 2. Scenario B (ASK; the approver approves v1): €506.16 > €500.00 for M2 (STRICT)
     await page.getByRole('button', { name: /^Scenario B:/ }).click()
-    await expect(step(page, 'Order')).toContainText(
-      /offer v1 · €506\.16 excl\. VAT/i,
-    )
+    await expect(step(page, 'Order')).toContainText(/offer v1 · €506\.16 excl\. VAT/i)
     await expect(step(page, 'Order')).toContainText('474235')
     await expect(step(page, 'Order')).toContainText('468465')
     await expect(page.getByRole('note', { name: 'Valio-substitute check' })).toBeVisible()
@@ -355,33 +351,25 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     // Separate Approver panel signs off version 1
     const approverPage = await context.newPage()
     await approverPage.goto(`${baseURL}/approver`)
-    await expect(
-      approverPage.getByRole('heading', { name: 'Approver — Head Chef' }),
-    ).toBeVisible()
+    await expect(approverPage.getByRole('heading', { name: 'Approver — Head Chef' })).toBeVisible()
     await expect(
       approverPage.getByRole('heading', { name: /Proposals for you \(1 waiting\)/ }),
     ).toBeVisible()
 
     const card = approverPage.getByRole('article')
-    await expect(card.getByRole('heading')).toHaveText(
-      'Approving version 1',
-    )
+    await expect(card.getByRole('heading')).toHaveText('Approving version 1')
     await expect(card).toContainText(
       '€506.16 is above your €500.00 auto-approve limit. Everything else is verified or declared.',
     )
     await expect(card).toContainText('Single-use approval link')
 
     await card.getByRole('button', { name: 'Approve €506.16' }).click()
-    await expect(card).toContainText(
-      /Approved · re-checked (live|\(recorded data\)) · Confirmed \(simulated\)/,
-    )
+    await expect(card).toContainText(/Approved · re-checked (live|\(recorded data\)) · Confirmed/)
     await approverPage.close()
 
     await page.bringToFront()
     await page.evaluate(() => window.dispatchEvent(new Event('focus')))
-    await expect(step(page, 'Approval')).toContainText(
-      'Approved by Head Chef → Confirmed (simulated)',
-    )
+    await expect(step(page, 'Approval')).toContainText('Approved by Head Chef → Confirmed')
 
     // 3. Scenario C (BLOCK): 464306 × 20,000 = €20,200.00 > €5,000.00 hard limit + INSTRUCTION_IGNORED
     await page.getByRole('button', { name: /^Scenario C:/ }).click()

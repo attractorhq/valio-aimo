@@ -1,4 +1,4 @@
-import { Ban, CheckCircle2, Hourglass, Info, ShieldCheck } from 'lucide-react'
+import { Ban, CheckCircle2, Hourglass, Info } from 'lucide-react'
 import { REASON_REGISTRY, type Mandate, type Proposal, type ReasonCode } from '../../lib/contracts'
 import { formatMoney, reasonChip, reasonText } from '../../lib/format'
 import {
@@ -66,7 +66,7 @@ function decisionSummary(
 function askStateText(proposal: Proposal, approver: string): string {
   switch (proposal.state) {
     case 'CONFIRMED_SIMULATED':
-      return `Approved by ${approver} → Confirmed (simulated)`
+      return `Approved by ${approver} → Confirmed`
     case 'REJECTED':
       return `Rejected by ${approver} · nothing ordered`
     case 'EXPIRED':
@@ -80,7 +80,7 @@ function askStateText(proposal: Proposal, approver: string): string {
 
 /**
  * Step 4 Decision footer: reason chips, plain-language explanation, "Waiting for Head Chef" with NO approve button,
- * and "Simulated order — mock environment" (P6 P0-2/P0-3, P10 S2).
+ * (P6 P0-2/P0-3, P10 S2).
  */
 export function DecisionFooter({ proposal, mandate }: { proposal: Proposal; mandate?: Mandate }) {
   const decision = proposal.decision
@@ -102,9 +102,10 @@ export function DecisionFooter({ proposal, mandate }: { proposal: Proposal; mand
       <p className="outcome-headline">
         <Icon size={22} aria-hidden />
         <span>
-          <span className="outcome-word">{decision}</span>
           {decision === 'AUTO' &&
-            (statement.allProven ? evidenceHeadline(evidence) : 'A hard requirement is not proven.')}
+            (statement.allProven
+              ? evidenceHeadline(evidence)
+              : 'A hard requirement is not proven.')}
           {decision === 'ASK' &&
             (proposal.state === 'PENDING_APPROVAL'
               ? `Waiting for ${approver}`
@@ -142,11 +143,6 @@ export function DecisionFooter({ proposal, mandate }: { proposal: Proposal; mand
           })}
         </ul>
       )}
-
-      <p className="simulation-notice">
-        <ShieldCheck size={14} aria-hidden />
-        {proposal.simulationNotice ?? 'Simulated order — mock environment'}
-      </p>
     </div>
   )
 }

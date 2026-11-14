@@ -14,24 +14,34 @@ export function NoOrderBanner({ summary, detail, noOrder, hasExclusions, onRetry
   const earliest = noOrder?.earliestDelivery
 
   return (
-    <section className="outcome outcome-block result-banner" aria-label="Result" data-testid="result-banner">
+    <section
+      className="outcome outcome-block result-banner"
+      aria-label="Result"
+      data-testid="result-banner"
+    >
       <p className="outcome-headline">
         <Ban size={22} aria-hidden />
         <span>
-          <span className="outcome-word">NO ORDER</span>
+          <strong>No order · </strong>
           {summary}
         </span>
       </p>
       {!noOrder && detail && <p className="mt-1 text-sm">{detail}</p>}
       {noOrder?.items.map((item) => (
         <div className="mt-2 text-sm" key={item.itemId}>
-          <p><strong>Searched:</strong> {item.searched}</p>
+          <p>
+            <strong>Searched:</strong> {item.searched}
+          </p>
           <p>{item.why}</p>
           {item.closestMatches.length > 0 && (
             <>
-              <p className="mt-1"><strong>Closest matches (not ordered)</strong></p>
+              <p className="mt-1">
+                <strong>Closest matches (not ordered)</strong>
+              </p>
               <ul>
-                {item.closestMatches.map((match) => <li key={match.productId}>{match.name}</li>)}
+                {item.closestMatches.map((match) => (
+                  <li key={match.productId}>{match.name}</li>
+                ))}
               </ul>
             </>
           )}
@@ -50,7 +60,11 @@ export function NoOrderBanner({ summary, detail, noOrder, hasExclusions, onRetry
           </button>
         </div>
       )}
-      {hasExclusions && <p className="result-links"><a href="#step-2">Excluded candidates</a></p>}
+      {hasExclusions && (
+        <p className="result-links">
+          <a href="#step-2">Excluded candidates</a>
+        </p>
+      )}
     </section>
   )
 }

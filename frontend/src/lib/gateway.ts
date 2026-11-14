@@ -260,8 +260,8 @@ function stepsFromProposal(proposal: Proposal): AgentStepEvent[] {
       ? 'Blocked by mandate'
       : proposal.state === 'CONFIRMED_SIMULATED'
         ? proposal.decision === 'ASK'
-          ? `Approved by ${proposal.approverRole ?? 'the approver'} → Confirmed (simulated)`
-          : 'Agent decided → Confirmed (simulated)'
+          ? `Approved by ${proposal.approverRole ?? 'the approver'} → Confirmed`
+          : 'Agent decided → Confirmed'
         : 'Waiting for approver'
 
   return [

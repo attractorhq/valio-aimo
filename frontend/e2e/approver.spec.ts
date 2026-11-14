@@ -66,7 +66,7 @@ test('B: main view ASK → Approver panel → Approve → confirmed in both view
 
   await card.getByRole('button', { name: 'Approve €506.16' }).click()
   await expect(card).toContainText(
-    /Approved · re-checked \(recorded data\) · Confirmed \(simulated\) · logged \d{2}:\d{2}/,
+    /Approved · re-checked \(recorded data\) · Confirmed · logged \d{2}:\d{2}/,
   )
   await expect(card.getByRole('button', { name: /Approve/ })).toHaveCount(0)
   await approver.screenshot({
@@ -75,9 +75,7 @@ test('B: main view ASK → Approver panel → Approve → confirmed in both view
   })
 
   await page.bringToFront()
-  await expect(step(page, 'Approval')).toContainText(
-    'Approved by Head Chef → Confirmed (simulated)',
-  )
+  await expect(step(page, 'Approval')).toContainText('Approved by Head Chef → Confirmed')
   await expect(step(page, 'Approval')).toContainText('Approved')
   await page.screenshot({
     path: `test-results/main-after-approval-${info.project.name}.png`,
@@ -100,7 +98,7 @@ test('a used approval link cannot be replayed', async ({ page }) => {
   await runScenarioB(page)
   await page.goto('/approver')
   await page.getByRole('button', { name: 'Approve €506.16' }).click()
-  await expect(page.getByRole('article')).toContainText('Confirmed (simulated)')
+  await expect(page.getByRole('article')).toContainText('Confirmed')
   // Replay: the same token is presented again for a proposal that looks pending.
   await patchPending(page, { state: 'PENDING_APPROVAL' }, { force: true })
   await page.reload()
@@ -132,9 +130,7 @@ test('the approver panel is visibly not the agent and starts empty', async ({ pa
   await expect(page.getByText('Human sign-off channel · not the agent')).toBeVisible()
   await expect(page.getByText('Nothing to approve.')).toBeVisible()
   await page.getByLabel('Signed in as').selectOption('mock-hotels')
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText(
-    'Approver — Purchasing Manager',
-  )
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Approver — Purchasing Manager')
 })
 
 test('the approver panel has no horizontal page scroll', async ({ page }) => {
@@ -222,7 +218,7 @@ test('phone approval via QR (/approve/:token) at 390 px and across separate devi
 
   await card.getByRole('button', { name: 'Approve €506.16' }).click()
   await expect(card).toContainText(
-    /Approved · re-checked \(recorded data\) · Confirmed \(simulated\) · logged \d{2}:\d{2}/,
+    /Approved · re-checked \(recorded data\) · Confirmed · logged \d{2}:\d{2}/,
   )
   await phoneContext.close()
 })
@@ -282,9 +278,7 @@ test('B2 partial-delivery proposal shows "Approving means 95 kg instead of 120 k
   )
 })
 
-test('a queue row shows the customer, the products and each reason once', async ({
-  page,
-}) => {
+test('a queue row shows the customer, the products and each reason once', async ({ page }) => {
   await runScenarioB(page)
   await page.goto('/approver')
   const row = page.locator('.approver-queue button').filter({ hasText: '€506.16' }).first()
