@@ -4,11 +4,11 @@ import type {
   ExcludedProduct,
   OfferLine,
   RequestItem,
-  Requirement,
   TrustLabel,
   TrustLevel,
 } from '../../lib/contracts'
 import { formatQuantity, reasonChip, requirementLabel } from '../../lib/format'
+import { requirementChecks } from '../../lib/requirements'
 import { TrustBadge, TrustSourceMeta, formatFactDisplay } from './TrustBadge'
 
 function countLevels(line: OfferLine): Record<TrustLevel, number> & { CONFLICT: number } {
@@ -25,16 +25,6 @@ function countLevels(line: OfferLine): Record<TrustLevel, number> & { CONFLICT: 
     if (f.conflict) counts.CONFLICT += 1
   }
   return counts
-}
-
-function findRequirementFact(line: OfferLine, req: Requirement): TrustLabel | undefined {
-  if (req.kind === 'CLAIM') {
-    return line.facts.find((f) => f.fact === `claim.${req.code}`)
-  }
-  return (
-    line.facts.find((f) => f.fact === `allergen.${req.code}`) ??
-    line.facts.find((f) => f.fact === 'allergen.X99')
-  )
 }
 
 function factLabel(factName: string): string {
@@ -55,19 +45,44 @@ function factLabel(factName: string): string {
   return factName
 }
 
+const SOURCE_NAMES: Record<string, string> = {
+  allergen: 'supplier allergen list',
+  nonAllergen: 'supplier free-from list',
+  nutritionalClaim: 'supplier claim',
+  packagingMarkedLabel: 'package label',
+}
+
+/** "synkkaData.classifications[nonAllergen]" → "supplier free-from list". */
+function sourceShort(fact: TrustLabel): string {
+  const field = fact.source.field ?? ''
+  const group = /\[(\w+)\]$/.exec(field)?.[1] ?? field
+  return SOURCE_NAMES[group] ?? (group || fact.source.system)
+}
+
+function sourceText(fact: TrustLabel): string {
+  const field = fact.source.field ? ` · ${fact.source.field}` : ''
+  const method = fact.method ? ` (${fact.method})` : ''
+  return `${fact.source.system}${field}${method}`
+}
+
 export function TrustCard({
   line,
   item,
+  forbiddenAllergens = [],
   excludedSubstitutes = [],
 }: {
   line: OfferLine
   item?: RequestItem
+  /** The mandate's forbidden allergens: hard requirements the policy enforces on every line. */
+  forbiddenAllergens?: readonly string[]
   excludedSubstitutes?: ExcludedProduct[]
 }) {
   const [expanded, setExpanded] = useState(false)
   const factsId = useId()
   const counts = countLevels(line)
   const requirements = item?.requirements ?? []
+  // The same requirement facts the gateway policy decided on and the decision footer reads (T41).
+  const checks = requirementChecks(line, item, forbiddenAllergens)
 
   const subFact = line.facts.find((f) => f.fact === 'substitute.valio')
   const regularFacts = line.facts.filter((f) => f.fact !== 'substitute.valio')
@@ -101,19 +116,23 @@ export function TrustCard({
             Trust card · {line.name}{' '}
             <span className="font-normal text-[var(--muted)]">({line.productId})</span>
           </h3>
-          {requirements.map((req) => {
-            const matched = findRequirementFact(line, req)
-            return (
-              <span
-                key={`${req.kind}-${req.code}`}
-                className="inline-flex items-center gap-1 rounded-md border border-[var(--line)] bg-[var(--surface)] px-2 py-0.5 text-xs"
-              >
-                <strong className="text-[var(--ink)]">{requirementLabel(req)}:</strong>
-                <span>{formatFactDisplay(matched)}</span>
-                <TrustBadge level={matched?.level ?? 'UNKNOWN'} conflict={matched?.conflict} />
-              </span>
-            )
-          })}
+          {checks.map(({ requirement: req, fact, fromMandate, proven }) => (
+            <span
+              key={`${req.kind}-${req.code}`}
+              data-requirement={`${req.kind}:${req.code}`}
+              data-proven={proven ? 'true' : 'false'}
+              title={fact ? `Source: ${sourceText(fact)}` : 'No evidence on this line'}
+              className="inline-flex flex-wrap items-center gap-1 rounded-md border border-[var(--line)] bg-[var(--surface)] px-2 py-0.5 text-xs"
+            >
+              <strong className="text-[var(--ink)]">
+                {requirementLabel(req)}
+                {fromMandate ? ' (mandate)' : ''}:
+              </strong>
+              <span>{formatFactDisplay(fact)}</span>
+              <TrustBadge level={fact?.level ?? 'UNKNOWN'} conflict={fact?.conflict} />
+              {fact && <span className="text-[var(--muted)]">{sourceShort(fact)}</span>}
+            </span>
+          ))}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <ul

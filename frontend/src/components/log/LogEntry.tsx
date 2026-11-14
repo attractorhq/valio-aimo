@@ -6,6 +6,7 @@ import {
   type ReasonCode,
 } from '../../lib/contracts'
 import { formatClock, formatDate, formatTime, reasonChip, reasonText } from '../../lib/format'
+import { isRequirementFact } from '../../lib/requirements'
 import { TrustBadge, TrustSourceMeta, formatFactDisplay } from '../trust/TrustBadge'
 import { classifyActor, type ActorKind } from './actor'
 
@@ -191,6 +192,12 @@ export function LogEntry({ entry }: { entry: AuditEntry }) {
   const { icon: ActorIcon, className } = ACTOR_META[actor.kind]
   const reasons = entry.reasons ?? []
   const facts = entry.facts ?? []
+  // Allergen and claim facts first: for POLICY_DECIDED they include the requirement evidence the
+  // policy decided on (T41), the same facts the trust cards show.
+  const factGroups = [
+    { title: 'Allergen and claim facts', items: facts.filter(isRequirementFact) },
+    { title: 'Other facts', items: facts.filter((f) => !isRequirementFact(f)) },
+  ].filter((group) => group.items.length > 0)
   const highlighted = isSuperseded(entry) || isInstructionIgnored(entry)
   return (
     <li
@@ -285,18 +292,25 @@ export function LogEntry({ entry }: { entry: AuditEntry }) {
       {facts.length > 0 && (
         <div className="mt-3">
           <h4 className="text-sm font-semibold text-[var(--muted)]">Facts used</h4>
-          <ul className="mt-1 grid gap-2">
-            {facts.map((fact, index) => (
-              <li key={`${fact.fact}-${index}`} className="grid gap-0.5 text-sm">
-                <span className="flex flex-wrap items-center gap-2">
-                  <TrustBadge level={fact.level} conflict={fact.conflict} />
-                  <span className="font-semibold">{formatFactDisplay(fact)}</span>
-                  <code className="text-xs text-[var(--muted)]">{fact.fact}</code>
-                </span>
-                <TrustSourceMeta fact={fact} />
-              </li>
-            ))}
-          </ul>
+          {factGroups.map((group) => (
+            <section key={group.title} aria-label={group.title} className="mt-1">
+              {factGroups.length > 1 && (
+                <h5 className="text-xs font-semibold text-[var(--muted)]">{group.title}</h5>
+              )}
+              <ul className="mt-1 grid gap-2">
+                {group.items.map((fact, index) => (
+                  <li key={`${fact.fact}-${index}`} className="grid gap-0.5 text-sm">
+                    <span className="flex flex-wrap items-center gap-2">
+                      <TrustBadge level={fact.level} conflict={fact.conflict} />
+                      <span className="font-semibold">{formatFactDisplay(fact)}</span>
+                      <code className="text-xs text-[var(--muted)]">{fact.fact}</code>
+                    </span>
+                    <TrustSourceMeta fact={fact} />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
         </div>
       )}
     </li>

@@ -552,3 +552,90 @@ def test_t24_real_catalog_fat_percent_1_5_drops_463335_and_keeps_464306():
     assert "463335" not in ids_15
     assert "464401" not in ids_15
     assert "464073" not in ids_15
+
+
+# ---- T39: product-type precision II ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("query", "names", "concept", "difference"),
+    [
+        ("fresh salmon fillet", ("Synthetic salmon fillet 2 pcs frozen",), None, "frozen, not fresh"),
+        ("tuoretta lohifileetä", ("Synteettinen lohifilee pakaste",), None, "frozen, not fresh"),
+        ("fresh salmon fillet", ("Synthetic cold smoked salmon fillet",), None, "smoked, not fresh"),
+        ("fresh salmon fillet", ("Synthetic marinated salmon fillet",), None, "cured or marinated, not fresh"),
+        ("frozen salmon fillet", ("Synthetic salmon fillet 10 kg",), None, "not frozen"),
+        ("Emmental cheese", ("Synthetic mozzarella-fontal crumbled cheese",), "cheese", "mozzarella, not Emmental"),
+        ("Emmental cheese", ("Synthetic Emmental-Edam grated cheese mix",), "cheese", "mixed with Edam, not only Emmental"),
+        ("Emmental cheese", ("Synthetic processed cheese slices Emmentaler",), "cheese", "processed cheese, not Emmental"),
+        ("voita", ("Synthetic catering margarine 60 400 g",), "butter", "margarine or fat spread, not butter"),
+        ("butter", ("Synthetic butter-blend salted 400 g",), "butter",
+         "mixed with margarine or fat spread, not only butter"),
+    ],
+)
+def test_t39_type_differences(query, names, concept, difference):
+    match = product_type_match(query, names, concept_id=concept)
+    assert not match.exact and difference in match.differences
+
+
+@pytest.mark.parametrize(
+    ("query", "names", "concept"),
+    [
+        ("fresh salmon fillet", ("Synthetic salmon fillet C, ASC, apx. 10 kg",), None),
+        ("frozen salmon fillet", ("Synthetic salmon fillet 2 pcs frozen",), None),
+        ("smoked salmon", ("Synthetic kylmäsavulohi siivu",), None),
+        ("Emmental cheese", ("Synthetic Emmental cheese slices 1 kg",), "cheese"),
+        ("emmentaalia", ("Synteettinen emmentaljuusto",), "cheese"),
+        ("voita", ("Synteettinen voi 500 g suolaamaton",), "butter"),
+        ("margarine", ("Synthetic catering margarine 60",), "butter"),
+        ("salmon fillet", ("Synthetic salmon fillet 2 pcs frozen",), None),  # no qualifier stated: any state
+    ],
+)
+def test_t39_exact_types(query, names, concept):
+    assert product_type_match(query, names, concept_id=concept).exact
+
+
+def test_t39_concept_less_requests_need_every_product_noun():
+    def what(text):
+        return RequestItem(itemId="I1", what=text, quantity="60", unit="kg")
+
+    flounder = _cream("SYN-FLOUNDER", "Synthetic flounder fillet fresh 5 kg", "Synteettinen punakampelafile tuore")
+    salmon = _cream("SYN-SALMON", "Synthetic salmon fillet C 10 kg", "Synteettinen lohifilee C 10 kg")
+    assert requested_type_match(salmon, what("fresh salmon fillet")).exact
+    assert requested_type_match(flounder, what("fresh salmon fillet")).differences == ("not salmon",)
+
+
+def test_t39_real_catalog_fresh_salmon_emmental_and_butter():
+    catalog = _real_catalog_or_skip()
+
+    def recommended(query, what, unit="kg"):
+        item = RequestItem(itemId="I1", what=what, quantity="60", unit=unit)
+        res = search_products(query, mandate=M1, item_id="I1", products=catalog)
+        observations = {
+            c.productId: CandidateObservation(
+                product_id=c.productId, unit_price_excl_vat=Decimal("1.00"), comparison_price=Decimal("1.00"),
+                comparison_unit="kg", vat_rate=Decimal("14"), stock_tier="PLENTY", available_quantity=Decimal(1000),
+                delivery_date=date(2026, 11, 16), closing_time=None, reasons=(), facts=(),
+            )
+            for c in res.candidates
+        }
+        ranked = rank_candidates(res.candidates, item=item, mandate=M1, requested_date=date(2026, 11, 16),
+                                 observations=observations)
+        by_id = {c.productId: c for c in res.candidates}
+        return item, ranked, by_id
+
+    item, ranked, by_id = recommended("fresh salmon fillet", "fresh salmon fillet")
+    assert ranked and ranked[0].exactType and ranked[0].substitutionSource is None
+    for r in ranked:
+        names = " ".join((by_id[r.productId].name, *by_id[r.productId].names.values())).lower()
+        if "frozen" in names or "pakaste" in names:
+            assert not r.exactType and r.substitutionSource == "AGENT" and "frozen, not fresh" in r.tradeoff
+
+    item, ranked, by_id = recommended("Emmental cheese", "Emmental cheese")
+    assert ranked and "emmental" in ranked[0].name.lower() and ranked[0].exactType
+
+    for query in ("butter", "voita"):
+        item, ranked, by_id = recommended(query, query)
+        top = by_id[ranked[0].productId]
+        top_text = " ".join((top.name, *top.names.values())).lower()
+        assert ranked[0].exactType and "margari" not in top_text, query

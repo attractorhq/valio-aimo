@@ -33,14 +33,16 @@ Rules:
   cases (litres/litraa = l, kilos/kiloa = kg, pieces/packs/bottles/bags/kpl = pcs, cases/boxes/
   laatikkoa = cases). Convert g to kg and ml/dl to l.
 - what: the product type in English, without the requirement words (e.g. "milk", "macaroni",
-  "oat drink", "light milk drink").
+  "oat drink", "light milk drink", "butter" for "voita"). Never time, urgency, meal or destination
+  words ("immediately", "klo 14", "lunch", "koulukeittiöön").
 - productId: only when the buyer wrote a Valio product number (6 digits); otherwise null.
 - requirements are hard and must be stated by the buyer:
   CLAIM codes: FREE_FROM_LACTOSE (lactose-free, laktoositon), FREE_FROM_GLUTEN (gluten-free,
   gluteeniton), VEGAN, VEGETARIAN.
   AVOID_ALLERGEN codes (GS1): AM milk (milk-free, dairy-free, maidoton), AE eggs, AN nuts,
   AP peanuts, AY soy, AF fish, AC crustaceans, UM molluscs, AS sesame, BC celery, BM mustard,
-  AU sulphites, NL lupin, AW cereals containing gluten.
+  AU sulphites, NL lupin, AW cereals containing gluten. Finnish "pähkinä" (pähkinätön, ilman
+  pähkinää, pähkinäallergia) means nuts in general: require both AN and AP.
   Lactose-free is NOT milk-free. Low-lactose is NOT lactose-free. An oat drink is not
   automatically gluten-free.
 - preferences are soft: BRAND, ORGANIC, ORIGIN (e.g. "FI"), LABEL, FAT_PERCENT, PACK_SIZE, OTHER.
@@ -51,7 +53,8 @@ Rules:
 - assumptions: short English phrases for everything needed but not stated (e.g. "Milk drinks
   accepted", "Any fat %", "UHT or fresh").
 - clarificationQuestion: exactly one short question, ONLY if the quantity is missing, the unit is
-  unsupported (e.g. portions), or the requirements contradict each other. Otherwise null.
+  unsupported (e.g. portions), or the requirements contradict each other. Otherwise null. Ask it in
+  the buyer's language (Finnish request: Finnish question).
 """
 
 TOOL_SCHEMA = {

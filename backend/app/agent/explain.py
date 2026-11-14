@@ -27,11 +27,14 @@ from app.contracts import (
     Proposal,
     ReasonCode,
     ReasonOccurrence,
+    Requirement,
+    TrustLabel,
     format_date,
     format_money,
     format_time,
 )
 from app.contracts.common import Contract
+from app.policy.requirements import hard_requirements
 from app.valio.vendor import HELSINKI
 
 ExplainMode = Literal["LLM", "TEMPLATE"]
@@ -60,6 +63,7 @@ Rules:
 - If the decision is ASK, state the reason and that the proposal version waits for the named approver role.
   If a Valio-listed substitute was rejected (SUBSTITUTE_REJECTED), mention that the agent rejected it.
 - If the decision is AUTO, mention that all requirements and stock are verified/declared within the mandate.
+- Say that the hard requirements are proven only if every entry in "requirements" has "proven": true.
 - If the decision is BLOCK, state which hard mandate limit or rule blocked the order (and if instructions in
   the request text were ignored, say so).
 """
@@ -189,6 +193,47 @@ def render_reason_occurrence(
     return ReasonOccurrence(code=code, effect=defn.effect, message=msg)
 
 
+_PROVEN_ALLERGEN_VALUES = ("FREE_FROM", "NOT_LISTED")
+
+
+def _is_proven(requirement: Requirement, fact: TrustLabel | None) -> bool:
+    if fact is None or fact.level == "UNKNOWN" or fact.conflict is not None:
+        return False
+    if requirement.kind == "CLAIM":
+        return fact.value is True or fact.value == requirement.code
+    return fact.value in _PROVEN_ALLERGEN_VALUES
+
+
+def requirement_evidence(proposal: Proposal, mandate: Mandate | None = None) -> list[dict]:
+    """Per line and hard requirement: the evidence the gateway attached to the proposal line (T41).
+
+    These are the requirement facts the policy decided on and the trust card shows, so the explanation
+    calls the requirements proven only when this evidence proves every one of them.
+    """
+    items = {item.itemId: item for item in proposal.request.items}
+    evidence: list[dict] = []
+    for line in proposal.lines:
+        item = items.get(line.itemId)
+        own = item.requirements if item else []
+        requirements = hard_requirements(own, mandate) if mandate is not None else tuple(dict.fromkeys(own))
+        facts = {fact.fact: fact for fact in line.facts}
+        for requirement in requirements:
+            key = f"claim.{requirement.code}" if requirement.kind == "CLAIM" else f"allergen.{requirement.code}"
+            fact = facts.get(key)
+            evidence.append({
+                "productId": line.productId,
+                "requirement": requirement_display_name(requirement),
+                "evidence": fact.display if fact else "Unknown",
+                "level": fact.level if fact else "UNKNOWN",
+                "proven": _is_proven(requirement, fact),
+            })
+    return evidence
+
+
+def _requirement_names(evidence: Sequence[dict], *, proven: bool) -> list[str]:
+    return list(dict.fromkeys(e["requirement"] for e in evidence if e["proven"] is proven))
+
+
 def template_explanation(
     *,
     proposal: Proposal | None = None,
@@ -225,6 +270,10 @@ def template_explanation(
     auto_limit_str = format_money(mandate.autoApproveLimitEur) if mandate else None
     hard_limit_str = format_money(mandate.hardLimitEur) if mandate else None
 
+    evidence = requirement_evidence(proposal, mandate)
+    unproven = _requirement_names(evidence, proven=False)
+    proven_names = _requirement_names(evidence, proven=True)
+
     # 2. AUTO
     if proposal.decision == "AUTO":
         line_summary = ", ".join(
@@ -232,10 +281,17 @@ def template_explanation(
             for ln in proposal.lines[:2]
         )
         within_str = f" within the {auto_limit_str} mandate limit" if auto_limit_str else " within the buyer mandate"
-        s1 = (
-            f"All hard requirements, stock and {date_str} delivery are verified or declared for {line_summary} "
-            f"at {total_str} excl. VAT{within_str}."
-        )
+        if unproven:
+            s1 = (
+                f"Stock and {date_str} delivery are verified or declared for {line_summary} at {total_str} excl. "
+                f"VAT{within_str}, but {', '.join(unproven)} is not proven by the product data."
+            )
+        else:
+            named = f" ({', '.join(proven_names)})" if proven_names else ""
+            s1 = (
+                f"All hard requirements{named}, stock and {date_str} delivery are verified or declared for "
+                f"{line_summary} at {total_str} excl. VAT{within_str}."
+            )
         if ReasonCode.INSTRUCTION_IGNORED in active_reasons:
             s2 = (
                 "Instructions inside the request text were ignored, and the gateway re-checked and confirmed "
@@ -317,7 +373,14 @@ def template_explanation(
         ask_parts.append("pack content was estimated from the product name")
 
     reason_clause = "; ".join(ask_parts) if ask_parts else f"total is {total_str} excl. VAT"
-    s1 = f"Every hard requirement is proven, and human sign-off is needed because {reason_clause}."
+    if unproven:
+        s1 = (
+            f"Not every hard requirement is proven ({', '.join(unproven)}), and human sign-off is needed because "
+            f"{reason_clause}."
+        )
+    else:
+        named = f" ({', '.join(proven_names)})" if proven_names else ""
+        s1 = f"Every hard requirement{named} is proven, and human sign-off is needed because {reason_clause}."
 
     if rejected_sub is not None:
         item = next((i for i in proposal.request.items if i.itemId == rejected_sub.itemId), None)
@@ -428,6 +491,7 @@ def explain_proposal(
                 }
                 for ln in (proposal.lines if proposal else ())
             ],
+            "requirements": requirement_evidence(proposal, mandate) if proposal else [],
             "rejectedSubstitutes": [
                 {"productId": e.productId, "name": e.name, "substituteFor": e.substituteFor}
                 for e in (proposal.excluded if proposal else excluded)

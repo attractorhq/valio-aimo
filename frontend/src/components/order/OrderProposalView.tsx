@@ -19,12 +19,14 @@ export function OrderProposalView({
   offer,
   request: directRequest,
   mandateVersion,
+  forbiddenAllergens,
   plan,
 }: {
   proposal?: Proposal
   offer?: Proposal | import('../../lib/contracts').Offer
   request?: Proposal['request']
   mandateVersion?: number
+  forbiddenAllergens?: readonly string[]
   plan?: unknown[] | null
 }) {
   const source = proposal ?? offer
@@ -136,6 +138,7 @@ export function OrderProposalView({
               key={line.lineId}
               line={line}
               item={item}
+              forbiddenAllergens={forbiddenAllergens}
               excludedSubstitutes={excludedSubstitutes}
             />
           )
