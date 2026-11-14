@@ -9,7 +9,7 @@ from collections.abc import Iterator
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import Field
 
@@ -176,7 +176,25 @@ def _stream_ndjson(
     summary="Run the purchasing agent across the four steps (Request, Lookup, Order, Decision)",
 )
 def run_agent_route(
-    body: AgentRunRequest,
+    body: Annotated[AgentRunRequest, Body(openapi_examples={
+        "hotel_milk": {
+            "summary": "Lactose-free milk for the hotel",
+            "value": {
+                "customerId": "nordic-harbour-hotels",
+                "requestText": (
+                    "I need 1,000 litres of lactose-free milk by Monday. "
+                    "Find an option that meets our requirements based on price and availability."
+                ),
+            },
+        },
+        "school_gluten_free": {
+            "summary": "Gluten-free groceries for the school kitchen",
+            "value": {
+                "customerId": "northbay-school-kitchen",
+                "requestText": "We need 90 kg of gluten-free macaroni and 80 litres of gluten-free oat drink by Monday.",
+            },
+        },
+    })],
     request: Request,
     state: State,
     stream: Annotated[bool, Query(description="Stream Server-Sent Events for the four steps")] = False,
