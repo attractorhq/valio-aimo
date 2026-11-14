@@ -996,3 +996,132 @@ def test_hash_chain_detects_sqlite_row_tampering_and_entry_deletion():
         assert tampered_row.entry_id in ver.tamperedEntryIds
 
     engine.dispose()
+
+
+def test_tampering_remains_detected_after_subsequent_append_in_memory_and_sqlite():
+    """Architect review repro: appending a new event after tampering must never re-seal earlier links."""
+    from sqlalchemy import select
+
+    from app.db.models import DecisionLogRow
+
+    # 1. In-memory path
+    log = DecisionLog()
+    e0 = log.record_transition(
+        customer_id=M1.customerId,
+        mandate_version=1,
+        timestamp=NOW,
+        actor="gateway:offer",
+        event="OFFER_CREATED",
+        from_state=None,
+        to_state="OFFERED",
+        summary="offer at €100.00",
+        proposal_id="P1",
+    )
+    log.record_transition(
+        customer_id=M1.customerId,
+        mandate_version=1,
+        timestamp=NOW,
+        actor="gateway:proposal",
+        event="PROPOSAL_CREATED",
+        from_state="OFFERED",
+        to_state="PROPOSED",
+        summary="proposal bound",
+        proposal_id="P1",
+    )
+    assert log.verify().verified is True
+    assert log.verify(proposal_id="P1").verified is True
+
+    # Tamper with e0
+    log._entries[0] = e0.model_copy(update={"summary": "offer at €1.00"})
+    assert log.verify().verified is False
+    assert log.verify().firstTamperedIndex == 0
+
+    # Append a subsequent normal transition
+    log.record_transition(
+        customer_id=M1.customerId,
+        mandate_version=1,
+        timestamp=NOW,
+        actor="gateway:policy",
+        event="POLICY_DECIDED",
+        from_state="PROPOSED",
+        to_state="AUTO_APPROVED",
+        summary="policy decided",
+        proposal_id="P1",
+    )
+    ver_mem = log.verify()
+    assert ver_mem.verified is False
+    assert ver_mem.firstTamperedIndex == 0
+    assert e0.entryId in ver_mem.tamperedEntryIds
+
+    ver_mem_prop = log.verify(proposal_id="P1")
+    assert ver_mem_prop.verified is False
+    assert ver_mem_prop.firstTamperedIndex == 0
+    assert e0.entryId in ver_mem_prop.tamperedEntryIds
+
+    ver_mem_cust = log.verify(customer_id=M1.customerId)
+    assert ver_mem_cust.verified is False
+    assert ver_mem_cust.firstTamperedIndex == 0
+
+    # 2. SQLite path
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(engine, expire_on_commit=False)
+
+    with factory() as session:
+        db_log = DecisionLog(session=session)
+        s0 = db_log.record_transition(
+            customer_id=M1.customerId,
+            mandate_version=1,
+            timestamp=NOW,
+            actor="gateway:offer",
+            event="OFFER_CREATED",
+            from_state=None,
+            to_state="OFFERED",
+            summary="offer at €100.00",
+            proposal_id="P-SQL",
+        )
+        db_log.record_transition(
+            customer_id=M1.customerId,
+            mandate_version=1,
+            timestamp=NOW,
+            actor="gateway:proposal",
+            event="PROPOSAL_CREATED",
+            from_state="OFFERED",
+            to_state="PROPOSED",
+            summary="proposal bound",
+            proposal_id="P-SQL",
+        )
+        assert db_log.verify().verified is True
+
+        # Tamper with row 0 in SQLite (and in-memory entry 0)
+        row0 = session.scalars(select(DecisionLogRow).order_by(DecisionLogRow.seq)).first()
+        assert row0 is not None
+        row0.data = {**row0.data, "summary": "offer at €1.00"}
+        session.commit()
+        db_log._entries[0] = s0.model_copy(update={"summary": "offer at €1.00"})
+        assert db_log.verify().verified is False
+        assert db_log.verify().firstTamperedIndex == 0
+
+        # Append one more entry after the tamper
+        db_log.record_transition(
+            customer_id=M1.customerId,
+            mandate_version=1,
+            timestamp=NOW,
+            actor="gateway:policy",
+            event="POLICY_DECIDED",
+            from_state="PROPOSED",
+            to_state="AUTO_APPROVED",
+            summary="policy decided",
+            proposal_id="P-SQL",
+        )
+        ver_sql = db_log.verify()
+        assert ver_sql.verified is False
+        assert ver_sql.firstTamperedIndex == 0
+        assert s0.entryId in ver_sql.tamperedEntryIds
+
+        ver_sql_prop = db_log.verify(proposal_id="P-SQL")
+        assert ver_sql_prop.verified is False
+        assert ver_sql_prop.firstTamperedIndex == 0
+        assert s0.entryId in ver_sql_prop.tamperedEntryIds
+
+    engine.dispose()

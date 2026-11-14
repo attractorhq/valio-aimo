@@ -66,8 +66,15 @@ class AuditChainVerification(Contract):
 
 
 def canonical_entry_json(entry: AuditEntry) -> str:
-    """Canonical JSON serialization of an `AuditEntry` for SHA-256 hashing."""
+    """Canonical JSON serialization of an `AuditEntry` for SHA-256 hashing.
+
+    `OFFER_CREATED` entries are logged at `getOffer` time with `proposalId=None` and later indexed
+    under a `proposalId` by `bind_offer_entries`; normalising `proposalId=None` on `OFFER_CREATED`
+    keeps the entry's hash invariant when bound so earlier links never need to be rewritten.
+    """
     payload = entry.model_dump(mode="json")
+    if payload.get("event") == "OFFER_CREATED":
+        payload["proposalId"] = None
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
@@ -336,52 +343,112 @@ class DecisionLog:
         self._sealed_by_customer: dict[str, list[AuditChainLink]] = {}
         if session is not None:
             rows = session.scalars(select(DecisionLogRow).order_by(DecisionLogRow.seq)).all()
-            self._entries = [AuditEntry.model_validate(_strip_chain_meta(row.data)) for row in rows]
-            self._reseal(persist=False)
-
-    def _reseal(self, *, persist: bool = True) -> None:
-        """Compute and seal the global, per-proposal and per-customer SHA-256 hash chains."""
-        self._sealed_global = build_hash_chain(self._entries)
-        by_prop: dict[str, list[AuditEntry]] = {}
-        by_cust: dict[str, list[AuditEntry]] = {}
-        for entry in self._entries:
-            if entry.proposalId is not None:
-                by_prop.setdefault(entry.proposalId, []).append(entry)
-            by_cust.setdefault(entry.customerId, []).append(entry)
-        self._sealed_by_proposal = {pid: build_hash_chain(items) for pid, items in by_prop.items()}
-        self._sealed_by_customer = {cid: build_hash_chain(items) for cid, items in by_cust.items()}
-
-        if persist and self._session is not None:
-            global_by_id = {lnk.entryId: lnk for lnk in self._sealed_global}
-            prop_by_id = {
-                (pid, lnk.entryId): lnk
-                for pid, lnks in self._sealed_by_proposal.items()
-                for lnk in lnks
-            }
-            cust_by_id = {
-                (cid, lnk.entryId): lnk
-                for cid, lnks in self._sealed_by_customer.items()
-                for lnk in lnks
-            }
-            rows = self._session.scalars(select(DecisionLogRow).order_by(DecisionLogRow.seq)).all()
             for row in rows:
-                clean = _strip_chain_meta(row.data)
-                eid = clean.get("entryId", row.entry_id)
-                pid = clean.get("proposalId", row.proposal_id)
-                cid = clean.get("customerId", row.customer_id)
-                g_lnk = global_by_id.get(eid)
-                p_lnk = prop_by_id.get((pid, eid)) if pid else None
-                c_lnk = cust_by_id.get((cid, eid)) if cid else None
-                chain_meta: dict[str, dict[str, str]] = {}
-                if g_lnk is not None:
-                    chain_meta["global"] = {"prevHash": g_lnk.prevHash, "entryHash": g_lnk.entryHash}
-                if p_lnk is not None:
-                    chain_meta["proposal"] = {"prevHash": p_lnk.prevHash, "entryHash": p_lnk.entryHash}
-                if c_lnk is not None:
-                    chain_meta["customer"] = {"prevHash": c_lnk.prevHash, "entryHash": c_lnk.entryHash}
-                row.data = {**clean, "_chain": chain_meta}
-            if rows:
-                self._session.commit()
+                entry = AuditEntry.model_validate(_strip_chain_meta(row.data))
+                self._entries.append(entry)
+                meta = (row.data or {}).get("_chain") or {}
+                g_meta = meta.get("global")
+                if g_meta and "prevHash" in g_meta and "entryHash" in g_meta:
+                    g_idx = len(self._sealed_global)
+                    self._sealed_global.append(
+                        AuditChainLink(
+                            index=g_idx,
+                            entryId=row.entry_id,
+                            prevHash=g_meta["prevHash"],
+                            entryHash=g_meta["entryHash"],
+                            expectedPrevHash=g_meta["prevHash"],
+                            expectedEntryHash=g_meta["entryHash"],
+                            valid=True,
+                        )
+                    )
+                else:
+                    self._seal_entry_global(entry)
+
+                c_meta = meta.get("customer")
+                if c_meta and "prevHash" in c_meta and "entryHash" in c_meta:
+                    c_chain = self._sealed_by_customer.setdefault(row.customer_id, [])
+                    c_idx = len(c_chain)
+                    c_chain.append(
+                        AuditChainLink(
+                            index=c_idx,
+                            entryId=row.entry_id,
+                            prevHash=c_meta["prevHash"],
+                            entryHash=c_meta["entryHash"],
+                            expectedPrevHash=c_meta["prevHash"],
+                            expectedEntryHash=c_meta["entryHash"],
+                            valid=True,
+                        )
+                    )
+                else:
+                    self._seal_entry_customer(entry)
+
+                if row.proposal_id is not None:
+                    p_meta = meta.get("proposal")
+                    if p_meta and "prevHash" in p_meta and "entryHash" in p_meta:
+                        p_chain = self._sealed_by_proposal.setdefault(row.proposal_id, [])
+                        p_idx = len(p_chain)
+                        p_chain.append(
+                            AuditChainLink(
+                                index=p_idx,
+                                entryId=row.entry_id,
+                                prevHash=p_meta["prevHash"],
+                                entryHash=p_meta["entryHash"],
+                                expectedPrevHash=p_meta["prevHash"],
+                                expectedEntryHash=p_meta["entryHash"],
+                                valid=True,
+                            )
+                        )
+                    else:
+                        self._seal_entry_proposal(entry)
+
+    def _seal_entry_global(self, entry: AuditEntry) -> AuditChainLink:
+        prev_hash = self._sealed_global[-1].entryHash if self._sealed_global else GENESIS_HASH
+        entry_hash = compute_entry_hash(entry, prev_hash)
+        link = AuditChainLink(
+            index=len(self._sealed_global),
+            entryId=entry.entryId,
+            prevHash=prev_hash,
+            entryHash=entry_hash,
+            expectedPrevHash=prev_hash,
+            expectedEntryHash=entry_hash,
+            valid=True,
+        )
+        self._sealed_global.append(link)
+        return link
+
+    def _seal_entry_customer(self, entry: AuditEntry) -> AuditChainLink:
+        c_chain = self._sealed_by_customer.setdefault(entry.customerId, [])
+        prev_hash = c_chain[-1].entryHash if c_chain else GENESIS_HASH
+        entry_hash = compute_entry_hash(entry, prev_hash)
+        link = AuditChainLink(
+            index=len(c_chain),
+            entryId=entry.entryId,
+            prevHash=prev_hash,
+            entryHash=entry_hash,
+            expectedPrevHash=prev_hash,
+            expectedEntryHash=entry_hash,
+            valid=True,
+        )
+        c_chain.append(link)
+        return link
+
+    def _seal_entry_proposal(self, entry: AuditEntry) -> AuditChainLink | None:
+        if entry.proposalId is None:
+            return None
+        p_chain = self._sealed_by_proposal.setdefault(entry.proposalId, [])
+        prev_hash = p_chain[-1].entryHash if p_chain else GENESIS_HASH
+        entry_hash = compute_entry_hash(entry, prev_hash)
+        link = AuditChainLink(
+            index=len(p_chain),
+            entryId=entry.entryId,
+            prevHash=prev_hash,
+            entryHash=entry_hash,
+            expectedPrevHash=prev_hash,
+            expectedEntryHash=entry_hash,
+            valid=True,
+        )
+        p_chain.append(link)
+        return link
 
     def register_secret_token(self, token: str) -> None:
         """Register an approval token so the log guard refuses it if ever passed in text or facts."""
@@ -395,10 +462,20 @@ class DecisionLog:
         return tuple(self._entries)
 
     def append(self, entry: AuditEntry) -> AuditEntry:
-        """Validate and append an immutable `AuditEntry`, extending the SHA-256 hash chain."""
+        """Validate and append an immutable `AuditEntry`, sealing only the new link incrementally."""
         _check_no_credentials(entry, self._forbidden_tokens)
         self._entries.append(entry)
+        g_link = self._seal_entry_global(entry)
+        c_link = self._seal_entry_customer(entry)
+        p_link = self._seal_entry_proposal(entry)
+
         if self._session is not None:
+            chain_meta: dict[str, dict[str, str]] = {
+                "global": {"prevHash": g_link.prevHash, "entryHash": g_link.entryHash},
+                "customer": {"prevHash": c_link.prevHash, "entryHash": c_link.entryHash},
+            }
+            if p_link is not None:
+                chain_meta["proposal"] = {"prevHash": p_link.prevHash, "entryHash": p_link.entryHash}
             self._session.add(
                 DecisionLogRow(
                     entry_id=entry.entryId,
@@ -407,12 +484,11 @@ class DecisionLog:
                     offer_id=entry.offerId,
                     offer_version=entry.offerVersion,
                     event=entry.event,
-                    data=entry.model_dump(mode="json"),
+                    data={**entry.model_dump(mode="json"), "_chain": chain_meta},
                     timestamp=entry.timestamp,
                 )
             )
             self._session.commit()
-        self._reseal(persist=self._session is not None)
         return entry
 
     def record_transition(
@@ -465,10 +541,14 @@ class DecisionLog:
 
     def bind_offer_entries(self, offer_id: str, offer_version: int, proposal_id: str) -> None:
         """Attach `proposal_id` to the initial `OFFERED` entry for `(offer_id, offer_version)`."""
+        bound_links: dict[str, AuditChainLink] = {}
         for idx, entry in enumerate(self._entries):
             if entry.offerId == offer_id and entry.offerVersion == offer_version and entry.proposalId is None:
                 updated = entry.model_copy(update={"proposalId": proposal_id})
                 self._entries[idx] = updated
+                p_link = self._seal_entry_proposal(updated)
+                if p_link is not None:
+                    bound_links[updated.entryId] = p_link
         if self._session is not None:
             rows = self._session.scalars(
                 select(DecisionLogRow).where(
@@ -478,12 +558,19 @@ class DecisionLog:
                 )
             ).all()
             for row in rows:
-                updated = AuditEntry.model_validate({**_strip_chain_meta(row.data), "proposalId": proposal_id})
+                existing_meta = dict((row.data or {}).get("_chain") or {})
+                clean = _strip_chain_meta(row.data)
+                updated = AuditEntry.model_validate({**clean, "proposalId": proposal_id})
+                p_link = bound_links.get(updated.entryId) or self._seal_entry_proposal(updated)
+                if p_link is not None:
+                    existing_meta["proposal"] = {
+                        "prevHash": p_link.prevHash,
+                        "entryHash": p_link.entryHash,
+                    }
                 row.proposal_id = proposal_id
-                row.data = updated.model_dump(mode="json")
+                row.data = {**updated.model_dump(mode="json"), "_chain": existing_meta}
             if rows:
                 self._session.commit()
-        self._reseal(persist=self._session is not None)
 
     def for_proposal(self, proposal_id: str) -> AuditTrail:
         """Return the ordered decision log for `proposal_id`."""
