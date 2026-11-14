@@ -54,7 +54,7 @@ test('shows the search and retries with the original request and the suggested d
   await expect(result).toContainText('after your Fri 13 Nov deadline')
   await expect(result).toContainText('Earliest delivery: Mon 16 Nov')
   await result.getByRole('button', { name: 'Use Mon 16 Nov' }).click()
-  await expect(result).toContainText(/ASK/)
+  await expect(result).toContainText('Waiting for approver')
   await expect(page.getByRole('listitem', { name: /Step 3: Order/ }))
     .toContainText('After your Fri 13 Nov deadline')
   expect(inputs).toEqual([

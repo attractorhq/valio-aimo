@@ -232,7 +232,9 @@ select {
 .loading-stats .skeleton-row:not(:first-child) {
   display: none;
 }
-.mandate-panel {
+/* Only the loading skeleton reserves the panel's height (no layout shift); a loaded panel is as tall as
+   its content, so there is no empty block under "Details". */
+.loading-section.mandate-panel {
   min-height: 312px;
 }
 .approver-header {
@@ -273,7 +275,7 @@ select {
   .buyer-line {
     min-height: 38px;
   }
-  .mandate-panel {
+  .loading-section.mandate-panel {
     min-height: 332px;
   }
   .valio-catalogue-panel {
@@ -920,6 +922,11 @@ main {
 .step-idle .step-summary {
   color: var(--muted);
   font-weight: 400;
+  font-size: 14px;
+}
+/* Before the first run the four steps are a compact outline, not four tall empty rows. */
+.step.step-idle {
+  padding: var(--space-2) 0;
 }
 .step-content {
   margin-top: 10px;

@@ -146,8 +146,11 @@ for (const size of [
   }) => {
     await page.setViewportSize(size)
     await runOfficialExample(page)
+    // Choosing the buyer (at the bottom on a phone) and typing scroll the page; a returning buyer lands at
+    // the top, so check the first screen from there.
+    await page.evaluate(() => window.scrollTo(0, 0))
     const banner = page.getByTestId('result-banner')
-    await expect(banner.getByText('ASK', { exact: true })).toBeInViewport()
+    await expect(banner.getByText(/Waiting for/)).toBeInViewport()
     await expect(banner.getByText('€506.16')).toBeInViewport()
     expect(await page.evaluate(() => window.scrollY)).toBe(0)
     expect(
@@ -236,9 +239,7 @@ test('T86 lighter layout: one surface per section, dividers instead of nested ca
   expect(mainCount).toBeLessThanOrEqual(20)
 
   await page.goto('/valio')
-  await expect(
-    page.getByRole('heading', { name: /Agent readiness/i }),
-  ).toBeVisible()
+  await expect(page.getByRole('heading', { name: /Agent readiness/i })).toBeVisible()
   const valioCount = await countBoxedInMain()
   // Down from 37 before T86 (at least 50% reduction requires <= 18; actual is ~12)
   expect(valioCount).toBeLessThanOrEqual(18)

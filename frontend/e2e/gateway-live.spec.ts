@@ -131,7 +131,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
         'I need 1,000 litres of lactose-free milk by Monday. Find an option that meets our requirements based on price and availability.',
       )
     await page.getByRole('button', { name: 'Run request' }).click()
-    await expect(step(page, 'Approval')).toContainText('Agent decided → Confirmed (simulated)')
+    await expect(step(page, 'Approval')).toContainText('Agent decided → Confirmed')
     await expect(step(page, 'Order')).toContainText('€1,010.00 excl. VAT')
     await expect(step(page, 'Order')).toContainText('464306')
     const altsLiveA = step(page, 'Order').getByRole('region', {
@@ -188,13 +188,9 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
 
     const approverPage = await context.newPage()
     await approverPage.goto(`${baseURL}/approver`)
-    await expect(
-      approverPage.getByRole('heading', { name: 'Approver — Head Chef' }),
-    ).toBeVisible()
+    await expect(approverPage.getByRole('heading', { name: 'Approver — Head Chef' })).toBeVisible()
     const card = approverPage.getByRole('article')
-    await expect(card.getByRole('heading')).toHaveText(
-      'Approving version 1',
-    )
+    await expect(card.getByRole('heading')).toHaveText('Approving version 1')
     await expect(card).toContainText('€506.16 is above your €500.00 auto-approve limit.')
     const mobileHref = await card
       .getByRole('link', { name: 'Open mobile approval page' })
@@ -204,20 +200,14 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     // Verify phone approval page (/approve/:token) loads the exact proposal from the live gateway
     const phonePage = await context.newPage()
     await phonePage.goto(`${baseURL}${mobileHref}`)
-    await expect(phonePage.getByRole('article')).toContainText(
-      'Approving version 1',
-    )
+    await expect(phonePage.getByRole('article')).toContainText('Approving version 1')
     await phonePage.close()
 
     await card.getByRole('button', { name: 'Approve €506.16' }).click()
-    await expect(card).toContainText(
-      /Approved · re-checked \(recorded data\) · Confirmed \(simulated\)/,
-    )
+    await expect(card).toContainText(/Approved · re-checked \(recorded data\) · Confirmed/)
 
     await page.bringToFront()
-    await expect(step(page, 'Approval')).toContainText(
-      'Approved by Head Chef → Confirmed (simulated)',
-    )
+    await expect(step(page, 'Approval')).toContainText('Approved by Head Chef → Confirmed')
 
     // Decision log via GET /v0.1/audit?proposalId=
     await page.getByRole('link', { name: 'Open decision log' }).click()
@@ -228,7 +218,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
       'OVER_AUTO_LIMIT',
     )
     await expect(logEntries.filter({ hasText: 'Approved by a human' })).toContainText('Human')
-    await expect(logEntries.last()).toContainText('Confirmed (simulated)')
+    await expect(logEntries.last()).toContainText('Confirmed')
     await page.getByRole('link', { name: 'Back to the purchasing flow' }).click()
 
     // 3. Scenario C -> BLOCK + INSTRUCTION_IGNORED
@@ -257,17 +247,17 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
       .getByLabel('What do you need, and by when?')
       .fill('We need lactose-free milk by Monday.')
     await page.getByRole('button', { name: 'Run request' }).click()
-    await expect(step(page, 'Request')).toContainText('CLARIFICATION NEEDED')
-    await expect(
-      page.getByRole('button', { name: 'Edit request' }),
-    ).toBeVisible()
+    await expect(step(page, 'Request')).toContainText('Needs one detail')
+    await expect(page.getByRole('button', { name: 'Edit request' })).toBeVisible()
     await page.getByRole('button', { name: 'Edit request' }).click()
     await page
       .getByLabel('What do you need, and by when?')
       .fill('1,000 litres of lactose-free milk by Monday.')
     await page.getByRole('button', { name: 'Run request' }).click()
     // The answered request is decided like any other order: ASK for the same reason as step 4 (T62).
-    await expect(step(page, 'Approval')).toContainText('already committed for delivery on Mon 16 Nov')
+    await expect(step(page, 'Approval')).toContainText(
+      'already committed for delivery on Mon 16 Nov',
+    )
 
     // 6. Verify no horizontal scroll at 390 px width
     await page.setViewportSize({ width: 390, height: 844 })

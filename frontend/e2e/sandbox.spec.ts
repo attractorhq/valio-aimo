@@ -111,9 +111,7 @@ uvicorn.run(app, host="127.0.0.1", port=${apiPort}, log_level="warning")
       const buyer = await second.newPage()
       await buyer.goto(baseURL)
       await buyer.getByRole('button', { name: /^Scenario A:/ }).click()
-      await expect(buyer.getByRole('listitem', { name: /Approval/ })).toContainText(
-        'Confirmed (simulated)',
-      )
+      await expect(buyer.getByRole('listitem', { name: /Approval/ })).toContainText('Confirmed')
       await expect(buyer.getByRole('listitem', { name: /Order/ })).toContainText('€1,010.00')
       const firstCookie = (await first.cookies()).find((cookie) => cookie.name === 'voa_sandbox')!
       const secondCookie = (await second.cookies()).find((cookie) => cookie.name === 'voa_sandbox')!
@@ -142,15 +140,13 @@ uvicorn.run(app, host="127.0.0.1", port=${apiPort}, log_level="warning")
       await approval.goto(`${baseURL}${link}`)
       await expect(approval.getByRole('article')).toContainText('€1,010.00')
       await approval.getByRole('button', { name: 'Approve €1,010.00' }).click()
-      await expect(approval.getByRole('article')).toContainText('Confirmed (simulated)')
+      await expect(approval.getByRole('article')).toContainText('Confirmed')
 
       await expect(buyer.getByText('Private session')).toBeVisible()
       await buyer.getByRole('button', { name: 'Reset', exact: true }).click()
       await expect(buyer.getByRole('listitem', { name: /Order/ })).toContainText('Not started')
       await buyer.getByRole('button', { name: /^Scenario A:/ }).click()
-      await expect(buyer.getByRole('listitem', { name: /Approval/ })).toContainText(
-        'Confirmed (simulated)',
-      )
+      await expect(buyer.getByRole('listitem', { name: /Approval/ })).toContainText('Confirmed')
       expect(
         (await (await first.request.get(`${baseURL}/v0.1/approver/proposals`)).json())[0].state,
       ).toBe('CONFIRMED_SIMULATED')

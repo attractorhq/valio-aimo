@@ -4,9 +4,7 @@ import { expect, test } from '@playwright/test'
 const entries = (page: import('@playwright/test').Page) =>
   page.getByRole('list', { name: 'Decision log' }).locator('> li')
 
-test('scenario A: the chain from request to confirmed (simulated) is readable', async ({
-  page,
-}) => {
+test('scenario A: the chain from request to confirmed is readable', async ({ page }) => {
   await page.goto('/log/MOCK-P-A')
   await expect(page.getByRole('status', { name: 'Hash-chain verification status' })).toContainText(
     'Hash chain verified ✓',
@@ -17,7 +15,7 @@ test('scenario A: the chain from request to confirmed (simulated) is readable', 
   const decision = entries(page).filter({ hasText: 'Gateway decision' })
   await expect(decision).toContainText('Gateway rule')
   await expect(decision).toContainText('Proposed → Agent decided')
-  await expect(entries(page).last()).toContainText('Re-checked live → Confirmed (simulated)')
+  await expect(entries(page).last()).toContainText('Re-checked live → Confirmed')
   const offer = entries(page).filter({ hasText: 'Offer at a fixed price' })
   await expect(offer).toContainText('Verified')
   await expect(offer).toContainText('Declared')

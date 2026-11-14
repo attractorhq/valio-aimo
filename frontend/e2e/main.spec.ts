@@ -36,13 +36,11 @@ test('shows one main view with four steps and a read-only mandate', async ({ pag
   )
 })
 
-test('scenario A: agent decided → confirmed (simulated)', async ({ page }, info) => {
+test('scenario A: agent decided → confirmed', async ({ page }, info) => {
   await runScenario(page, 'A')
   await expect(step(page, 'Request')).toContainText('Lactose-free')
   await expect(step(page, 'Request')).toContainText('Mon 16 Nov')
-  await expect(step(page, 'Order')).toContainText(
-    'Offer v1 · €1,010.00 excl. VAT',
-  )
+  await expect(step(page, 'Order')).toContainText('Offer v1 · €1,010.00 excl. VAT')
   const altsA = step(page, 'Order').getByRole('region', {
     name: 'Good / Better / Best alternatives',
   })
@@ -56,8 +54,8 @@ test('scenario A: agent decided → confirmed (simulated)', async ({ page }, inf
   await expect(altsA).toContainText('+€0.09/l vs recommended')
   await expect(altsA).toContainText('no stock limit (Valio allows any quantity)')
   const approval = step(page, 'Approval')
-  await expect(approval).toContainText('Agent decided → Confirmed (simulated)')
-  await expect(approval).toContainText('Simulated order — mock environment')
+  await expect(approval).toContainText('Agent decided → Confirmed')
+  await expect(page.getByText(/simulated|mock environment/i)).toHaveCount(0)
   // No data-source badge in the UI (team decision 14 Nov).
   await expect(page.getByText(/Recorded · captured/)).toHaveCount(0)
   await page.screenshot({
@@ -426,7 +424,12 @@ test('T86: ASK proposal without hard requirements explains why it was not auto-a
         name: 'Synthetic macaroni 5 kg',
         salesUnit: 'ST',
         salesUnitLabel: 'bag',
-        contentPerSalesUnit: { value: '5', unit: 'kg', level: 'DECLARED', method: 'unitConversions' },
+        contentPerSalesUnit: {
+          value: '5',
+          unit: 'kg',
+          level: 'DECLARED',
+          method: 'unitConversions',
+        },
         quantitySalesUnits: '8',
         deliveredQuantity: { value: '40', unit: 'kg' },
         unitPriceExclVat: '20.00',

@@ -332,10 +332,10 @@ def template_explanation(
         if ReasonCode.INSTRUCTION_IGNORED in active_reasons:
             s2 = (
                 "Instructions inside the request text were ignored, and the gateway re-checked and confirmed "
-                "the simulated order automatically."
+                "the order automatically."
             )
         else:
-            s2 = "The gateway re-checked live price and availability and confirmed the simulated order automatically."
+            s2 = "The gateway re-checked live price and availability and confirmed the order automatically."
         return clamp_to_two_sentences(f"{s1} {s2}")
 
     # 3. BLOCK

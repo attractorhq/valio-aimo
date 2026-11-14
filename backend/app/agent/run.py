@@ -314,9 +314,9 @@ def _approval_step_summary(proposal: Proposal) -> tuple[StepStatus, str]:
     if proposal.decision == "BLOCK":
         return "blocked", "Blocked by mandate"
     if proposal.decision == "AUTO" and proposal.state == "CONFIRMED_SIMULATED":
-        return "done", "Agent decided → Confirmed (simulated)"
+        return "done", "Agent decided → Confirmed"
     if proposal.state == "CONFIRMED_SIMULATED":
-        return "done", f"Approved by {proposal.approverRole or 'approver'} → Confirmed (simulated)"
+        return "done", f"Approved by {proposal.approverRole or 'approver'} → Confirmed"
     if proposal.state in ("REJECTED", "EXPIRED", "SUPERSEDED"):
         return "blocked", f"Proposal {proposal.state.lower()}"
     return "waiting", "Waiting for approver"

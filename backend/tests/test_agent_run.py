@@ -615,7 +615,7 @@ def test_scenario_a_auto_ranks_cheapest_milk_and_confirms(synthetic_api):
     result = AgentRunResult.model_validate(resp.json())
 
     assert [s.name for s in result.steps] == ["REQUEST", "LOOKUP", "ORDER", "APPROVAL"]
-    assert result.steps[3].summary == "Agent decided → Confirmed (simulated)"
+    assert result.steps[3].summary == "Agent decided → Confirmed"
     assert result.proposal is not None
     assert result.proposal.decision == "AUTO"
     assert result.proposal.state == "CONFIRMED_SIMULATED"
