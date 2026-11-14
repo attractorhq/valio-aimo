@@ -19,7 +19,7 @@ A trusted trade gateway for Valio Aimo plus a demo purchasing agent. It separate
 - **One interface, three outcomes:**
   - "1,000 litres of lactose-free milk by Monday" is confirmed automatically at €1,010.00, inside the hotel's mandate.
   - A €506.16 gluten-free school order above its €500.00 auto-approve limit waits for the Head Chef.
-  - €20,200.00 above a €5,000.00 hard limit is blocked, and the attempted "ignore the hard limit" instruction is logged as ignored.
+  - €20,200.00 above a €5,000.00 hard limit is blocked, and the attempted "ignore the hard limit" instruction is logged as ignored. The block also shows what would fit within the limit, as information only.
   - The figures come from the live API at request time.
 - **Evidence with provenance:**
   - Every decisive fact shows Verified, Declared, Estimate or Unknown, together with its source and retrieval time.
@@ -36,11 +36,11 @@ A trusted trade gateway for Valio Aimo plus a demo purchasing agent. It separate
 - **Alternatives and editable assumptions:**
   - Each line shows Good / Better / Best alternatives with a one-line trade-off (price per litre or kilo, pack, brand, stock certainty). Only compliant products are listed.
   - The agent's assumptions are editable chips, for example "Any fat %" → "1.5 %". Editing one re-runs the flow, and the gateway's shortlist changes.
-- **Buyer control:** a buyer admin can change the mandate's limits. Open proposals are then re-decided live, and the change is logged. The mandate can be reset to its defaults.
+- **Buyer control:** a buyer admin (`/admin`) can change the mandate's limits. Open proposals are then re-decided live, and the change is logged. The mandate can be reset to its defaults.
 - **Inspectable and tamper-evident decisions:**
   - The decision log shows actors, rules and evidence for every state change.
   - A SHA-256 hash chain over the log can be verified at `/v0.1/audit/verify`.
-  - The log exports as JSON or CSV.
+  - The log downloads as JSON or CSV from the log page, and it shows the result of the final re-check.
 - **Open interface:**
   - OpenAPI 3.1, JSON Schemas and a human-readable specification of the trust labels and reason codes at `/spec`.
   - An MCP endpoint at `/mcp` exposes the purchasing-agent tools only. Approval is not an agent tool and is refused if called.
