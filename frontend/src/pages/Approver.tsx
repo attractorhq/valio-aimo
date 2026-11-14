@@ -54,7 +54,7 @@ export function Approver() {
         <UserRoundCheck size={20} aria-hidden className="mt-0.5 shrink-0" />
         <div>
           <h1>Approver — {mandate?.approver.role ?? 'Head Chef (demo)'}</h1>
-          <p>Separate human sign-off channel · approve trade-offs only, never missing evidence.</p>
+          <p>Human sign-off channel · not the agent</p>
           <p className="mt-1 text-xs font-semibold" role="note">
             Demo approver — no authentication; production uses SSO/OIDC
           </p>

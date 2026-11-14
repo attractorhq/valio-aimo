@@ -188,6 +188,7 @@ select {
   align-items: center;
   gap: 10px;
   min-width: 0;
+  text-decoration: none;
 }
 .brand-wordmark {
   display: inline-flex;
@@ -480,6 +481,11 @@ main {
 }
 .scenario-buttons .btn {
   min-width: 0;
+}
+/* Run request: full width under the scenario buttons */
+.composer-run {
+  width: 100%;
+  justify-content: center;
 }
 /* Secondary button default: white with action-blue border and label, pill radius */
 .btn {
@@ -817,7 +823,7 @@ main {
 }
 .lookup-list li > * {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 .lookup-list li {
   display: grid;
@@ -1543,7 +1549,7 @@ main {
 }
 .result-lines li > span:first-child {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 .result-links {
   display: flex;

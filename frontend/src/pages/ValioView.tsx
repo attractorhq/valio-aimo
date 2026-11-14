@@ -1290,7 +1290,7 @@ export function ValioView() {
   )
 
   return (
-    <div className="grid gap-3">
+    <div className="grid grid-cols-1 gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <a
           href="/"
@@ -1576,7 +1576,7 @@ export function ValioView() {
                     </span>
                   </td>
                   <td className="num">{gap.affectedSuppliers.toLocaleString('en-US')}</td>
-                  <td>{gap.fixAction}</td>
+                  <td className="[overflow-wrap:break-word]">{gap.fixAction}</td>
                 </tr>
               ))}
             </tbody>

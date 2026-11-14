@@ -1,4 +1,4 @@
-import { ExternalLink, ShieldCheck, UserRoundCheck } from 'lucide-react'
+import { ExternalLink } from 'lucide-react'
 import { Link, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { BuyerAdmin } from './components/mandate/MandateControls'
 import { Main } from './pages/Main'
@@ -22,29 +22,10 @@ export default function App() {
         {approver ? 'Skip to proposals for approval' : 'Skip to the purchasing flow'}
       </a>
       <header className="app-header">
-        <div className="brand">
-          <span className="brand-wordmark" aria-label="Valio Aimo">
-            Valio Aimo
-          </span>
-          {approver ? (
-            <UserRoundCheck size={18} aria-hidden className="shrink-0" />
-          ) : (
-            <ShieldCheck size={18} aria-hidden className="shrink-0" />
-          )}
-          <div className="min-w-0">
-            <div className="brand-title-row">
-              <span className="brand-name">{approver ? 'Approver panel' : 'Trusted Trade Gateway'}</span>
-              <span className="brand-gateway">
-                {approver ? '· Trusted Trade Gateway' : '· Verified or Ask'}
-              </span>
-            </div>
-            <span className="brand-sub">
-              {approver
-                ? 'Human sign-off channel · not the agent · Prototype for the Valio Aimo Junction 2026 challenge · not an official Valio service'
-                : 'Prototype for the Valio Aimo Junction 2026 challenge · not an official Valio service'}
-            </span>
-          </div>
-        </div>
+        {/* Logo only; the "not an official Valio service" disclaimer lives in the footer. */}
+        <Link to="/" className="brand" aria-label="Valio Aimo · Trusted Trade Gateway (prototype)">
+          <span className="brand-wordmark">Valio Aimo</span>
+        </Link>
         <nav className="app-nav" aria-label="Views">
           <Link
             to="/"
