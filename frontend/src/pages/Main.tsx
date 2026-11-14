@@ -371,6 +371,7 @@ export function Main() {
                 offer={offerSnapshot}
                 request={structuredRequest}
                 mandateVersion={mandate?.version}
+                plan={step2?.plan}
               />
             )}
           </Step>

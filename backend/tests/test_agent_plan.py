@@ -10,6 +10,7 @@ from app.agent.plan import (
     CandidateObservation,
     build_shortlist_offer_items,
     check_valio_substitutes,
+    good_better_best_alternatives,
     is_compliant_substitute,
     normalise_item_for_planning,
     rank_candidates,
@@ -469,3 +470,61 @@ def test_t34_alternatives_are_fine_when_the_buyer_asked_for_one():
 def test_t34_unqualified_request_keeps_every_cream_type_exact():
     cooking = _make_cream("SYN-COOK", "Synthetic cooking cream 15 % 1 l", "Synteettinen ruokakerma 1 l")
     assert requested_type_match(cooking, _cream_item("cream")).exact
+
+
+# ---- T22: Good / Better / Best alternatives (I3 response logic) -------------------------------------
+
+
+def test_t22_good_better_best_alternatives_tradeoff_and_sour_milk_separation():
+    """T22: Recommended + Best / Better / Good alternatives carry one-line trade-offs (price/l, pack, brand,
+    stock certainty), exclude non-compliant products, and keep sour milk (piimä) behind sweet milk."""
+    m_semi = _make_milk("SYN-SEMI", name="Valio Arki Eila semi skimmed milk drink 1 l lactose free")
+    m_skim = _make_milk("SYN-SKIM", name="Valio Arki Eila skimmed milk drink 1 l lactose free")
+    m_3pct = _make_milk("SYN-3PCT", name="Valio Eila 3 % milk drink 1 l lactose free")
+    m_uht = _make_milk("SYN-UHT", name="Valio semi skimmed milk 1 l lactose free UHT")
+    m_sour = _make_milk("SYN-SOUR", name="Valio Eila skimmed sour milk 1 l lactose free")
+    m_non_lf = _make_milk("SYN-NON-LF", name="Valio regular milk 1 l", claims=[])
+
+    item = RequestItem(
+        itemId="I1",
+        what="milk",
+        quantity=Decimal("1000"),
+        unit="l",
+        requirements=[LACTOSE_FREE],
+    )
+    observations = {
+        "SYN-SEMI": _obs("SYN-SEMI", "1.01"),
+        "SYN-SKIM": _obs("SYN-SKIM", "1.10"),
+        "SYN-SOUR": _obs("SYN-SOUR", "1.35"),
+        "SYN-3PCT": _obs("SYN-3PCT", "1.40"),
+        "SYN-UHT": _obs("SYN-UHT", "1.56"),
+        "SYN-NON-LF": _obs("SYN-NON-LF", "0.80"),
+    }
+    ranked = rank_candidates(
+        [m_non_lf, m_uht, m_3pct, m_sour, m_skim, m_semi],
+        item=item,
+        mandate=M1,
+        requested_date=MONDAY,
+        observations=observations,
+    )
+    # Non-compliant product is never included; sour milk ranks after sweet milks as an agent substitute
+    assert "SYN-NON-LF" not in [r.productId for r in ranked]
+    gbb = good_better_best_alternatives(ranked)
+    assert [(r.tier, r.productId) for r in gbb] == [
+        ("RECOMMENDED", "SYN-SEMI"),
+        ("BEST", "SYN-SKIM"),
+        ("BETTER", "SYN-3PCT"),
+        ("GOOD", "SYN-UHT"),
+    ]
+    assert "€1.01/l" in gbb[0].tradeoff
+    assert "1 l / pc" in gbb[0].tradeoff
+    assert "Valio" in gbb[0].tradeoff
+    assert "plenty in stock (verified)" in gbb[0].tradeoff
+    assert "+€0.09/l vs recommended" in gbb[1].tradeoff
+    assert "skimmed (0 % fat)" in gbb[1].tradeoff
+    assert "3 % fat" in gbb[2].tradeoff
+    assert "UHT" in gbb[3].tradeoff
+    assert ranked[-1].productId == "SYN-SOUR"
+    assert ranked[-1].substitutionSource == "AGENT"
+    assert "sour milk, not milk" in ranked[-1].tradeoff
+

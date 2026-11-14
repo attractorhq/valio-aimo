@@ -33,6 +33,18 @@ test('scenario A: agent decided → confirmed (simulated)', async ({ page }, inf
   await expect(step(page, 'Order')).toContainText(
     'Proposal at fixed price · offer v1 · €1,010.00 excl. VAT',
   )
+  const altsA = step(page, 'Order').getByRole('region', {
+    name: 'Good / Better / Best alternatives',
+  })
+  await expect(altsA).toBeVisible()
+  await expect(altsA).toContainText('Recommended')
+  await expect(altsA).toContainText('Best')
+  await expect(altsA).toContainText('Better')
+  await expect(altsA).toContainText('Good')
+  await expect(altsA).toContainText('Lactose-free proven')
+  await altsA.getByRole('button', { name: 'Show trade-offs' }).click()
+  await expect(altsA).toContainText('+€0.09/l vs recommended')
+  await expect(altsA).toContainText('plenty in stock (verified)')
   const approval = step(page, 'Approval')
   await expect(approval).toContainText('Agent decided → Confirmed (simulated)')
   await expect(approval).toContainText('Simulated order — mock environment')
@@ -49,6 +61,15 @@ test('scenario B: waiting for approver, exactly one reason, no approve button', 
   await runScenario(page, 'B')
   await expect(page.getByRole('radio', { name: /School Kitchen/ })).toBeChecked()
   await expect(step(page, 'Order')).toContainText('offer v1 · €506.16 excl. VAT')
+  const altsB = step(page, 'Order').getByRole('region', {
+    name: 'Good / Better / Best alternatives',
+  })
+  await expect(altsB).toBeVisible()
+  await expect(altsB).toContainText('Gluten-free proven')
+  await expect(altsB).toContainText('Recommended')
+  await expect(altsB).toContainText('Best')
+  await expect(altsB).toContainText('Better')
+  await expect(altsB).not.toContainText('MOCK-REJECTED')
   const approval = step(page, 'Approval')
   await expect(approval).toContainText('Waiting for approver')
   await expect(approval).toContainText('Waiting for Head Chef (demo)')
