@@ -79,7 +79,7 @@ function ndjson(): string {
       name: 'APPROVAL',
       title: 'Approval',
       status: 'waiting',
-      summary: 'Waiting for Head Chef (demo)',
+      summary: 'Waiting for Head Chef',
       request,
       proposal,
       decision: proposal.decision,
@@ -94,7 +94,7 @@ function ndjson(): string {
       reasons: proposal.reasons,
       mode: 'RECORDED',
       explanation: {
-        text: 'Waiting for the Head Chef (demo).',
+        text: 'Waiting for the Head Chef.',
         sentenceCount: 1,
         reasons: [],
         usedLlm: false,

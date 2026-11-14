@@ -1,4 +1,4 @@
-import { Check, Lock } from 'lucide-react'
+import { Check } from 'lucide-react'
 import type { Mandate } from '../../lib/contracts'
 import { allergenName, formatMoney } from '../../lib/format'
 import { LoadingSection } from '../Loading'
@@ -80,16 +80,13 @@ export function MandatePanel({
           <details className="more">
             <summary>
               <span>Details</span>
-              <span className="more-meta">
-                <Lock size={12} aria-hidden /> Read-only · v{selected.version}
-              </span>
             </summary>
             <dl className="rule-list">
               <div>
                 <dt>Allergen mode</dt>
                 <dd>
                   {selected.allergenMode === 'STRICT'
-                    ? 'Strict: every product needs an allergen declaration'
+                    ? 'Strict (declaration required)'
                     : 'Standard'}
                 </dd>
               </div>
@@ -98,7 +95,7 @@ export function MandatePanel({
                 <dd>
                   {yesNo(
                     selected.autoAcceptValioSubstitutes,
-                    'Accepted automatically if compliant',
+                    'Automatic if compliant',
                     'Need approval',
                   )}
                 </dd>
@@ -118,7 +115,7 @@ export function MandatePanel({
                 </dd>
               </div>
               <div>
-                <dt>Minimum delivery reliability</dt>
+                <dt>Min. reliability</dt>
                 <dd>{Math.round(Number(selected.minReliability) * 100)} %</dd>
               </div>
               <div>
@@ -134,9 +131,7 @@ export function MandatePanel({
                 </dd>
               </div>
             </dl>
-            <p className="muted small">
-              Set by the buyer admin. The agent can read it, never change it.
-            </p>
+            <p className="muted small">Set by the buyer admin; the agent only reads it.</p>
           </details>
         </div>
       )}

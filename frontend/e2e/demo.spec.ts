@@ -2,6 +2,15 @@ import { expect, test, type Page } from '@playwright/test'
 import { spawn, type ChildProcess } from 'node:child_process'
 import path from 'node:path'
 
+// T65: every browser has its own session. The browser context and the Node-side API calls in this spec share
+// one explicit session id, so admin changes and resets land where the page reads them.
+const E2E_SESSION = `e2e-demo-${Date.now().toString(36)}`
+function sfetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers)
+  headers.set('X-Demo-Sandbox', E2E_SESSION)
+  return fetch(url, { ...init, headers })
+}
+
 const step = (page: Page, name: string) => page.getByRole('listitem', { name: new RegExp(name) })
 
 type DefaultMandateSpec = {
@@ -47,7 +56,7 @@ async function resetDemoState(
 ): Promise<{ mode: 'LIVE' | 'RECORDED' }> {
   const cleanApi = apiBase.replace(/\/+$/, '')
 
-  const healthRes = await fetch(`${cleanApi}/health`, {
+  const healthRes = await sfetch(`${cleanApi}/health`, {
     headers: { Accept: 'application/json' },
   })
   expect(healthRes.ok).toBeTruthy()
@@ -61,7 +70,7 @@ async function resetDemoState(
 
   // 1. Restore M1 and M2 mandates if any buyer-admin toggle modified them
   for (const spec of DEFAULT_MANDATES) {
-    const mRes = await fetch(`${cleanApi}/v0.1/mandates/${encodeURIComponent(spec.customerId)}`, {
+    const mRes = await sfetch(`${cleanApi}/v0.1/mandates/${encodeURIComponent(spec.customerId)}`, {
       headers: { Accept: 'application/json' },
     })
     if (!mRes.ok) continue
@@ -86,7 +95,7 @@ async function resetDemoState(
       patch.minReliability = spec.minReliability
     }
     if (Object.keys(patch).length > 0) {
-      const pRes = await fetch(
+      const pRes = await sfetch(
         `${cleanApi}/v0.1/admin/mandates/${encodeURIComponent(spec.customerId)}`,
         {
           method: 'PATCH',
@@ -99,7 +108,7 @@ async function resetDemoState(
   }
 
   // 2. Clear any stale PENDING_APPROVAL proposals from the Approver queue
-  const pendingRes = await fetch(`${cleanApi}/v0.1/approver/proposals?pendingOnly=true`, {
+  const pendingRes = await sfetch(`${cleanApi}/v0.1/approver/proposals?pendingOnly=true`, {
     headers: { Accept: 'application/json' },
   })
   if (pendingRes.ok) {
@@ -108,7 +117,7 @@ async function resetDemoState(
       offerVersion: number
     }>
     for (const p of pendingList) {
-      const viewRes = await fetch(
+      const viewRes = await sfetch(
         `${cleanApi}/v0.1/approver/proposals/${encodeURIComponent(p.proposalId)}`,
         { headers: { Accept: 'application/json' } },
       )
@@ -117,7 +126,7 @@ async function resetDemoState(
         approvalToken: string
         proposal: { offerVersion: number }
       }
-      await fetch(
+      await sfetch(
         `${cleanApi}/v0.1/approver/proposals/${encodeURIComponent(p.proposalId)}/decision`,
         {
           method: 'POST',
@@ -223,7 +232,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
 
     for (let i = 0; i < 60; i++) {
       try {
-        const res = await fetch(`http://127.0.0.1:${backendPort}/health`)
+        const res = await sfetch(`http://127.0.0.1:${backendPort}/health`)
         if (res.ok) {
           const data = (await res.json()) as { ready?: boolean }
           if (data.ready) break
@@ -249,7 +258,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
 
     for (let i = 0; i < 40; i++) {
       try {
-        const res = await fetch(baseURL)
+        const res = await sfetch(baseURL)
         if (res.ok) break
       } catch {
         // wait for vite startup
@@ -268,6 +277,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
   }, info) => {
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
     const page = await context.newPage()
+    await context.addCookies([{ name: 'voa_sandbox', value: E2E_SESSION, url: baseURL }])
 
     // 0. Demo-state reset & honest mode / pre-flight verification
     const { mode } = await resetDemoState(apiBaseURL)
@@ -295,12 +305,8 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
 
     // Must drive the real /v0.1 gateway, never synthetic mocks
     await expect(page.getByText('Synthetic mock data')).toHaveCount(0)
-    if (mode === 'LIVE') {
-      // Live data needs no badge; only recorded or synthetic data is labelled.
-      await expect(page.getByText(/Recorded · captured/)).toHaveCount(0)
-    } else {
-      await expect(page.getByText(/Recorded · captured/)).toBeVisible()
-    }
+    // No data-source badges in the UI (team decision 14 Nov).
+    await expect(page.getByText(/Recorded · captured/)).toHaveCount(0)
     // The live pre-flight is a presenter command (scripts/preflight), not a buyer-view control.
     await expect(page.getByRole('button', { name: 'Pre-flight', exact: true })).toHaveCount(0)
 
@@ -309,23 +315,23 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     await expect(step(page, 'Request')).toContainText('Lactose-free')
     await expect(step(page, 'Request')).toContainText('Mon 16 Nov')
     await expect(step(page, 'Order')).toContainText(
-      'Proposal at fixed price · offer v1 · €1,010.00 excl. VAT',
+      /offer v1 · €1,010\.00 excl\. VAT/i,
     )
     await expect(step(page, 'Order')).toContainText('464306')
     await expect(step(page, 'Approval')).toContainText('Agent decided → Confirmed (simulated)')
     await expect(step(page, 'Approval')).toContainText('Simulated order — mock environment')
-    // T60: Valio's availability sentinel (>= 999999) is "No stock limit" at DECLARED, never "Plenty in stock".
+    // T60/T78: Valio's availability sentinel (>= 999999) is "Stock not tracked" at DECLARED, never "Plenty in stock".
     const cardA = page.getByRole('article', { name: /Trust card for/ }).first()
     await cardA.getByRole('button', { name: /Show facts/ }).click()
     const stockRow = cardA.locator('dl > div').filter({ hasText: /^Stock/ })
-    await expect(stockRow).toContainText('No stock limit: Valio allows any quantity')
+    await expect(stockRow).toContainText('Stock not tracked · Valio accepts any quantity')
     await expect(stockRow).toContainText(/declared/i)
     await expect(cardA).not.toContainText('Plenty in stock')
 
     // 2. Scenario B (ASK; the approver approves v1): €506.16 > €500.00 for M2 (STRICT)
     await page.getByRole('button', { name: /^Scenario B:/ }).click()
     await expect(step(page, 'Order')).toContainText(
-      'Proposal at fixed price · offer v1 · €506.16 excl. VAT',
+      /offer v1 · €506\.16 excl\. VAT/i,
     )
     await expect(step(page, 'Order')).toContainText('474235')
     await expect(step(page, 'Order')).toContainText('468465')
@@ -335,7 +341,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
 
     const approvalStepB = step(page, 'Approval')
     await expect(approvalStepB).toContainText('Waiting for approver')
-    await expect(approvalStepB).toContainText('Waiting for Head Chef (demo)')
+    await expect(approvalStepB).toContainText('Waiting for Head Chef')
     await expect(
       approvalStepB.getByRole('list', { name: 'Reasons' }).getByRole('listitem'),
     ).toHaveCount(1)
@@ -350,7 +356,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     const approverPage = await context.newPage()
     await approverPage.goto(`${baseURL}/approver`)
     await expect(
-      approverPage.getByRole('heading', { name: 'Approver — Head Chef (demo)' }),
+      approverPage.getByRole('heading', { name: 'Approver — Head Chef' }),
     ).toBeVisible()
     await expect(
       approverPage.getByRole('heading', { name: /Proposals for you \(1 waiting\)/ }),
@@ -358,12 +364,12 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
 
     const card = approverPage.getByRole('article')
     await expect(card.getByRole('heading')).toHaveText(
-      'You are approving version 1 of this proposal',
+      'Approving version 1',
     )
     await expect(card).toContainText(
       '€506.16 is above your €500.00 auto-approve limit. Everything else is verified or declared.',
     )
-    await expect(card).toContainText('Demo approval link — single use')
+    await expect(card).toContainText('Single-use approval link')
 
     await card.getByRole('button', { name: 'Approve €506.16' }).click()
     await expect(card).toContainText(
@@ -374,7 +380,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     await page.bringToFront()
     await page.evaluate(() => window.dispatchEvent(new Event('focus')))
     await expect(step(page, 'Approval')).toContainText(
-      'Approved by Head Chef (demo) → Confirmed (simulated)',
+      'Approved by Head Chef → Confirmed (simulated)',
     )
 
     // 3. Scenario C (BLOCK): 464306 × 20,000 = €20,200.00 > €5,000.00 hard limit + INSTRUCTION_IGNORED
@@ -395,7 +401,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     })
 
     // 4. Verify demo-state reset restores modified mandates and clears pending proposals
-    const patchRes = await fetch(`${apiBaseURL}/v0.1/admin/mandates/nordic-harbour-hotels`, {
+    const patchRes = await sfetch(`${apiBaseURL}/v0.1/admin/mandates/nordic-harbour-hotels`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ autoApproveLimitEur: '1600.00' }),

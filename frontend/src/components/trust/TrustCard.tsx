@@ -112,27 +112,32 @@ export function TrustCard({
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <h3 className="text-xs font-bold text-[var(--ink)]">
-            Trust card · {line.name}{' '}
-            <span className="font-normal text-[var(--muted)]">({line.productId})</span>
+          <h3 className="text-xs font-bold text-[var(--ink)]" title={line.name}>
+            Trust card · {line.productId}
           </h3>
-          {checks.map(({ requirement: req, fact, fromMandate, proven }) => (
-            <span
-              key={`${req.kind}-${req.code}`}
-              data-requirement={`${req.kind}:${req.code}`}
-              data-proven={proven ? 'true' : 'false'}
-              title={fact ? `Source: ${sourceText(fact)}` : 'No evidence on this line'}
-              className="inline-flex flex-wrap items-center gap-1 rounded-[12px] border border-[var(--line)] bg-[var(--surface)] px-2 py-0.5 text-xs"
-            >
-              <strong className="text-[var(--ink)]">
-                {requirementLabel(req)}
-                {fromMandate ? ' (mandate)' : ''}:
-              </strong>
-              <span>{formatFactDisplay(fact)}</span>
-              <TrustBadge level={fact?.level ?? 'UNKNOWN'} conflict={fact?.conflict} />
-              {fact && <span className="text-[var(--muted)]">{sourceShort(fact)}</span>}
-            </span>
-          ))}
+          {checks.map(({ requirement: req, fact, fromMandate, proven }) => {
+            // T83: "Gluten-free: Gluten-free … supplier claim" said once; the source is in the tooltip.
+            const label = requirementLabel(req)
+            const value = formatFactDisplay(fact)
+            const same = value.trim().toLowerCase() === label.trim().toLowerCase()
+            return (
+              <span
+                key={`${req.kind}-${req.code}`}
+                data-requirement={`${req.kind}:${req.code}`}
+                data-proven={proven ? 'true' : 'false'}
+                title={fact ? `Source: ${sourceShort(fact)} · ${sourceText(fact)}` : 'No evidence on this line'}
+                className="inline-flex flex-wrap items-center gap-1 rounded-[12px] border border-[var(--line)] bg-[var(--surface)] px-2 py-0.5 text-xs"
+              >
+                <strong className="text-[var(--ink)]">
+                  {label}
+                  {fromMandate ? ' (mandate)' : ''}
+                  {same ? '' : ':'}
+                </strong>
+                {!same && <span>{value}</span>}
+                <TrustBadge level={fact?.level ?? 'UNKNOWN'} conflict={fact?.conflict} />
+              </span>
+            )
+          })}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <ul
@@ -205,7 +210,7 @@ export function TrustCard({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="inline-flex items-center gap-1.5 font-bold text-[var(--block)]">
               <ShieldAlert size={14} aria-hidden />
-              <span>Valio Aimo substitute check</span>
+              <span>Substitute check</span>
             </div>
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="chip border-[var(--block)] bg-[var(--surface)] text-[var(--block)]">
@@ -221,9 +226,8 @@ export function TrustCard({
                 'hard requirements'
               return (
                 <p key={sub.productId} className="mt-1">
-                  Valio Aimo lists <strong>{sub.productId}</strong> ({sub.name}) as the substitute
-                  for <strong>{line.productId}</strong>. It fails &lsquo;{reqNames}&rsquo; for this
-                  buyer, so the agent will never swap to it.
+                  Valio lists <strong>{sub.productId}</strong> ({sub.name}) as the substitute; it fails
+                  &lsquo;{reqNames}&rsquo;, so the agent never swaps to it.
                 </p>
               )
             })

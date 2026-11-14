@@ -1,10 +1,16 @@
 import { Ban, CheckCircle2, Hourglass, Info, ShieldCheck } from 'lucide-react'
 import { REASON_REGISTRY, type Mandate, type Proposal, type ReasonCode } from '../../lib/contracts'
 import { formatMoney, reasonChip, reasonText } from '../../lib/format'
-import { proposalRequirementChecks, requirementsStatement } from '../../lib/requirements'
+import {
+  decisiveEvidence,
+  evidenceCountsText,
+  evidenceHeadline,
+  proposalRequirementChecks,
+  requirementsStatement,
+} from '../../lib/requirements'
 import { plainReason, uniqueReasons } from '../approver/explain'
 
-/** The reason in plain words, or null when that would only repeat the chip (T45). */
+/** The reason in plain words, filled with proposal/mandate values so every ASK/INFO row has a clear explanation (T45, T86). */
 function explainReason(code: ReasonCode, proposal: Proposal, mandate?: Mandate): string | null {
   const params: Record<string, string> = { total: formatMoney(proposal.totals.exclVat) }
   if (mandate) {
@@ -13,34 +19,45 @@ function explainReason(code: ReasonCode, proposal: Proposal, mandate?: Mandate):
     )
   }
   const text = reasonText(code, params)
-  return /\{\w+\}/.test(text) ? plainReason(code, proposal, mandate) : text
+  if (!/\{\w+\}/.test(text)) {
+    return text
+  }
+  const explained = plainReason(code, proposal, mandate)
+  if (explained) {
+    return explained
+  }
+  if (code === 'AGENT_SUBSTITUTE') {
+    return 'A compliant substitute product was selected instead of the exact requested item.'
+  }
+  if (code === 'VALIO_SUBSTITUTE') {
+    return 'Listed by Valio Aimo as a compliant substitute for the requested product.'
+  }
+  return null
 }
 
 /**
  * The "proven" statement is derived from the same requirement facts the trust cards show (T41): it is
  * made only when every hard requirement on every line is proven by its evidence.
+ * On ASK, always states in plain language why the order was not auto-approved (T86).
  */
 function decisionSummary(
   proposal: Proposal,
   statement: ReturnType<typeof requirementsStatement>,
   approver?: string,
-): string {
+): string | null {
   if (!statement.allProven && proposal.decision !== 'BLOCK') {
-    return `${statement.clause}, so this proposal must not be ordered as it stands.`
+    return `${statement.clause}: not orderable as it stands.`
   }
-  if (proposal.decision === 'AUTO') {
-    return `${statement.clause}; stock and delivery terms are verified or declared, and the net total is within the buyer mandate.`
-  }
+  if (proposal.decision === 'AUTO') return `${statement.clause}.`
   if (proposal.decision === 'ASK' && proposal.state === 'CONFIRMED_SIMULATED') {
-    return `${approver ?? 'The approver'} approved this exact version in the Approver panel; the gateway re-checked it before the simulated confirmation.`
+    return 'Re-checked live before confirmation.'
   }
-  if (proposal.decision === 'ASK' && proposal.state !== 'PENDING_APPROVAL') {
-    return 'This proposal version will not be ordered.'
-  }
+  if (proposal.decision === 'ASK' && proposal.state !== 'PENDING_APPROVAL') return null
   if (proposal.decision === 'ASK') {
-    return `${statement.clause}; this proposal version waits for ${approver ?? 'Head Chef (demo)'} to sign off the trade-off below.`
+    // T83: the headline already names the approver; one line says what is proven and where sign-off happens.
+    return `${statement.clause}. ${approver ?? 'The approver'} signs off v${proposal.offerVersion} in the Approver panel.`
   }
-  return 'Deterministic gateway policy blocked this proposal because it breaches a non-overridable mandate rule.'
+  return null // BLOCK: the headline and the reasons say it.
 }
 
 /** After the approver acted on the separate channel, the agent view shows the outcome, never a control. */
@@ -49,23 +66,23 @@ function askStateText(proposal: Proposal, approver: string): string {
     case 'CONFIRMED_SIMULATED':
       return `Approved by ${approver} → Confirmed (simulated)`
     case 'REJECTED':
-      return `Rejected by ${approver}. Nothing was ordered.`
+      return `Rejected by ${approver} · nothing ordered`
     case 'EXPIRED':
-      return 'The offer expired before sign-off. Re-quote needed.'
+      return 'Offer expired · re-quote needed'
     case 'SUPERSEDED':
-      return 'Superseded: a new version was decided from scratch.'
+      return 'Superseded by a new version'
     default:
       return `In progress (${proposal.state})`
   }
 }
 
 /**
- * Step 4 Decision footer: reason chips, plain-language explanation, "Waiting for Head Chef (demo)" with NO approve button,
+ * Step 4 Decision footer: reason chips, plain-language explanation, "Waiting for Head Chef" with NO approve button,
  * and "Simulated order — mock environment" (P6 P0-2/P0-3, P10 S2).
  */
 export function DecisionFooter({ proposal, mandate }: { proposal: Proposal; mandate?: Mandate }) {
   const decision = proposal.decision
-  const approver = proposal.approverRole ?? mandate?.approver.role ?? 'Head Chef (demo)'
+  const approver = proposal.approverRole ?? mandate?.approver.role ?? 'Head Chef'
   const confirmed = proposal.state === 'CONFIRMED_SIMULATED'
   const voided =
     decision === 'ASK' && ['REJECTED', 'EXPIRED', 'SUPERSEDED'].includes(proposal.state)
@@ -74,6 +91,9 @@ export function DecisionFooter({ proposal, mandate }: { proposal: Proposal; mand
   const statement = requirementsStatement(
     proposalRequirementChecks(proposal, mandate?.forbiddenAllergens),
   )
+  const summary = decisionSummary(proposal, statement, approver)
+  // T78: the AUTO headline follows the weakest decisive level and shows the counts.
+  const evidence = decisiveEvidence(proposal, mandate?.forbiddenAllergens)
 
   return (
     <div className={`outcome outcome-${tone}`}>
@@ -82,9 +102,7 @@ export function DecisionFooter({ proposal, mandate }: { proposal: Proposal; mand
         <span>
           <span className="outcome-word">{decision}</span>
           {decision === 'AUTO' &&
-            (statement.allProven
-              ? 'Every fact is proven and the order is inside the mandate.'
-              : 'A hard requirement is not proven.')}
+            (statement.allProven ? evidenceHeadline(evidence) : 'A hard requirement is not proven.')}
           {decision === 'ASK' &&
             (proposal.state === 'PENDING_APPROVAL'
               ? `Waiting for ${approver}`
@@ -93,9 +111,17 @@ export function DecisionFooter({ proposal, mandate }: { proposal: Proposal; mand
         </span>
       </p>
 
-      <p className="mt-2 text-sm" data-testid="decision-summary">
-        {decisionSummary(proposal, statement, approver)}
-      </p>
+      {decision === 'AUTO' && (
+        <p className="mt-1 text-xs font-semibold" data-testid="evidence-counts">
+          {evidenceCountsText(evidence)}
+        </p>
+      )}
+
+      {summary && (
+        <p className="mt-2 text-sm" data-testid="decision-summary">
+          {summary}
+        </p>
+      )}
 
       {proposal.reasons.length > 0 && (
         <ul className="reason-list" aria-label="Reasons">
@@ -113,12 +139,6 @@ export function DecisionFooter({ proposal, mandate }: { proposal: Proposal; mand
             )
           })}
         </ul>
-      )}
-
-      {decision === 'ASK' && proposal.state === 'PENDING_APPROVAL' && (
-        <p className="text-sm">
-          Only {approver} can approve v{proposal.offerVersion}, in the Approver panel.
-        </p>
       )}
 
       <p className="simulation-notice">

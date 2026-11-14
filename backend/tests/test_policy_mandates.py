@@ -10,18 +10,18 @@ from app.contracts import Approver
 from app.policy import DEMO_MANDATES, M1, M2, MandateBook, change_mandate
 from tests.synthetic.policy import NOW
 
-ADMIN = "human:Buyer admin (demo)"
+ADMIN = "human:Buyer admin"
 
 
 def test_demo_mandates_match_the_brief():
     assert (M1.organisationName, M1.allergenMode, M1.autoApproveLimitEur, M1.hardLimitEur) == (
-        "Nordic Harbour Hotels (demo)", "STANDARD", Decimal("1500.00"), Decimal("5000.00"))
+        "Nordic Harbour Hotels", "STANDARD", Decimal("1500.00"), Decimal("5000.00"))
     assert (M1.autoAcceptValioSubstitutes, M1.autoAcceptSupplierStock, M1.approver.role) == (
-        True, False, "Purchasing Manager (demo)")
+        True, False, "Purchasing Manager")
     assert (M2.organisationName, M2.allergenMode, M2.autoApproveLimitEur, M2.hardLimitEur) == (
-        "Northbay School Kitchen (demo)", "STRICT", Decimal("500.00"), Decimal("3000.00"))
+        "Northbay School Kitchen", "STRICT", Decimal("500.00"), Decimal("3000.00"))
     assert (M2.autoAcceptValioSubstitutes, M2.autoAcceptSupplierStock, M2.approver.role) == (
-        False, False, "Head Chef (demo)")
+        False, False, "Head Chef")
     for mandate in DEMO_MANDATES:
         assert mandate.version == 1 and mandate.minReliability == Decimal("0.80") and mandate.enforceCutoff
         assert mandate.autoAcceptAgentSubstitutes is False and mandate.forbiddenAllergens == []
@@ -51,8 +51,8 @@ def test_change_summary_formats_non_money_fields():
         M1, {"minReliability": "0.9", "approver": Approver(name="Ann (demo)", role="Buyer (demo)")},
         actor=ADMIN, now=NOW,
     )
-    assert entry.summary == ("Policy changed by buyer admin: approver Purchasing Manager (demo) "
-                             "(Purchasing Manager (demo)) → Ann (demo) (Buyer (demo)); minReliability 0.80 → 0.9")
+    assert entry.summary == ("Policy changed by buyer admin: approver Purchasing Manager "
+                             "(Purchasing Manager) → Ann (demo) (Buyer (demo)); minReliability 0.80 → 0.9")
 
 
 @pytest.mark.parametrize(

@@ -21,7 +21,7 @@ export type ApproverView = {
   approvalUrl?: string | null;
   qrPayload?: string | null;
   expiresAt: string;
-  permissionNotice?: "Demo approval link \u2014 single use";
+  permissionNotice?: "Single-use approval link";
 };
 
 export type AuditEntry = {

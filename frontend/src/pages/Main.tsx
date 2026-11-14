@@ -16,7 +16,6 @@ import { formatMoney } from '../lib/format'
 import { MandatePanel } from '../components/flow/MandatePanel'
 import { MandateStatus } from '../components/mandate/MandateControls'
 import { RequestComposer } from '../components/flow/RequestComposer'
-import { ModeBadge } from '../components/flow/ModeBadge'
 import { Step, type StepStatus } from '../components/flow/Step'
 import {
   NoOrderBanner,
@@ -70,12 +69,12 @@ async function latestVersion(proposalId: string): Promise<Proposal> {
   return proposal
 }
 
-/** Step 2 in one line: "Live price & stock for 8 shortlisted products". */
+/** Step 2 in one line: "Price & stock · 8 products". */
 function lookupSummary(plan?: ItemPlanSummary[]): string {
   const ids = new Set((plan ?? []).flatMap((p) => p.shortlistIds ?? []))
   return ids.size > 0
-    ? `Live price & stock for ${ids.size} shortlisted product${ids.size === 1 ? '' : 's'}`
-    : 'Live price & stock for the shortlist'
+    ? `Price & stock · ${ids.size} product${ids.size === 1 ? '' : 's'}`
+    : 'Price & stock for the shortlist'
 }
 
 /** The one main view: Request → Lookup → Order → Approval, around a structured flow (not a chat). */
@@ -310,11 +309,6 @@ export function Main() {
       <div className="main-flow">
         <div className="flow-header">
           <h2 className="panel-title">Evidence</h2>
-          <ModeBadge
-            source={run.data?.source ?? sourceState}
-            proposal={proposal}
-            healthMode={run.data?.mode ?? health.data?.mode ?? gateway.healthMode}
-          />
         </div>
         <ol className="steps" aria-label="Purchasing flow">
           <Step
@@ -327,7 +321,7 @@ export function Main() {
               clarificationQuestion
                 ? clarificationQuestion
                 : structuredRequest
-                  ? `${itemCountFromItems(structuredRequest.items.length)} · structured`
+                  ? itemCountFromItems(structuredRequest.items.length)
                   : (step1?.summary ?? 'Structured request')
             }
           >
@@ -354,11 +348,9 @@ export function Main() {
                     onClick={focusComposerToEdit}
                   >
                     <Pencil size={14} aria-hidden />
-                    <span>Answer by editing the request above</span>
+                    <span>Edit request</span>
                   </button>
-                  <span className="text-xs text-[var(--ink)] opacity-80">
-                    Nothing was ordered. Add the missing detail and run again.
-                  </span>
+                  <span className="text-xs text-[var(--ink)] opacity-80">Nothing was ordered.</span>
                 </div>
               </div>
             )}
@@ -419,10 +411,10 @@ export function Main() {
             current={currentStepNumber === 3 && !proposal}
             summary={
               proposal
-                ? `Proposal at fixed price · offer v${proposal.offerVersion} · ${formatMoney(proposal.totals.exclVat)} excl. VAT`
+                ? `Offer v${proposal.offerVersion} · ${formatMoney(proposal.totals.exclVat)} excl. VAT`
                 : offerSnapshot
-                  ? `Proposal at fixed price · offer v${offerSnapshot.offerVersion} · ${formatMoney(offerSnapshot.totals.exclVat)} excl. VAT`
-                  : (step3?.summary ?? 'Proposal at fixed price')
+                  ? `Offer v${offerSnapshot.offerVersion} · ${formatMoney(offerSnapshot.totals.exclVat)} excl. VAT`
+                  : (step3?.summary ?? 'Fixed-price offer')
             }
           >
             {(proposal || offerSnapshot) && (
@@ -448,7 +440,7 @@ export function Main() {
                 ? approvalLabel(proposal)
                 : errorStep && errorStep.step === 4
                   ? errorStep.summary
-                  : (step4?.summary ?? 'Agent decides, or a human signs off')
+                  : (step4?.summary ?? 'Agent or human decides')
             }
           >
             {proposal && <DecisionFooter proposal={proposal} mandate={mandate} />}
@@ -495,7 +487,7 @@ export function Main() {
               href={logPath(proposal.proposalId)}
               className="font-semibold text-[var(--green)] underline"
             >
-              Open the decision log for this proposal
+              Open decision log
             </a>
           </p>
         )}

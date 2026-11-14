@@ -8,7 +8,7 @@
   "state": "PENDING_APPROVAL",
   "decision": "ASK",
   "reasons": ["OVER_AUTO_LIMIT"],
-  "approverRole": "Head Chef (demo)",
+  "approverRole": "Head Chef",
   "request": {
     "requestText": "90 kg of gluten-free macaroni and 80 litres of gluten-free oat drink by Monday.",
     "requestedDate": "2026-11-16",

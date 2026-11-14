@@ -36,8 +36,8 @@ def test_every_stock_tier(model, amount, tier, quantity, level):
     assert stock.level == level
     if tier == "PLENTY":
         # Never "Plenty in stock" / VERIFIED: Valio does not know the count.
-        assert stock.display == "No stock limit: Valio allows any quantity (availability not tracked)"
-        assert stock.method == "sentinel ≥ 999999 (Valio convention)"
+        assert stock.display == "Stock not tracked · Valio accepts any quantity"
+        assert stock.method.startswith("Valio Aimo Q&A, 14 Nov:")
         assert stock.source.field == "scheduleLines[0].availableAmount"
         assert ReasonCode.SUPPLIER_STOCK_UNKNOWN not in result.reasons  # Valio's own rule allows any quantity.
     if tier == "SUPPLIER":
