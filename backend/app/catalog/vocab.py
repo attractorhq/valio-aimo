@@ -146,7 +146,10 @@ PRODUCT_CONCEPTS: tuple[ProductConcept, ...] = (
     ProductConcept(
         concept_id="cheese",
         category_prefixes=("106",),
-        en_terms=("cheese", "cheddar", "mozzarella", "emmental", "feta", "tilsit"),
+        en_terms=(
+            "cheese", "cheddar", "mozzarella", "emmental", "feta", "tilsit", "edam", "gouda", "brie", "camembert",
+            "halloumi", "parmesan", "gorgonzola", "roquefort", "havarti", "maasdam", "mascarpone", "ricotta",
+        ),
         fi_stems=("juusto", "emmental", "mozzarella", "salaattijuusto"),
         sv_stems=("ost", "mozzarella", "salladsost"),
     ),
@@ -803,11 +806,28 @@ def extract_inline_requirements(query: str) -> tuple[str, list[Requirement]]:
     return cleaned, extracted
 
 
-def match_concept_in_text(concept: ProductConcept, text_lower: str, words: frozenset[str]) -> bool:
-    """Return True if a product's combined multilingual text matches the given ProductConcept."""
+# T89: catalogue categories in which every product is of the concept's type, so a generic request ("cheese",
+# "pasta") accepts all of them even when the name only says "Edam 17 % e1 kg slices" or a brand.
+TYPE_CATEGORIES: dict[str, tuple[str, ...]] = {
+    "cheese": ("106",),
+    "pasta": ("21380",),
+    "noodles": ("21381",),
+    "rice": ("21340",),
+    "yoghurt": ("10412", "10413"),
+    "quark": ("10430",),
+    "sour_cream": ("10418", "10419"),
+}
+
+
+def match_concept_in_text(
+    concept: ProductConcept, text_lower: str, words: frozenset[str], category: str = ""
+) -> bool:
+    """Return True if a product's combined multilingual text (or its catalogue category) matches the concept."""
     for bad in concept.exclude_stems:
         if bad in text_lower:
             return False
+    if category and any(category.startswith(prefix) for prefix in TYPE_CATEGORIES.get(concept.concept_id, ())):
+        return True
 
     for en_term in concept.en_terms:
         if " " in en_term:

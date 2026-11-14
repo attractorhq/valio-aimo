@@ -1181,8 +1181,8 @@ def same_product_family(
         primary = CONCEPTS_BY_ID.get(concept_id)
         parent = CONCEPTS_BY_ID.get(parent_concept_id) if parent_concept_id else None
         matches_concept = (
-            (primary is not None and match_concept_in_text(primary, text_lower, words))
-            or (parent is not None and match_concept_in_text(parent, text_lower, words))
+            (primary is not None and match_concept_in_text(primary, text_lower, words, category))
+            or (parent is not None and match_concept_in_text(parent, text_lower, words, category))
         )
         if not matches_concept:
             return False

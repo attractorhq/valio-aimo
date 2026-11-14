@@ -958,7 +958,7 @@ def _matches_primary_concept(product: Product, primary: ProductConcept | None, q
         return True, False
     text_lower = " ".join(p for p in (product.name, *product.names.values()) if p).lower()
     words = frozenset(_WORD_RE.findall(text_lower))
-    matches = match_concept_in_text(primary, text_lower, words)
+    matches = match_concept_in_text(primary, text_lower, words, product.category)
     is_specialty = False
     if primary.prefer_plain_over:
         for term in primary.prefer_plain_over:
