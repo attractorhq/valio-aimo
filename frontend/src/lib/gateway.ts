@@ -5,6 +5,7 @@
 // In live/recorded mode, both talk to `/v0.1/*` on the same origin (proxied to :8000 in Vite dev).
 // When the `/v0.1` gateway is unreachable, the UI falls back explicitly to the synthetic mocks in
 // `src/mocks/`, labelled "Synthetic mock data". Mock and live results are never mixed silently.
+import { ALLOW_MOCK } from './env'
 import type {
   ApprovalAction,
   ApproverView,
@@ -692,36 +693,35 @@ function probeHealth(): Promise<GatewayHealth | null> {
   // Bootstrap the HttpOnly session cookie once, not from concurrent first-request probes.
   if (healthProbe) return healthProbe
   healthProbe = (async () => {
-    if (import.meta.env.VITE_API_BASE_URL === 'off') {
+    if (ALLOW_MOCK && import.meta.env.VITE_API_BASE_URL === 'off') {
       setSource('MOCK')
       return null
     }
-    try {
-      const res = await fetch('/health', {
-        headers: { Accept: 'application/json' },
-        signal: AbortSignal.timeout(2000),
-      })
-      if (!res.ok) {
-        setSource('MOCK')
-        return null
+    // Production never falls back to synthetic data: retry a slow or restarting gateway, then use it anyway so
+    // requests show real errors. Dev and test builds fall back to mocks after one quick probe.
+    const attempts = ALLOW_MOCK ? 1 : 4
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      try {
+        const res = await fetch('/health', {
+          headers: { Accept: 'application/json' },
+          signal: AbortSignal.timeout(ALLOW_MOCK ? 2000 : 8000),
+        })
+        const ct = (res.headers.get('content-type') || '').toLowerCase()
+        if (res.ok && ct.includes('application/json')) {
+          const data = (await res.json()) as GatewayHealth
+          if (data && data.ready) {
+            activeHealthMode = data.mode
+            setSource('GATEWAY')
+            return data
+          }
+        }
+      } catch {
+        // retry below
       }
-      const ct = (res.headers.get('content-type') || '').toLowerCase()
-      if (!ct.includes('application/json')) {
-        setSource('MOCK')
-        return null
-      }
-      const data = (await res.json()) as GatewayHealth
-      if (data && data.ready) {
-        activeHealthMode = data.mode
-        setSource('GATEWAY')
-      } else {
-        setSource('MOCK')
-      }
-      return data
-    } catch {
-      setSource('MOCK')
-      return null
+      if (attempt < attempts - 1) await new Promise((r) => setTimeout(r, 1500))
     }
+    setSource(ALLOW_MOCK ? 'MOCK' : 'GATEWAY')
+    return null
   })().finally(() => {
     healthProbe = null
   })
@@ -730,7 +730,7 @@ function probeHealth(): Promise<GatewayHealth | null> {
 
 async function ensureSource(): Promise<DataSource> {
   if (probePromise) return probePromise
-  probePromise = probeHealth().then((health) => (health?.ready ? 'GATEWAY' : 'MOCK'))
+  probePromise = probeHealth().then((health) => (health?.ready || !ALLOW_MOCK ? 'GATEWAY' : 'MOCK'))
   return probePromise
 }
 
@@ -756,7 +756,7 @@ export const gateway: Gateway = {
         headers: { Accept: 'application/json' },
       })
       if (!res.ok) {
-        if (res.status === 502 || res.status === 503 || res.status === 504) {
+        if (ALLOW_MOCK && (res.status === 502 || res.status === 503 || res.status === 504)) {
           setSource('MOCK')
           return mockGateway.listMandates()
         }
@@ -769,7 +769,7 @@ export const gateway: Gateway = {
       }
       return mandates
     } catch (err) {
-      if (err instanceof GatewayError) throw err
+      if (err instanceof GatewayError || !ALLOW_MOCK) throw err
       setSource('MOCK')
       return mockGateway.listMandates()
     }

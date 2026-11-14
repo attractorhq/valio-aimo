@@ -5,7 +5,6 @@ import type { AuditEntry } from '../lib/contracts'
 import { DecisionLog } from '../components/log/DecisionLog'
 import { LogDownloads } from '../components/log/LogDownloads'
 import { isRecheck, recheckResult } from '../components/log/LogEntry'
-import { ModeBadge } from '../components/flow/ModeBadge'
 import { MOCK_LOGS, findMockLog, logPath } from '../components/log/logData'
 import { gateway } from '../lib/gateway'
 
@@ -154,7 +153,6 @@ export function Log({ proposalId }: { proposalId?: string }) {
         >
           <ArrowLeft size={15} aria-hidden /> Buy
         </a>
-        <ModeBadge source={source} healthMode={health.data?.mode ?? gateway.healthMode} />
       </div>
 
       <section className="panel" aria-labelledby="log-title">

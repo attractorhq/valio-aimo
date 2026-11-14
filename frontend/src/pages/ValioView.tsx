@@ -14,7 +14,7 @@ import {
 import { REASON_REGISTRY, type DecisionOutcome, type Product, type Proposal, type ReasonCode, type ReasonEffect } from '../lib/contracts'
 import { formatMoney, reasonChip } from '../lib/format'
 import { gateway } from '../lib/gateway'
-import { ModeBadge } from '../components/flow/ModeBadge'
+import { ALLOW_MOCK } from '../lib/env'
 import scenarioA from '../mocks/scenario-a.json'
 import scenarioB from '../mocks/scenario-b.json'
 import scenarioC from '../mocks/scenario-c.json'
@@ -1183,8 +1183,9 @@ export async function fetchReadinessInsights(): Promise<{
       return { insights: data, source: 'GATEWAY' }
     }
   } catch {
-    // Fall back to deterministic synthetic computation when the backend is unreachable
+    // Dev/test only: fall back to deterministic synthetic computation when the backend is unreachable
   }
+  if (!ALLOW_MOCK) throw new Error('Readiness data is unavailable right now.')
   return {
     insights: computeInsightsFromData(SYNTHETIC_CATALOG_PRODUCTS, SYNTHETIC_PROPOSALS, SYNTHETIC_VENDOR_MAP),
     source: 'MOCK',
@@ -1228,7 +1229,7 @@ export function ValioView() {
   const query = useQuery({
     queryKey: ['valio-readiness-insights'],
     queryFn: fetchReadinessInsights,
-    retry: false,
+    retry: ALLOW_MOCK ? false : 3,
   })
 
   const data = useMemo(
@@ -1289,6 +1290,23 @@ export function ValioView() {
     [fixList, fixScopeFilter],
   )
 
+  if (!ALLOW_MOCK && !query.data) {
+    return (
+      <section className="panel" aria-busy={!query.isError}>
+        {query.isError ? (
+          <p>
+            Readiness data is unavailable right now.{' '}
+            <button type="button" className="btn btn-scenario text-xs" onClick={() => query.refetch()}>
+              Retry
+            </button>
+          </p>
+        ) : (
+          <p className="muted">Loading readiness data…</p>
+        )}
+      </section>
+    )
+  }
+
   return (
     <div className="grid grid-cols-1 gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1308,7 +1326,6 @@ export function ValioView() {
             <RefreshCw size={13} aria-hidden />
             <span>Refresh</span>
           </button>
-          <ModeBadge source={source} healthMode={health.data?.mode ?? insights.mode} />
         </div>
       </div>
 
@@ -1409,10 +1426,10 @@ export function ValioView() {
               <strong>{displayedDecisionStats.totalProposals}</strong> proposals ·{' '}
               <strong>{displayedDecisionStats.activeProposals}</strong> active ·{' '}
               <strong>{displayedDecisionStats.supersededProposals}</strong> superseded ·{' '}
-              <strong>{displayedDecisionStats.confirmedSimulated}</strong> confirmed (simulated)
+              <strong>{displayedDecisionStats.confirmedSimulated}</strong> confirmed
             </p>
           </div>
-          {decisionStats.totalProposals === 0 && (
+          {ALLOW_MOCK && decisionStats.totalProposals === 0 && (
             <button
               type="button"
               onClick={() => setUseReferenceScenariosWhenEmpty((prev) => !prev)}

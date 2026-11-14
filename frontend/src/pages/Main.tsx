@@ -16,7 +16,6 @@ import { formatMoney } from '../lib/format'
 import { MandatePanel } from '../components/flow/MandatePanel'
 import { MandateStatus } from '../components/mandate/MandateControls'
 import { RequestComposer } from '../components/flow/RequestComposer'
-import { ModeBadge } from '../components/flow/ModeBadge'
 import { Step, type StepStatus } from '../components/flow/Step'
 import {
   NoOrderBanner,
@@ -289,11 +288,6 @@ export function Main() {
       <div className="main-flow">
         <div className="flow-header">
           <h2 className="panel-title">Evidence</h2>
-          <ModeBadge
-            source={run.data?.source ?? sourceState}
-            proposal={proposal}
-            healthMode={run.data?.mode ?? health.data?.mode ?? gateway.healthMode}
-          />
         </div>
         <ol className="steps" aria-label="Purchasing flow">
           <Step

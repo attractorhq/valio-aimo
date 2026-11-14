@@ -9,7 +9,8 @@ async function runScenario(page: Page, id: 'A' | 'B' | 'C') {
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByText('Synthetic mock data')).toBeVisible()
+  // The synthetic UI mocks are loaded (dev/test only; production never uses them).
+  await expect(page.getByText(/Synthetic Harbour Hotels/).first()).toBeVisible()
 })
 
 test('shows one main view with four steps and a read-only mandate', async ({ page }) => {
@@ -57,7 +58,8 @@ test('scenario A: agent decided → confirmed (simulated)', async ({ page }, inf
   const approval = step(page, 'Approval')
   await expect(approval).toContainText('Agent decided → Confirmed (simulated)')
   await expect(approval).toContainText('Simulated order — mock environment')
-  await expect(page.getByText(/Recorded · captured Fri 13 Nov 21:50/)).toBeVisible()
+  // No data-source badge in the UI (team decision 14 Nov).
+  await expect(page.getByText(/Recorded · captured/)).toHaveCount(0)
   await page.screenshot({
     path: `test-results/scenario-a-${info.project.name}.png`,
     fullPage: true,

@@ -295,12 +295,8 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
 
     // Must drive the real /v0.1 gateway, never synthetic mocks
     await expect(page.getByText('Synthetic mock data')).toHaveCount(0)
-    if (mode === 'LIVE') {
-      // Live data needs no badge; only recorded or synthetic data is labelled.
-      await expect(page.getByText(/Recorded · captured/)).toHaveCount(0)
-    } else {
-      await expect(page.getByText(/Recorded · captured/)).toBeVisible()
-    }
+    // No data-source badges in the UI (team decision 14 Nov).
+    await expect(page.getByText(/Recorded · captured/)).toHaveCount(0)
     // The live pre-flight is a presenter command (scripts/preflight), not a buyer-view control.
     await expect(page.getByRole('button', { name: 'Pre-flight', exact: true })).toHaveCount(0)
 
