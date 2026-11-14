@@ -70,6 +70,7 @@ from app.gateway.offers import (
 )
 from app.policy.requirements import check_requirements, hard_requirements
 from app.trust.labels import SOURCE_SUBSTITUTION, allergen_name
+from app.valio.facts import SENTINEL_METHOD, is_stock_sentinel
 from app.valio.record import BRIEF_PRODUCT_IDS
 
 MAX_SHORTLIST_PER_ITEM = 20
@@ -448,7 +449,7 @@ def observation_from_offer_line(line: OfferLine) -> CandidateObservation:
             if "supplier" in disp or ReasonCode.SUPPLIER_STOCK_UNKNOWN in line.reasons:
                 stock_tier = "SUPPLIER"
                 avail_qty = None
-            elif "plenty" in disp:
+            elif "plenty" in disp or f.method == SENTINEL_METHOD:
                 stock_tier = "PLENTY"
                 if f.value is not None:
                     try:
@@ -461,7 +462,7 @@ def observation_from_offer_line(line: OfferLine) -> CandidateObservation:
                     avail_qty = qty
                     if qty <= 0:
                         stock_tier = "UNAVAILABLE"
-                    elif qty >= 1_000_000:
+                    elif is_stock_sentinel(qty):
                         stock_tier = "PLENTY"
                     else:
                         stock_tier = "EXACT"
@@ -734,7 +735,8 @@ def _format_tradeoff(
         parts.append(", ".join(traits))
 
     if stock_tier == "PLENTY":
-        parts.append("plenty in stock (verified)")
+        # Valio's sentinel (>= 999999): any quantity may be ordered, but no count is proven (T60).
+        parts.append("no stock limit (Valio allows any quantity)")
     elif stock_tier == "EXACT" and available_qty is not None:
         if pack_explanation is not None:
             parts.append(f"{pack_explanation} (verified)")

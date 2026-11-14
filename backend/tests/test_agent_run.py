@@ -614,7 +614,7 @@ def test_scenario_a_auto_ranks_cheapest_milk_and_confirms(synthetic_api):
     for rc in a_ranked:
         assert rc.allRequirementsDeclared is True
         assert "/l" in rc.tradeoff
-        assert "in stock" in rc.tradeoff
+        assert "in stock" in rc.tradeoff or "no stock limit" in rc.tradeoff  # T60: sentinel
 
 
 def test_scenario_b_ask_over_auto_limit_and_valio_substitute_rejected(synthetic_api):
@@ -667,7 +667,7 @@ def test_scenario_b_ask_over_auto_limit_and_valio_substitute_rejected(synthetic_
         for rc in ip.rankedCandidates:
             assert rc.allRequirementsDeclared is True
             assert ("/kg" in rc.tradeoff or "/l" in rc.tradeoff)
-            assert "in stock" in rc.tradeoff
+            assert "in stock" in rc.tradeoff or "no stock limit" in rc.tradeoff  # T60: sentinel
 
     # Valio's listed substitute 470863 is rejected with SUBSTITUTE_REJECTED both on L2's trust card and in Excluded (P8 B)
     l2 = result.proposal.lines[1]

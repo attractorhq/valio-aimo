@@ -91,6 +91,7 @@ from app.policy import (
     decide,
     evaluate_line,
 )
+from app.valio.facts import SENTINEL_METHOD, is_stock_sentinel
 
 
 class ProposalError(ValueError):
@@ -261,7 +262,7 @@ def _infer_stock_from_offer_line(line: OfferLine) -> tuple[StockKind, Decimal | 
             display = (label.display or "").lower()
             if "supplier" in display:
                 return StockKind.SUPPLIER, None
-            if "plenty" in display:
+            if "plenty" in display or label.method == SENTINEL_METHOD:
                 return StockKind.PLENTY, None
             if label.value is not None:
                 try:
@@ -270,7 +271,7 @@ def _infer_stock_from_offer_line(line: OfferLine) -> tuple[StockKind, Decimal | 
                     return StockKind.NOT_DELIVERABLE, None
                 if qty <= 0:
                     return StockKind.OUT, Decimal(0)
-                if qty >= 1_000_000:
+                if is_stock_sentinel(qty):
                     return StockKind.PLENTY, None
                 return StockKind.EXACT, qty
     return StockKind.PLENTY, None

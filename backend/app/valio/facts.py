@@ -85,6 +85,18 @@ def price_facts(row: dict, pricing_at: datetime, retrieved_at: datetime) -> Pric
     )
 
 
+# Valio Aimo (14 Nov): an available amount of 999999 or more means Valio does not track availability for the
+# product, and its ordering logic allows any quantity. It is no proof of a stock count, so it is DECLARED,
+# never VERIFIED. (Empty means not available.)
+STOCK_SENTINEL = Decimal(999_999)
+SENTINEL_METHOD = "sentinel ≥ 999999 (Valio convention)"
+NO_STOCK_LIMIT = "No stock limit: Valio allows any quantity (availability not tracked)"
+
+
+def is_stock_sentinel(amount: Decimal | None) -> bool:
+    return amount is not None and amount >= STOCK_SENTINEL
+
+
 @dataclass(frozen=True)
 class AvailabilityFacts:
     available_quantity: Decimal | None
@@ -137,6 +149,7 @@ def availability_facts(row: dict, requested_date: date, time_now: datetime,
     quantity, tier, stock_level, stock_display = None, "UNKNOWN", "UNKNOWN", "Unknown"
     unit_conflict = None
     conversion_method = None
+    stock_method = None
     if blocked:
         reasons.append(ReasonCode.SALES_BLOCKED)
     if line is None or line.availableAmount == 0 or delivery is None:
@@ -150,10 +163,12 @@ def availability_facts(row: dict, requested_date: date, time_now: datetime,
         if closing is not None and closing >= time_now:
             reasons.append(ReasonCode.SUPPLIER_STOCK_UNKNOWN)
     elif parsed.logisticModel == "Stock":
-        stock_level = "VERIFIED"
-        if line.availableAmount >= 1_000_000:
-            tier, quantity, stock_display = "PLENTY", line.availableAmount, "Plenty in stock"
+        if is_stock_sentinel(line.availableAmount):
+            # Any quantity may be ordered (same allocation as before), but the count itself is not evidence.
+            tier, quantity, stock_level, stock_display = "PLENTY", line.availableAmount, "DECLARED", NO_STOCK_LIMIT
+            stock_method = SENTINEL_METHOD
         else:
+            stock_level = "VERIFIED"
             tier, quantity = "EXACT", line.availableAmount
             stock_display = f"{quantity:,f} in stock"
     else:
@@ -184,7 +199,7 @@ def availability_facts(row: dict, requested_date: date, time_now: datetime,
             reasons.append(ReasonCode.NOT_AVAILABLE)
     facts = [
         fact("stock.quantity", str(quantity) if quantity is not None else None, stock_display, stock_level,
-             "availability", "scheduleLines[0].availableAmount", time_now, method=conversion_method),
+             "availability", "scheduleLines[0].availableAmount", time_now, method=stock_method or conversion_method),
         fact("delivery.date", delivery.isoformat() if delivery else None,
              format_date(delivery) if delivery else "Unknown", "VERIFIED" if delivery else "UNKNOWN",
              "availability", "scheduleLines[0].availableDate", time_now),

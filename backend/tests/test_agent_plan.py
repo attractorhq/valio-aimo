@@ -639,7 +639,7 @@ def test_t22_good_better_best_alternatives_tradeoff_and_sour_milk_separation():
     assert "€1.01/l" in gbb[0].tradeoff
     assert "1 l / pc" in gbb[0].tradeoff
     assert "Valio" in gbb[0].tradeoff
-    assert "plenty in stock (verified)" in gbb[0].tradeoff
+    assert "no stock limit (Valio allows any quantity)" in gbb[0].tradeoff  # T60
     assert "+€0.09/l vs recommended" in gbb[1].tradeoff
     assert "skimmed (0 % fat)" in gbb[1].tradeoff
     assert "3 % fat" in gbb[2].tradeoff

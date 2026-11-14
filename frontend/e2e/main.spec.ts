@@ -53,7 +53,7 @@ test('scenario A: agent decided → confirmed (simulated)', async ({ page }, inf
   await expect(altsA).toContainText('Lactose-free proven')
   await altsA.getByRole('button', { name: 'Show trade-offs' }).click()
   await expect(altsA).toContainText('+€0.09/l vs recommended')
-  await expect(altsA).toContainText('plenty in stock (verified)')
+  await expect(altsA).toContainText('no stock limit (Valio allows any quantity)')
   const approval = step(page, 'Approval')
   await expect(approval).toContainText('Agent decided → Confirmed (simulated)')
   await expect(approval).toContainText('Simulated order — mock environment')

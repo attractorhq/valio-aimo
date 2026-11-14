@@ -16,10 +16,13 @@ def fact(result, name):
 @pytest.mark.parametrize(("model", "amount", "tier", "quantity", "level"), [
     ("Stock", 0, "UNAVAILABLE", Decimal(0), "VERIFIED"),
     ("Stock", 19, "EXACT", Decimal(19), "VERIFIED"),
-    ("Stock", 999999, "EXACT", Decimal(999999), "VERIFIED"),
-    ("Stock", 1000000, "PLENTY", Decimal(1000000), "VERIFIED"),
-    ("Stock", 9999999999, "PLENTY", Decimal(9999999999), "VERIFIED"),
+    ("Stock", 999998, "EXACT", Decimal(999998), "VERIFIED"),
+    # T60, Valio (14 Nov): >= 999999 means availability not tracked; any quantity may be ordered.
+    ("Stock", 999999, "PLENTY", Decimal(999999), "DECLARED"),
+    ("Stock", 1000000, "PLENTY", Decimal(1000000), "DECLARED"),
+    ("Stock", 9999999999, "PLENTY", Decimal(9999999999), "DECLARED"),
     ("Terminal", 999999, "SUPPLIER", None, "UNKNOWN"),
+    ("Terminal", 9999999999, "SUPPLIER", None, "UNKNOWN"),
     ("Unexpected", 24, "UNKNOWN", None, "UNKNOWN"),
 ])
 def test_every_stock_tier(model, amount, tier, quantity, level):
@@ -29,12 +32,17 @@ def test_every_stock_tier(model, amount, tier, quantity, level):
     result = availability_facts(row, DAY, NOW)
     assert result.stock_tier == tier
     assert result.available_quantity == quantity
-    assert fact(result, "stock.quantity").level == level
+    stock = fact(result, "stock.quantity")
+    assert stock.level == level
     if tier == "PLENTY":
-        assert fact(result, "stock.quantity").display == "Plenty in stock"
+        # Never "Plenty in stock" / VERIFIED: Valio does not know the count.
+        assert stock.display == "No stock limit: Valio allows any quantity (availability not tracked)"
+        assert stock.method == "sentinel ≥ 999999 (Valio convention)"
+        assert stock.source.field == "scheduleLines[0].availableAmount"
+        assert ReasonCode.SUPPLIER_STOCK_UNKNOWN not in result.reasons  # Valio's own rule allows any quantity.
     if tier == "SUPPLIER":
         assert ReasonCode.SUPPLIER_STOCK_UNKNOWN in result.reasons
-        assert fact(result, "stock.quantity").value is None  # Never expose 999999 as inventory.
+        assert stock.value is None  # Never expose 999999 as inventory.
 
 
 @pytest.mark.parametrize(("closing", "passed"), [

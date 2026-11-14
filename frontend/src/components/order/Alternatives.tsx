@@ -1,6 +1,12 @@
 import { useId, useState } from 'react'
 import { ChevronDown, ChevronUp, ShieldCheck, Sparkles } from 'lucide-react'
-import type { Offer, Proposal, ReasonCode, RequestItem, StructuredRequest } from '../../lib/contracts'
+import type {
+  Offer,
+  Proposal,
+  ReasonCode,
+  RequestItem,
+  StructuredRequest,
+} from '../../lib/contracts'
 import { formatQuantity, requirementLabel } from '../../lib/format'
 
 export type CandidateTier = 'RECOMMENDED' | 'BEST' | 'BETTER' | 'GOOD' | 'ALTERNATIVE'
@@ -107,7 +113,7 @@ function buildSyntheticMockPlans(
             unitPriceExclVat: '1.10',
             stockTier: 'PLENTY',
             tradeoff:
-              '€1.10/l (+€0.09/l vs recommended) · 1 l / pc · Synthetic Dairy · skimmed (0 % fat) · plenty in stock (verified) · 100 % reliability',
+              '€1.10/l (+€0.09/l vs recommended) · 1 l / pc · Synthetic Dairy · skimmed (0 % fat) · no stock limit (Valio allows any quantity) · 100 % reliability',
           },
           {
             productId: 'MOCK-MILK-3PCT',
@@ -122,7 +128,7 @@ function buildSyntheticMockPlans(
             unitPriceExclVat: '1.40',
             stockTier: 'PLENTY',
             tradeoff:
-              '€1.40/l (+€0.39/l vs recommended) · 1 l / pc · Synthetic Dairy · 3 % fat · plenty in stock (verified) · 100 % reliability',
+              '€1.40/l (+€0.39/l vs recommended) · 1 l / pc · Synthetic Dairy · 3 % fat · no stock limit (Valio allows any quantity) · 100 % reliability',
           },
           {
             productId: 'MOCK-MILK-UHT',
@@ -137,7 +143,7 @@ function buildSyntheticMockPlans(
             unitPriceExclVat: '1.56',
             stockTier: 'PLENTY',
             tradeoff:
-              '€1.56/l (+€0.55/l vs recommended) · 1 l / pc · Synthetic Dairy · semi-skimmed, UHT · plenty in stock (verified) · 100 % reliability',
+              '€1.56/l (+€0.55/l vs recommended) · 1 l / pc · Synthetic Dairy · semi-skimmed, UHT · no stock limit (Valio allows any quantity) · 100 % reliability',
           },
         ],
       }
@@ -234,7 +240,7 @@ function buildSyntheticMockPlans(
             unitPriceExclVat: '1.37',
             stockTier: 'PLENTY',
             tradeoff:
-              '€1.37/l (+€0.20/l vs recommended) · 1 l / pc · Synthetic Oat · Barista, UHT · plenty in stock (verified) · 100 % reliability',
+              '€1.37/l (+€0.20/l vs recommended) · 1 l / pc · Synthetic Oat · Barista, UHT · no stock limit (Valio allows any quantity) · 100 % reliability',
           },
           {
             productId: 'MOCK-OAT-PRO',
@@ -282,9 +288,8 @@ function normalisePlanEntries(
   request?: StructuredRequest,
 ): ItemPlan[] {
   if (Array.isArray(rawPlan) && rawPlan.length > 0) {
-    const typed = rawPlan.filter(
-      (entry): entry is ItemPlan =>
-        Boolean(entry && typeof entry === 'object' && 'item' in entry && 'rankedCandidates' in entry),
+    const typed = rawPlan.filter((entry): entry is ItemPlan =>
+      Boolean(entry && typeof entry === 'object' && 'item' in entry && 'rankedCandidates' in entry),
     )
     if (typed.some((p) => p.rankedCandidates.some((rc) => Boolean(rc.tier)))) {
       return typed
@@ -435,7 +440,9 @@ export function Alternatives({
                       </div>
                       {cand.substitutionSource && (
                         <span className="rounded border border-[var(--ask)] bg-[var(--ask-bg)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--ask)]">
-                          {cand.substitutionSource === 'VALIO' ? 'Valio substitute' : 'Agent substitute'}
+                          {cand.substitutionSource === 'VALIO'
+                            ? 'Valio substitute'
+                            : 'Agent substitute'}
                         </span>
                       )}
                     </div>
