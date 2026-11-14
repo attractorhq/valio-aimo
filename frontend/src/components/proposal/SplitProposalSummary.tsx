@@ -151,7 +151,7 @@ export function SplitProposalSummary({
 
   return (
     <div
-      className="my-1.5 rounded-lg border border-[var(--ask)] bg-[var(--ask-bg)] px-2.5 py-1.5 text-sm text-[var(--ink)]"
+      className="my-2 border-b border-[var(--line)] pb-2 text-sm text-[var(--ink)]"
       role="note"
       aria-label="Split top-up summary"
       data-testid="split-proposal-summary"

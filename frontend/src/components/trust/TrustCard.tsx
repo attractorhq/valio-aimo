@@ -107,7 +107,7 @@ export function TrustCard({
 
   return (
     <article
-      className="mt-2 rounded-[24px] border border-[var(--line)] bg-[var(--tint)] px-3.5 py-2.5"
+      className="mt-2 border-t border-[var(--line)] pt-2.5"
       aria-label={`Trust card for ${line.name}`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -126,7 +126,7 @@ export function TrustCard({
                 data-requirement={`${req.kind}:${req.code}`}
                 data-proven={proven ? 'true' : 'false'}
                 title={fact ? `Source: ${sourceShort(fact)} · ${sourceText(fact)}` : 'No evidence on this line'}
-                className="inline-flex flex-wrap items-center gap-1 rounded-[12px] border border-[var(--line)] bg-[var(--surface)] px-2 py-0.5 text-xs"
+                className="inline-flex flex-wrap items-center gap-1 text-xs"
               >
                 <strong className="text-[var(--ink)]">
                   {label}
@@ -141,23 +141,23 @@ export function TrustCard({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <ul
-            className="flex flex-wrap items-center gap-1 text-xs font-semibold"
+            className="flex flex-wrap items-center gap-2 text-xs font-semibold"
             aria-label={`Trust summary for ${line.name}`}
           >
-            <li className="rounded-[12px] bg-[var(--auto-bg)] px-2 py-0.5 text-[var(--auto)]">
+            <li className="text-[var(--auto)]">
               {counts.VERIFIED} Verified
             </li>
-            <li className="rounded-[12px] bg-[var(--info-bg)] px-2 py-0.5 text-[var(--info)]">
+            <li className="text-[var(--info)]">
               {counts.DECLARED} Declared
             </li>
-            <li className="rounded-[12px] bg-[var(--ask-bg)] px-2 py-0.5 text-[var(--ask)]">
+            <li className="text-[var(--ask)]">
               {counts.ESTIMATE} Estimate
             </li>
-            <li className="rounded-[12px] border border-dashed border-[var(--muted)] bg-[var(--surface)] px-2 py-0.5 text-[var(--muted)]">
+            <li className="text-[var(--muted)]">
               {counts.UNKNOWN} Unknown
             </li>
             {counts.CONFLICT > 0 && (
-              <li className="rounded-[12px] bg-[var(--block-bg)] px-2 py-0.5 text-[var(--block)]">
+              <li className="text-[var(--block)]">
                 {counts.CONFLICT} Conflict
               </li>
             )}
@@ -167,7 +167,7 @@ export function TrustCard({
             aria-expanded={expanded}
             aria-controls={factsId}
             onClick={() => setExpanded((prev) => !prev)}
-            className="inline-flex items-center gap-1 rounded-full border border-[var(--action)] bg-[var(--surface)] px-3 py-0.5 text-xs font-semibold text-[var(--action)] hover:bg-[var(--tint)]"
+            className="disclosure-btn"
           >
             <ToggleIcon size={13} aria-hidden />
             <span>{expanded ? 'Hide facts' : `Show facts (${displayedFacts.length})`}</span>
@@ -176,11 +176,11 @@ export function TrustCard({
       </div>
 
       {expanded && (
-        <dl id={factsId} className="mt-2 grid gap-1.5 border-t border-[var(--line)] pt-2">
+        <dl id={factsId} className="mt-2 grid border-t border-[var(--line)]">
           {displayedFacts.map((fact, idx) => (
             <div
               key={`${fact.fact}-${idx}`}
-              className="grid grid-cols-1 items-baseline gap-1 rounded-[12px] bg-[var(--surface)] px-3 py-1.5 text-sm sm:grid-cols-[160px_minmax(0,1fr)_auto]"
+              className="grid grid-cols-1 items-baseline gap-1 border-b border-[var(--line)] py-1.5 text-sm last:border-b-0 sm:grid-cols-[160px_minmax(0,1fr)_auto]"
             >
               <dt className="text-xs font-semibold text-[var(--muted)]">{factLabel(fact.fact)}</dt>
               <dd className="min-w-0">
@@ -203,7 +203,7 @@ export function TrustCard({
 
       {(subFact || excludedSubstitutes.length > 0) && (
         <div
-          className="mt-2 rounded-lg border border-[var(--block)] bg-[var(--block-bg)] px-2.5 py-1.5 text-xs text-[var(--ink)]"
+          className="mt-2 border-t border-[var(--line)] pt-2 text-xs text-[var(--ink)]"
           role="note"
           aria-label="Valio-substitute check"
         >
@@ -213,7 +213,7 @@ export function TrustCard({
               <span>Substitute check</span>
             </div>
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="chip border-[var(--block)] bg-[var(--surface)] text-[var(--block)]">
+              <span className="font-semibold text-[var(--block)]">
                 {reasonChip('SUBSTITUTE_REJECTED')}
               </span>
               {subFact && <TrustBadge level={subFact.level} conflict={subFact.conflict} />}

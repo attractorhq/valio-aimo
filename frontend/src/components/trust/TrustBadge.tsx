@@ -13,27 +13,27 @@ const LEVEL_META: Record<
   VERIFIED: {
     icon: ShieldCheck,
     word: 'Verified',
-    className: 'text-[var(--auto)] bg-[var(--auto-bg)] border-[var(--auto)]',
+    className: 'text-[var(--auto)]',
   },
   DECLARED: {
     icon: FileCheck2,
     word: 'Declared',
-    className: 'text-[var(--info)] bg-[var(--info-bg)] border-[var(--info)]',
+    className: 'text-[var(--info)]',
   },
   ESTIMATE: {
     icon: Gauge,
     word: 'Estimate',
-    className: 'text-[var(--ask)] bg-[var(--ask-bg)] border-[var(--ask)]',
+    className: 'text-[var(--ask)]',
   },
   UNKNOWN: {
     icon: HelpCircle,
     word: 'Unknown',
-    className: 'text-[var(--muted)] bg-[var(--bg)] border-[var(--muted)] border-dashed',
+    className: 'text-[var(--muted)]',
   },
 }
 
 /**
- * Agent Trust Labels v0.1 badge: always renders icon + word + border style, never colour alone (§5.4).
+ * Agent Trust Labels v0.1 badge: always renders icon + word + colour, never colour alone (§5.4).
  */
 export function TrustBadge({
   level,
@@ -46,13 +46,13 @@ export function TrustBadge({
   return (
     <span className="inline-flex flex-wrap items-center gap-1.5">
       <span
-        className={`inline-flex items-center gap-1 rounded-[12px] border px-2 py-0.5 text-xs font-bold tracking-wide uppercase ${className}`}
+        className={`inline-flex items-center gap-1 text-xs font-bold tracking-wide uppercase ${className}`}
       >
         <Icon size={12} aria-hidden />
         <span>{word}</span>
       </span>
       {conflict && (
-        <span className="inline-flex items-center gap-1 rounded-[12px] border border-[var(--block)] bg-[var(--block-bg)] px-2 py-0.5 text-xs font-bold tracking-wide text-[var(--block)] uppercase">
+        <span className="inline-flex items-center gap-1 text-xs font-bold tracking-wide text-[var(--block)] uppercase">
           <AlertTriangle size={12} aria-hidden />
           <span>Conflict · {conflict.code}</span>
         </span>

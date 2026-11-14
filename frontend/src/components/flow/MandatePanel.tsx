@@ -26,10 +26,10 @@ export function MandatePanel({
 }) {
   if (loading)
     return (
-      <LoadingSection label="buyer mandate" variant="mandate" className="panel mandate-panel" />
+      <LoadingSection label="buyer mandate" variant="mandate" className="mandate-panel" />
     )
   return (
-    <section className="panel mandate-panel" aria-labelledby="mandate-heading">
+    <section className="mandate-panel" aria-labelledby="mandate-heading">
       <h2 id="mandate-heading" className="panel-title">
         Buyer mandate
       </h2>

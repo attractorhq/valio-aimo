@@ -264,7 +264,7 @@ export function ResultBanner({
       {proposal.reasons.length > 0 && (
         <ul className="chip-list" aria-label="Decision reasons">
           {uniqueReasons(proposal.reasons).map((code) => (
-            <li key={code} className="chip bg-[var(--surface)]">
+            <li key={code} className="chip">
               {reasonChip(code)}
             </li>
           ))}

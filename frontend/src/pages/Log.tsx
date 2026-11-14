@@ -233,20 +233,21 @@ export function Log({ proposalId }: { proposalId?: string }) {
             </ul>
           </nav>
         )}
+        {!proposalId && <p className="notice">Select a proposal to view its decision log.</p>}
+        {trail.error && (
+          <p className="notice notice-error" role="alert">
+            {trail.error.message}
+          </p>
+        )}
+        {proposalId && trail.isPending && (
+          <LoadingSection label="decision log" className="mt-3 border-t border-[var(--line)] pt-3" />
+        )}
+        {trail.data && (
+          <section aria-label={current ? current.title : `Proposal ${proposalId}`}>
+            <DecisionLog entries={trail.data.trail.entries} />
+          </section>
+        )}
       </section>
-
-      {!proposalId && <p className="notice">Select a proposal to view its decision log.</p>}
-      {trail.error && (
-        <p className="notice notice-error" role="alert">
-          {trail.error.message}
-        </p>
-      )}
-      {proposalId && trail.isPending && <LoadingSection label="decision log" className="panel" />}
-      {trail.data && (
-        <section aria-label={current ? current.title : `Proposal ${proposalId}`}>
-          <DecisionLog entries={trail.data.trail.entries} />
-        </section>
-      )}
     </div>
   )
 }

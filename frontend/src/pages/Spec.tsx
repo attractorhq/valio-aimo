@@ -404,12 +404,12 @@ export function Spec() {
         </ul>
         <p className="muted small mt-2.5">JSON Schema 2020-12 · amounts as decimal strings.</p>
         <ul
-          className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 [&>*]:min-w-0"
+          className="mt-2 grid grid-cols-1 border-t border-[var(--line)] [&>*]:min-w-0"
           aria-label="JSON Schemas"
         >
           {SCHEMAS.map(({ name, schema }) => (
-            <li key={name}>
-              <details className="rounded-[16px] border border-[var(--line)] bg-[var(--tint)] p-3">
+            <li key={name} className="border-b border-[var(--line)] py-2.5 last:border-b-0">
+              <details>
                 <summary className="cursor-pointer font-semibold text-[var(--ink)]">
                   <FileJson size={14} aria-hidden className="mr-1 inline align-[-2px]" />
                   {name}
@@ -421,7 +421,7 @@ export function Spec() {
                 >
                   <Download size={14} aria-hidden /> Download JSON
                 </button>
-                <pre className="mt-2 max-h-64 max-w-full overflow-auto rounded-[12px] bg-[var(--surface)] p-2 text-xs">
+                <pre className="mt-2 max-h-64 max-w-full overflow-auto border-t border-[var(--line)] pt-2 text-xs">
                   {JSON.stringify(schema, null, 2)}
                 </pre>
               </details>
