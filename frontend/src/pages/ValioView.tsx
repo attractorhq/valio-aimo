@@ -1191,6 +1191,29 @@ export async function fetchReadinessInsights(): Promise<{
   }
 }
 
+// T83: short labels; the full master-data sentence stays available as a tooltip.
+const GAP_SHORT: Record<string, { title: string; fix: string }> = {
+  CONTENT_NAME_ONLY_WEAK: { title: 'Pack size from name only', fix: 'Declare pack size (unitConversions)' },
+  MISSING_ALLERGEN_DECLARATION: { title: 'No allergen declaration', fix: 'Declare allergens (or X99)' },
+  CONTENT_UNKNOWN: { title: 'Pack size unknown', fix: 'Declare net weight or volume' },
+  IMPLICIT_ONLY_ALLERGENS: { title: 'Free-from only by omission', fix: 'Declare FREE_FROM explicitly' },
+  LOW_RELIABILITY: { title: 'Reliability below 95 %', fix: 'Improve fulfilment or buffer stock' },
+  UNPRICED_DEPOSIT: { title: 'Unpriced deposit', fix: 'Price every deposit material' },
+  UNSAFE_VALIO_SUBSTITUTE: { title: 'Unsafe listed substitute', fix: 'Fix the substitute links' },
+  DATA_CONFLICT: { title: 'Contradictory declarations', fix: 'Validate imports (K1/K2/K5/K6)' },
+}
+
+const FIX_BY_REASON: Partial<Record<ReasonCode, string>> = {
+  ALLERGEN_UNKNOWN: 'Declare allergens (or X99)',
+  ALLERGEN_IMPLICIT: 'Declare FREE_FROM explicitly',
+  QUANTITY_BASIS_WEAK: 'Declare pack size (unitConversions)',
+  QUANTITY_BASIS_UNKNOWN: 'Declare net weight or volume',
+  DATA_CONFLICT: 'Reconcile the declarations',
+  DEPOSIT_COST_UNVERIFIED: 'Price every deposit material',
+  SUBSTITUTE_REJECTED: 'Replace the unsafe substitute',
+  LOW_RELIABILITY: 'Improve delivery reliability',
+}
+
 function EffectBadge({ effect, approvable }: { effect: string; approvable?: boolean }) {
   const isAsk = effect === 'ASK'
   const isBlock = effect === 'BLOCK'
@@ -1199,13 +1222,15 @@ function EffectBadge({ effect, approvable }: { effect: string; approvable?: bool
     : isBlock
       ? 'bg-[var(--block-bg)] text-[var(--block)] border-[var(--block)]'
       : 'bg-[var(--block-bg)] text-[var(--block)] border-[var(--block)]'
+  const note =
+    approvable === undefined ? undefined : approvable ? 'Approvable by a human (P2.2)' : 'Never approvable (P2.3)'
   return (
-    <span className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs font-bold ${cls}`}>
+    <span
+      className={`inline-flex items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 text-xs font-bold ${cls}`}
+      title={note}
+    >
       {isAsk ? <AlertTriangle size={12} aria-hidden /> : <ShieldAlert size={12} aria-hidden />}
-      <span>
-        {effect}
-        {approvable !== undefined ? (approvable ? ' · Approvable (P2.2)' : ' · Never approvable (P2.3)') : ''}
-      </span>
+      <span>{effect}</span>
     </span>
   )
 }
@@ -1317,12 +1342,10 @@ export function ValioView() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 id="valio-readiness-title" className="text-lg font-bold text-[var(--ink)]">
-              Valio Aimo Agent-Readiness View · Data quality = autonomous sales
+              Agent readiness: data quality = autonomous sales
             </h1>
-            <p className="muted small mt-1 max-w-3xl">
-              Autonomous sales (<strong>AUTO</strong>) require verified or declared facts without
-              conflict. Missing allergens, weak pack sizing, unpriced deposits and unsafe
-              substitutes block AUTO.
+            <p className="muted small mt-1">
+              <strong>AUTO</strong> needs verified or declared facts without conflict.
             </p>
           </div>
         </div>
@@ -1330,31 +1353,29 @@ export function ValioView() {
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Catalogue readiness summary">
           <div className="rounded-[24px] border border-[var(--line)] bg-[var(--tint)] p-4">
             <span className="text-xs font-bold uppercase tracking-wider text-[var(--muted)]">
-              Catalogue Analysed
+              Catalogue
             </span>
             <p className="mt-1 text-2xl font-bold text-[var(--ink)]">
               {catalogSummary.totalProducts.toLocaleString('en-US')}{' '}
               <span className="text-sm font-normal text-[var(--muted)]">products</span>
             </p>
             <p className="mt-1 text-xs text-[var(--muted)]">
-              Across <strong>{catalogSummary.totalSuppliers.toLocaleString('en-US')}</strong> suppliers ·{' '}
-              {catalogSummary.foodProducts.toLocaleString('en-US')} food ·{' '}
-              {catalogSummary.nonFoodProducts.toLocaleString('en-US')} non-food
+              {catalogSummary.totalSuppliers.toLocaleString('en-US')} suppliers ·{' '}
+              {catalogSummary.foodProducts.toLocaleString('en-US')} food
             </p>
           </div>
 
           <div className="rounded-[24px] border border-[var(--auto-accent)] bg-[var(--auto-bg)] p-4">
             <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-[var(--auto)]">
-              <CheckCircle2 size={14} aria-hidden /> AUTO-Ready Products
+              <CheckCircle2 size={14} aria-hidden /> AUTO-ready
             </span>
             <p className="mt-1 text-2xl font-bold text-[var(--auto)]">
               {catalogSummary.autoReadyProducts.toLocaleString('en-US')}{' '}
               <span className="text-sm font-semibold">({formatPercent(catalogSummary.autoReadyRate)})</span>
             </p>
             <p className="mt-1 text-xs text-[var(--ink)]">
-              Food AUTO-ready: <strong>{catalogSummary.foodAutoReadyProducts.toLocaleString('en-US')}</strong> /{' '}
-              {catalogSummary.foodProducts.toLocaleString('en-US')} (
-              {formatPercent(catalogSummary.foodAutoReadyRate)})
+              Food: <strong>{catalogSummary.foodAutoReadyProducts.toLocaleString('en-US')}</strong> /{' '}
+              {catalogSummary.foodProducts.toLocaleString('en-US')}
             </p>
           </div>
 
@@ -1369,27 +1390,32 @@ export function ValioView() {
               </span>
             </p>
             <p className="mt-1 text-xs text-[var(--ink)]">
-              {catalogSummary.missingAllergensFood.toLocaleString('en-US')} food with no allergens ·{' '}
-              {catalogSummary.contentWeakNameEstimate.toLocaleString('en-US')} name-only pack size ·{' '}
-              {catalogSummary.contentUnknown.toLocaleString('en-US')} unknown pack size
+              {catalogSummary.missingAllergensFood.toLocaleString('en-US')} no allergens ·{' '}
+              {catalogSummary.contentWeakNameEstimate.toLocaleString('en-US')} name-only size ·{' '}
+              {catalogSummary.contentUnknown.toLocaleString('en-US')} unknown size
             </p>
           </div>
 
           <div className="rounded-[24px] border border-[var(--ask)] bg-[var(--ask-bg)] p-4">
             <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-[var(--ask)]">
-              <Database size={14} aria-hidden /> Master-Data Traps Caught
+              <Database size={14} aria-hidden /> Data traps
             </span>
             <p className="mt-1 text-2xl font-bold text-[var(--ask)]">
               {(catalogSummary.dataConflicts + catalogSummary.unsafeSubstitutes).toLocaleString('en-US')}{' '}
               <span className="text-sm font-semibold">traps</span>
             </p>
             <p className="mt-1 text-xs text-[var(--ink)]">
-              <strong>{catalogSummary.dataConflicts}</strong> conflicts (
-              {Object.entries(catalogSummary.conflictsByCode)
-                .map(([k, v]) => `${k}: ${v}`)
-                .join(', ') || 'none'}
-              ) · <strong>{catalogSummary.unsafeSubstitutes}</strong> unsafe listed substitutes ·{' '}
-              <strong>{catalogSummary.x99Products}</strong> X99 (EU-14 only)
+              <span
+                title={
+                  Object.entries(catalogSummary.conflictsByCode)
+                    .map(([k, v]) => `${k}: ${v}`)
+                    .join(', ') || 'No conflicts'
+                }
+              >
+                <strong>{catalogSummary.dataConflicts}</strong> conflicts
+              </span>{' '}
+              · <strong>{catalogSummary.unsafeSubstitutes}</strong> unsafe substitutes ·{' '}
+              <strong>{catalogSummary.x99Products}</strong> X99
             </p>
           </div>
         </div>
@@ -1403,7 +1429,7 @@ export function ValioView() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 id="live-decision-stats-title" className="panel-title mb-0 inline-flex items-center gap-2">
-              <BarChart3 size={15} aria-hidden /> Live AUTO / ASK / BLOCK Decision Statistics
+              <BarChart3 size={15} aria-hidden /> Decisions
             </h2>
             <p className="muted small mt-0.5">
               <strong>{displayedDecisionStats.totalProposals}</strong> proposals ·{' '}
@@ -1420,8 +1446,8 @@ export function ValioView() {
             >
               <span>
                 {useReferenceScenariosWhenEmpty
-                  ? 'Show empty session counters (0 proposals)'
-                  : 'Preview A / B / C scenario distribution'}
+                  ? 'Show empty'
+                  : 'Preview A/B/C'}
               </span>
             </button>
           )}
@@ -1430,7 +1456,7 @@ export function ValioView() {
         <div className="mt-3 grid gap-3 sm:grid-cols-3" aria-label="AUTO ASK BLOCK breakdown">
           <div className="rounded-[24px] border border-[var(--auto-accent)] bg-[var(--auto-bg)] p-4">
             <div className="flex items-center justify-between">
-              <span className="font-bold text-[var(--auto)]">AUTO · Autonomous Order</span>
+              <span className="font-bold text-[var(--auto)]">AUTO · agent</span>
               <span className="rounded-[12px] bg-white px-2 py-0.5 text-xs font-bold text-[var(--auto)]">
                 {formatPercent(displayedDecisionStats.autoRate)}
               </span>
@@ -1438,17 +1464,17 @@ export function ValioView() {
             <p className="mt-1 text-2xl font-bold text-[var(--auto)]">
               {displayedDecisionStats.byDecision.AUTO}{' '}
               <span className="text-xs font-normal text-[var(--ink)]">
-                proposal(s) ({displayedDecisionStats.byDecisionActive.AUTO} active)
+                ({displayedDecisionStats.byDecisionActive.AUTO} active)
               </span>
             </p>
             <p className="mt-1 text-xs text-[var(--ink)]">
-              Active volume: <strong>{formatMoney(displayedDecisionStats.autoValueExclVat)}</strong> excl. VAT
+              <strong>{formatMoney(displayedDecisionStats.autoValueExclVat)}</strong> excl. VAT
             </p>
           </div>
 
           <div className="rounded-[24px] border border-[var(--ask)] bg-[var(--ask-bg)] p-4">
             <div className="flex items-center justify-between">
-              <span className="font-bold text-[var(--ask)]">ASK · Human Sign-Off</span>
+              <span className="font-bold text-[var(--ask)]">ASK · human</span>
               <span className="rounded-[12px] bg-white px-2 py-0.5 text-xs font-bold text-[var(--ask)]">
                 {formatPercent(displayedDecisionStats.askRate)}
               </span>
@@ -1456,18 +1482,17 @@ export function ValioView() {
             <p className="mt-1 text-2xl font-bold text-[var(--ask)]">
               {displayedDecisionStats.byDecision.ASK}{' '}
               <span className="text-xs font-normal text-[var(--ink)]">
-                proposal(s) ({displayedDecisionStats.byDecisionActive.ASK} active ·{' '}
-                {displayedDecisionStats.pendingApproval} pending)
+                ({displayedDecisionStats.pendingApproval} pending)
               </span>
             </p>
             <p className="mt-1 text-xs text-[var(--ink)]">
-              Active volume: <strong>{formatMoney(displayedDecisionStats.askValueExclVat)}</strong> excl. VAT
+              <strong>{formatMoney(displayedDecisionStats.askValueExclVat)}</strong> excl. VAT
             </p>
           </div>
 
           <div className="rounded-[24px] border border-[var(--block)] bg-[var(--block-bg)] p-4">
             <div className="flex items-center justify-between">
-              <span className="font-bold text-[var(--block)]">BLOCK · Mandate Refusal</span>
+              <span className="font-bold text-[var(--block)]">BLOCK · mandate</span>
               <span className="rounded-[12px] bg-white px-2 py-0.5 text-xs font-bold text-[var(--block)]">
                 {formatPercent(displayedDecisionStats.blockRate)}
               </span>
@@ -1475,11 +1500,11 @@ export function ValioView() {
             <p className="mt-1 text-2xl font-bold text-[var(--block)]">
               {displayedDecisionStats.byDecision.BLOCK}{' '}
               <span className="text-xs font-normal text-[var(--ink)]">
-                proposal(s) ({displayedDecisionStats.byDecisionActive.BLOCK} active)
+                ({displayedDecisionStats.byDecisionActive.BLOCK} active)
               </span>
             </p>
             <p className="mt-1 text-xs text-[var(--ink)]">
-              Blocked volume: <strong>{formatMoney(displayedDecisionStats.blockValueExclVat)}</strong> excl. VAT
+              <strong>{formatMoney(displayedDecisionStats.blockValueExclVat)}</strong> excl. VAT
             </p>
           </div>
         </div>
@@ -1489,7 +1514,7 @@ export function ValioView() {
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             <div className="rounded-lg border border-[var(--line)] bg-[var(--bg)] p-3">
               <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--muted)]">
-                Order &amp; Line Reason Codes Observed
+                Order reasons
               </h3>
               <ul className="mt-2 grid gap-1.5 text-xs">
                 {displayedDecisionStats.reasonCounts.map((r) => (
@@ -1508,7 +1533,7 @@ export function ValioView() {
 
             <div className="rounded-lg border border-[var(--line)] bg-[var(--bg)] p-3">
               <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--muted)]">
-                Excluded Candidate Reasons ({displayedDecisionStats.totalExcludedCandidates} candidate(s) excluded)
+                Exclusions ({displayedDecisionStats.totalExcludedCandidates})
               </h3>
               <ul className="mt-2 grid gap-1.5 text-xs">
                 {displayedDecisionStats.excludedReasonCounts.map((r) => (
@@ -1531,11 +1556,10 @@ export function ValioView() {
       {/* Catalogue Data Gaps that Block AUTO */}
       <section className="panel" aria-labelledby="gap-breakdown-title">
         <h2 id="gap-breakdown-title" className="panel-title">
-          Catalogue Data Gaps &amp; Which of Them Block AUTO
+          Data gaps
         </h2>
         <p className="muted small">
-          Trade-offs route to a human (<strong>ASK</strong>); missing or conflicting evidence
-          excludes the product (<strong>EXCLUDE</strong>). Both block <strong>AUTO</strong>.
+          <strong>ASK</strong> goes to a human; <strong>EXCLUDE</strong> removes the product. Both stop AUTO.
         </p>
 
         <div className="table-scroll mt-3">
@@ -1544,28 +1568,28 @@ export function ValioView() {
             <thead>
               <tr>
                 <th scope="col">Data gap</th>
-                <th scope="col">Rule &amp; reason code</th>
-                <th scope="col">Effect on AUTO</th>
+                <th scope="col">Reason</th>
+                <th scope="col">Effect</th>
                 <th scope="col" className="num">
-                  Affected products
+                  Products
                 </th>
                 <th scope="col" className="num">
                   Suppliers
                 </th>
-                <th scope="col">Master-data fix in GS1 Synkka / Valio Aimo</th>
+                <th scope="col">Fix</th>
               </tr>
             </thead>
             <tbody>
               {gapBreakdown.map((gap) => (
                 <tr key={gap.gapId}>
-                  <th scope="row" className="font-semibold">
-                    {gap.title}
+                  <th scope="row" className="font-semibold" title={gap.title}>
+                    {GAP_SHORT[gap.gapId]?.title ?? gap.title}
                   </th>
                   <td>
                     <div className="flex flex-wrap items-center gap-1">
                       <span className="chip">{reasonChip(gap.reasonCode)}</span>
-                      <code className="text-[11px] text-[var(--muted)]">
-                        {gap.reasonCode} ({gap.rule})
+                      <code className="text-[11px] text-[var(--muted)]" title={gap.rule}>
+                        {gap.reasonCode}
                       </code>
                     </div>
                   </td>
@@ -1579,7 +1603,7 @@ export function ValioView() {
                     </span>
                   </td>
                   <td className="num">{gap.affectedSuppliers.toLocaleString('en-US')}</td>
-                  <td className="[overflow-wrap:break-word]">{gap.fixAction}</td>
+                  <td title={gap.fixAction}>{GAP_SHORT[gap.gapId]?.fix ?? gap.fixAction}</td>
                 </tr>
               ))}
             </tbody>
@@ -1592,7 +1616,7 @@ export function ValioView() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 id="supplier-gaps-title" className="panel-title mb-0 inline-flex items-center gap-2">
-              <Filter size={15} aria-hidden /> Data Gaps by Supplier
+              <Filter size={15} aria-hidden /> Suppliers
             </h2>
             <p className="muted small mt-0.5">
               <strong>{visibleSuppliers.length}</strong> of{' '}
@@ -1607,7 +1631,7 @@ export function ValioView() {
               type="search"
               value={supplierQuery}
               onChange={(e) => setSupplierQuery(e.target.value)}
-              placeholder="Search supplier name…"
+              placeholder="Search suppliers…"
               aria-label="Filter suppliers by name"
               className="rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface)] px-3 py-1.5 text-xs"
             />
@@ -1628,7 +1652,7 @@ export function ValioView() {
               <option value="ALL">All reasons</option>
               <option value="ALLERGEN_UNKNOWN">No allergens</option>
               <option value="QUANTITY_BASIS_WEAK">Name-only size</option>
-              <option value="QUANTITY_BASIS_UNKNOWN">No pack size</option>
+              <option value="QUANTITY_BASIS_UNKNOWN">Unknown size</option>
               <option value="DATA_CONFLICT">Data conflict</option>
               <option value="DEPOSIT_COST_UNVERIFIED">Unpriced deposit</option>
               <option value="SUBSTITUTE_REJECTED">Unsafe substitute</option>
@@ -1644,28 +1668,28 @@ export function ValioView() {
               <tr>
                 <th scope="col">Supplier</th>
                 <th scope="col" className="num">
-                  Products (Food)
+                  Products
                 </th>
                 <th scope="col" className="num">
                   AUTO-ready
                 </th>
                 <th scope="col" className="num">
-                  Blocked from AUTO
+                  Blocked
                 </th>
                 <th scope="col" className="num">
-                  No Allergens (Food)
+                  No allergens
                 </th>
                 <th scope="col" className="num">
-                  Name-Only Pack
+                  Name-only size
                 </th>
                 <th scope="col" className="num">
-                  Unknown Pack
+                  Unknown size
                 </th>
                 <th scope="col" className="num">
-                  Conflicts / Dep / Subs
+                  Conf/Dep/Sub
                 </th>
-                <th scope="col">Blocking reason codes</th>
-                <th scope="col">Highest-impact supplier fix</th>
+                <th scope="col">Blockers</th>
+                <th scope="col">Top fix</th>
               </tr>
             </thead>
             <tbody>
@@ -1706,7 +1730,11 @@ export function ValioView() {
                       )}
                     </div>
                   </td>
-                  <td>{sup.topFix}</td>
+                  <td title={sup.topFix}>
+                    {sup.blockingReasonCodes.length > 0
+                      ? (FIX_BY_REASON[sup.blockingReasonCodes[0]] ?? sup.topFix)
+                      : 'None needed'}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -1722,8 +1750,8 @@ export function ValioView() {
             >
               <span>
                 {showAllSuppliers
-                  ? 'Show top 25 suppliers'
-                  : `Show all ${filteredSuppliers.length.toLocaleString('en-US')} matching suppliers`}
+                  ? 'Show top 25'
+                  : `Show all (${filteredSuppliers.length.toLocaleString('en-US')})`}
               </span>
             </button>
           </div>
@@ -1735,12 +1763,8 @@ export function ValioView() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 id="fix-list-title" className="panel-title mb-0 inline-flex items-center gap-2">
-              <Wrench size={15} aria-hidden /> Prioritised Master-Data Fix List
+              <Wrench size={15} aria-hidden /> Fix list
             </h2>
-            <p className="muted small mt-0.5">
-              Highest-impact supplier batch fixes and product-level data traps computed from the
-              catalogue.
-            </p>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             {(['ALL', 'SUPPLIER', 'PRODUCT'] as const).map((scope) => (
@@ -1754,8 +1778,8 @@ export function ValioView() {
                   {scope === 'ALL'
                     ? `All fixes (${fixList.length})`
                     : scope === 'SUPPLIER'
-                      ? `Supplier batch fixes (${fixList.filter((f) => f.scope === 'SUPPLIER').length})`
-                      : `Product traps & conflicts (${fixList.filter((f) => f.scope === 'PRODUCT').length})`}
+                      ? `Suppliers (${fixList.filter((f) => f.scope === 'SUPPLIER').length})`
+                      : `Products (${fixList.filter((f) => f.scope === 'PRODUCT').length})`}
                 </span>
               </button>
             ))}
@@ -1767,19 +1791,18 @@ export function ValioView() {
             <caption className="visually-hidden">Prioritised master-data fix list</caption>
             <thead>
               <tr>
-                <th scope="col">ID &amp; scope</th>
-                <th scope="col">Supplier &amp; product</th>
-                <th scope="col">Reason &amp; effect</th>
-                <th scope="col">What blocks autonomous sales</th>
-                <th scope="col">Fix to unlock AUTO</th>
+                <th scope="col">ID</th>
+                <th scope="col">Product</th>
+                <th scope="col">Reason</th>
+                <th scope="col">Fix</th>
                 <th scope="col" className="num">
-                  Products unlocked
+                  Unlocks
                 </th>
               </tr>
             </thead>
             <tbody>
               {filteredFixes.map((fix) => (
-                <tr key={fix.fixId}>
+                <tr key={fix.fixId} title={fix.problem}>
                   <th scope="row" className="font-mono text-[11px]">
                     <span className="font-bold">{fix.fixId}</span>
                     <span className="block text-[var(--muted)]">
@@ -1803,8 +1826,7 @@ export function ValioView() {
                       <EffectBadge effect={fix.effect} />
                     </div>
                   </td>
-                  <td>{fix.problem}</td>
-                  <td>{fix.fixAction}</td>
+                  <td title={fix.fixAction}>{FIX_BY_REASON[fix.reasonCode] ?? fix.fixAction}</td>
                   <td className="num font-bold text-[var(--auto)]">
                     +{fix.productsUnlocked.toLocaleString('en-US')}
                   </td>

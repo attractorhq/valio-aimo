@@ -122,8 +122,8 @@ export function ApprovalCard({
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 id={`approve-${proposal.proposalId}`}>
             {pending
-              ? `You are approving version ${proposal.offerVersion} of this proposal`
-              : `Version ${proposal.offerVersion} of this proposal`}
+              ? `Approving version ${proposal.offerVersion}`
+              : `Version ${proposal.offerVersion}`}
           </h2>
           <a href={logPath(proposal.proposalId)} className="text-xs font-semibold text-[var(--green)] underline">
             Decision log
@@ -281,11 +281,8 @@ export function ApprovalCard({
               <div className="min-w-[180px] flex-1 text-xs">
                 <div className="inline-flex items-center gap-1.5 font-bold text-[var(--ink)]">
                   <Smartphone size={13} aria-hidden />
-                  <span>Phone sign-off (QR)</span>
+                  <span>Phone sign-off</span>
                 </div>
-                <p className="mt-0.5 text-[var(--muted)]">
-                  Scan to open v{proposal.offerVersion} on mobile.
-                </p>
                 <p className="mt-1">
                   <a
                     href={`/approve/${encodeURIComponent(activeToken)}?proposalId=${encodeURIComponent(proposal.proposalId)}`}

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, KeyRound, Smartphone, UserRoundCheck } from 'lucide-react'
+import { AlertTriangle, Smartphone, UserRoundCheck } from 'lucide-react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { ApprovalCard } from '../components/approver/ApprovalCard'
 import { approverChannel, gateway } from '../lib/gateway'
@@ -43,10 +43,6 @@ export function ApproveMobile() {
             </p>
           </div>
         </div>
-        <span className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--surface)] px-2 py-0.5 text-xs font-semibold text-[var(--ink)]">
-          <KeyRound size={11} aria-hidden />
-          <span>{view.data?.permissionNotice ?? 'Demo approval link — single use'}</span>
-        </span>
       </header>
 
       {view.isPending && (

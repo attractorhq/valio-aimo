@@ -60,7 +60,7 @@ test('a superseded version is called out, with the human approval before it', as
 test('the main view links to the decision log of the shown proposal', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: /^Scenario B:/ }).click()
-  await page.getByRole('link', { name: 'Open the decision log for this proposal' }).click()
+  await page.getByRole('link', { name: 'Open decision log' }).click()
   await expect(page).toHaveURL(/\/log\/MOCK-P-B(-\w+)?$/)
   await expect(entries(page).first()).toContainText('Request structured')
   await page.getByRole('link', { name: 'Back to the purchasing flow' }).click()

@@ -194,7 +194,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     ).toBeVisible()
     const card = approverPage.getByRole('article')
     await expect(card.getByRole('heading')).toHaveText(
-      'You are approving version 1 of this proposal',
+      'Approving version 1',
     )
     await expect(card).toContainText('€506.16 is above your €500.00 auto-approve limit.')
     const mobileHref = await card
@@ -206,7 +206,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     const phonePage = await context.newPage()
     await phonePage.goto(`${baseURL}${mobileHref}`)
     await expect(phonePage.getByRole('article')).toContainText(
-      'You are approving version 1 of this proposal',
+      'Approving version 1',
     )
     await phonePage.close()
 
@@ -221,7 +221,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     )
 
     // Decision log via GET /v0.1/audit?proposalId=
-    await page.getByRole('link', { name: 'Open the decision log for this proposal' }).click()
+    await page.getByRole('link', { name: 'Open decision log' }).click()
     await expect(page).toHaveURL(/\/log\/PR-/)
     await expect(page.getByText('Synthetic mock data')).toHaveCount(0)
     const logEntries = page.getByRole('list', { name: 'Decision log' }).locator('> li')
@@ -253,9 +253,9 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     await page.getByRole('button', { name: 'Run request' }).click()
     await expect(step(page, 'Request')).toContainText('CLARIFICATION NEEDED')
     await expect(
-      page.getByRole('button', { name: 'Answer by editing the request above' }),
+      page.getByRole('button', { name: 'Edit request' }),
     ).toBeVisible()
-    await page.getByRole('button', { name: 'Answer by editing the request above' }).click()
+    await page.getByRole('button', { name: 'Edit request' }).click()
     await page
       .getByLabel('What do you need, and by when?')
       .fill('1,000 litres of lactose-free milk by Monday.')

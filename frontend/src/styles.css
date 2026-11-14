@@ -1711,3 +1711,16 @@ main {
 .main-primary .scenario-text strong {
   white-space: nowrap;
 }
+
+/* T83: buttons, chips, badges, pills and tabs never wrap. A label that does not fit is shortened instead. */
+.btn,
+.chip,
+.mode-badge,
+.status-pill,
+.queue-state,
+.disclosure-btn,
+.app-nav a,
+.result-links a,
+[class*='rounded-[12px]'][class*='uppercase'] {
+  white-space: nowrap;
+}

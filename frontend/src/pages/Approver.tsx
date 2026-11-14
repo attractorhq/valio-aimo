@@ -8,7 +8,6 @@ import {
   approvalReasons,
   contextReasons,
   productSummary,
-  rowStatement,
 } from '../components/approver/explain'
 
 const STATE_WORD: Record<string, string> = {
@@ -56,7 +55,7 @@ export function Approver() {
           <h1>Approver — {mandate?.approver.role ?? 'Head Chef (demo)'}</h1>
           <p>Human sign-off channel · not the agent</p>
           <p className="mt-1 text-xs font-semibold" role="note">
-            Demo approver — no authentication; production uses SSO/OIDC
+            Demo approver — no authentication
           </p>
         </div>
         {mandates.data && mandates.data.length > 1 && (
@@ -93,10 +92,9 @@ export function Approver() {
           ) : (
             <ul className="approver-queue">
               {items.map(({ proposal }) => {
-                // Enough to triage without opening the card (T45): who, what, why, and what
-                // approving means. Each reason chip appears once.
+                // Enough to triage without opening the card (T45): who, what and why, each reason chip once.
+                // What approving means is said once, in the selected card's approval statement (T83).
                 const reasons = [...approvalReasons(proposal), ...contextReasons(proposal)]
-                const statement = rowStatement(proposal, mandate)
                 const isSelected = proposal.proposalId === selected?.proposal.proposalId
                 return (
                   <li key={proposal.proposalId}>
@@ -137,11 +135,6 @@ export function Approver() {
                               {reasonChip(code)}
                             </span>
                           ))}
-                        </span>
-                      )}
-                      {statement && (
-                        <span className="small" data-testid="queue-statement">
-                          {statement}
                         </span>
                       )}
                       <span className="muted small">

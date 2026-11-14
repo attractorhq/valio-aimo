@@ -42,7 +42,7 @@ test('B: main view ASK → Approver panel → Approve → confirmed in both view
   await approver.goto('/approver')
   await expect(approver.getByRole('heading', { name: 'Approver — Head Chef (demo)' })).toBeVisible()
   const card = approver.getByRole('article')
-  await expect(card.getByRole('heading')).toHaveText('You are approving version 1 of this proposal')
+  await expect(card.getByRole('heading')).toHaveText('Approving version 1')
   await expect(card).toContainText(
     '€506.16 is above your €500.00 auto-approve limit. Everything else is verified or declared.',
   )
@@ -131,7 +131,7 @@ test('the approver panel is visibly not the agent and starts empty', async ({ pa
   await page.goto('/approver')
   await expect(page.getByText('Human sign-off channel · not the agent')).toBeVisible()
   await expect(
-    page.getByText('Demo approver — no authentication; production uses SSO/OIDC'),
+    page.getByText('Demo approver — no authentication'),
   ).toBeVisible()
   await expect(page.getByText('Nothing to approve.')).toBeVisible()
   await page.getByLabel('Signed in as').selectOption('mock-hotels')
@@ -211,7 +211,7 @@ test('phone approval via QR (/approve/:token) at 390 px and across separate devi
 
   await expect(phone.getByRole('heading', { name: 'Approver — Head Chef (demo)' })).toBeVisible()
   const card = phone.getByRole('article')
-  await expect(card.getByRole('heading')).toHaveText('You are approving version 1 of this proposal')
+  await expect(card.getByRole('heading')).toHaveText('Approving version 1')
   await expect(card).toContainText(
     '€506.16 is above your €500.00 auto-approve limit. Everything else is verified or declared.',
   )
@@ -270,7 +270,7 @@ test('B2 partial-delivery proposal shows "Approving means 95 kg instead of 120 k
 
   await page.goto('/approver')
   const card = page.getByRole('article')
-  await expect(card.getByRole('heading')).toHaveText('You are approving version 1 of this proposal')
+  await expect(card.getByRole('heading')).toHaveText('Approving version 1')
   const statement = card.getByRole('note', { name: 'Approval statement' })
   await expect(statement).toHaveText(
     'Approving means 95 kg instead of 120 kg, on Monday instead of today.',
@@ -285,7 +285,7 @@ test('B2 partial-delivery proposal shows "Approving means 95 kg instead of 120 k
   )
 })
 
-test('a queue row shows the customer, the products, each reason once and what approving means', async ({
+test('a queue row shows the customer, the products and each reason once', async ({
   page,
 }) => {
   await runScenarioB(page)
@@ -296,9 +296,7 @@ test('a queue row shows the customer, the products, each reason once and what ap
     'Synthetic gluten-free macaroni 5 kg, Synthetic gluten-free oat drink 1 l',
   )
   await expect(row.getByText('Above auto-approve limit', { exact: true })).toHaveCount(1)
-  await expect(row.getByTestId('queue-statement')).toHaveText(
-    '€506.16 is above your €500.00 auto-approve limit. Everything else is verified or declared.',
-  )
+  await expect(row.getByTestId('queue-statement')).toHaveCount(0)
 })
 
 test('T69 split top-up proposal renders both lines, the approval sentence, and the price-guard detail line', async ({
