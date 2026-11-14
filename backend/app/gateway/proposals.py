@@ -19,7 +19,7 @@ import uuid
 from collections import OrderedDict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -46,6 +46,7 @@ from app.contracts import (
     ReasonCode,
     StructuredRequest,
     TrustLabel,
+    format_date,
     format_money,
     format_time,
 )
@@ -121,6 +122,131 @@ class StoredOffer:
     offer: Offer
     verdicts: tuple[LineVerdict, ...] = ()
     offer_request: GetOfferRequest | None = None
+    partial_items: frozenset[str] = frozenset()
+
+
+_WEEKDAY_NAMES: tuple[str, ...] = (
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+)
+
+
+def _format_qty(value: Decimal, unit: str) -> str:
+    norm = value.normalize()
+    text = str(int(norm)) if norm == norm.to_integral() else format(norm, "f")
+    return f"{text} {unit}"
+
+
+def _inferred_offer_partial_items(offer: Offer) -> frozenset[str]:
+    """Identify items on `offer` that `build_offer` explicitly marked as partial-delivery."""
+    partial: set[str] = set()
+    for line in offer.lines:
+        if ReasonCode.PARTIAL_AVAILABILITY in line.reasons or any(
+            f.fact == "coverage.partial" for f in line.facts
+        ):
+            partial.add(line.itemId)
+    return frozenset(partial)
+
+
+def _inferred_proposal_partial_items(proposal: Proposal) -> frozenset[str]:
+    """Identify items on `proposal` that are explicitly partial-delivery."""
+    partial = set(_inferred_offer_partial_items(
+        Offer(
+            offerId=proposal.offerId,
+            offerVersion=proposal.offerVersion,
+            offerHash=proposal.offerHash,
+            customerId=proposal.customerId,
+            requestedDate=proposal.requestedDate,
+            createdAt=proposal.createdAt,
+            validUntil=proposal.validUntil,
+            mode=proposal.mode,
+            recordedAt=proposal.recordedAt,
+            lines=proposal.lines,
+            excluded=proposal.excluded,
+            totals=proposal.totals,
+        )
+    ))
+    if ReasonCode.PARTIAL_AVAILABILITY in proposal.reasons:
+        delivered_by_item: dict[str, Decimal] = {}
+        for line in proposal.lines:
+            delivered_by_item[line.itemId] = (
+                delivered_by_item.get(line.itemId, Decimal(0)) + line.deliveredQuantity.value
+            )
+        for item in proposal.request.items:
+            deliv = delivered_by_item.get(item.itemId, Decimal(0))
+            if Decimal(0) < deliv < item.quantity:
+                partial.add(item.itemId)
+    return frozenset(partial)
+
+
+def format_approval_statement(
+    proposal: Proposal,
+    *,
+    mandate: Mandate | None = None,
+    today: date | None = None,
+) -> str | None:
+    """Plain-language summary of what approving this proposal version means (patch P8 B2, P10).
+
+    For Scenario B2 (partial delivery + later date):
+      "Approving means 95 kg instead of 120 kg, on Monday instead of today."
+    """
+    if proposal.decision != "ASK":
+        return None
+
+    reasons = set(proposal.reasons)
+    delivered_by_item: dict[str, Decimal] = {}
+    for line in proposal.lines:
+        delivered_by_item[line.itemId] = (
+            delivered_by_item.get(line.itemId, Decimal(0)) + line.deliveredQuantity.value
+        )
+
+    shortfalls: list[str] = []
+    if ReasonCode.PARTIAL_AVAILABILITY in reasons:
+        for item in proposal.request.items:
+            deliv = delivered_by_item.get(item.itemId, Decimal(0))
+            if Decimal(0) < deliv < item.quantity:
+                shortfalls.append(
+                    f"{_format_qty(deliv, item.unit)} instead of {_format_qty(item.quantity, item.unit)}"
+                )
+
+    date_clause: str | None = None
+    if ReasonCode.DATE_LATER in reasons and proposal.lines:
+        earliest_delivery = max(line.deliveryDate for line in proposal.lines)
+        if earliest_delivery > proposal.requestedDate:
+            ref_today = today or proposal.createdAt.date()
+            req_lower = proposal.request.requestText.lower()
+            asked_today = proposal.requestedDate == ref_today or any(
+                w in req_lower for w in ("today", "tänään", "idag")
+            )
+            req_label = "today" if asked_today else format_date(proposal.requestedDate)
+            days_ahead = (earliest_delivery - proposal.requestedDate).days
+            deliv_label = (
+                _WEEKDAY_NAMES[earliest_delivery.weekday()]
+                if 0 < days_ahead <= 7
+                else format_date(earliest_delivery)
+            )
+            date_clause = f"on {deliv_label} instead of {req_label}"
+
+    if shortfalls and date_clause:
+        return f"Approving means {', '.join(shortfalls)}, {date_clause}."
+    if shortfalls:
+        return f"Approving means {', '.join(shortfalls)}."
+    if date_clause:
+        return f"Approving means delivery {date_clause}."
+
+    if list(proposal.reasons) == [ReasonCode.OVER_AUTO_LIMIT] and mandate is not None:
+        return (
+            f"{format_money(proposal.totals.exclVat)} is above your "
+            f"{format_money(mandate.autoApproveLimitEur)} auto-approve limit. "
+            "Everything else is verified or declared."
+        )
+
+    return None
 
 
 def _infer_stock_from_offer_line(line: OfferLine) -> tuple[StockKind, Decimal | None]:
@@ -227,7 +353,9 @@ def _rejected_valio_substitutes(
                 line_id=line.lineId,
             )
             if findings:
-                codes = list(dict.fromkeys([*(f.code for f in findings), ReasonCode.SUBSTITUTE_REJECTED]))
+                codes = list(
+                    dict.fromkeys([*(ReasonCode(f.code) for f in findings), ReasonCode.SUBSTITUTE_REJECTED])
+                )
                 added.append(
                     ExcludedProduct(
                         productId=sub_product.productId,
@@ -305,13 +433,18 @@ class ProposalGateway:
                 if offer_row.request_data is not None
                 else None
             )
-            self._offers[(offer.offerId, offer.offerVersion)] = StoredOffer(offer=offer, offer_request=req)
+            self._offers[(offer.offerId, offer.offerVersion)] = StoredOffer(
+                offer=offer,
+                offer_request=req,
+                partial_items=_inferred_offer_partial_items(offer),
+            )
         for prop_row in session.scalars(select(ProposalRow)).all():
             proposal = Proposal.model_validate(prop_row.data)
             self._proposals[proposal.proposalId] = proposal
             self._by_offer_key[(proposal.customerId, proposal.offerId, proposal.offerVersion)] = (
                 proposal.proposalId
             )
+            self._partial_items[proposal.proposalId] = _inferred_proposal_partial_items(proposal)
 
     def _save_offer(self, stored: StoredOffer) -> None:
         offer = stored.offer
@@ -374,13 +507,22 @@ class ProposalGateway:
         if isinstance(offer_or_result, OfferResult):
             offer = offer_or_result.offer
             verdicts = offer_or_result.verdicts
+            partial = offer_or_result.partial_items | _inferred_offer_partial_items(offer)
         else:
             offer = offer_or_result
             verdicts = ()
+            partial = _inferred_offer_partial_items(offer)
         key = (offer.offerId, offer.offerVersion)
         if key not in self._offers:
             mandate = self.mandates.get(offer.customerId)
-            self._save_offer(StoredOffer(offer=offer, verdicts=verdicts, offer_request=offer_request))
+            self._save_offer(
+                StoredOffer(
+                    offer=offer,
+                    verdicts=verdicts,
+                    offer_request=offer_request,
+                    partial_items=partial,
+                )
+            )
             self.log.record_transition(
                 customer_id=offer.customerId,
                 mandate_version=mandate.version,
@@ -445,6 +587,12 @@ class ProposalGateway:
             return self.expire_proposal(proposal_id, now=now)
         return proposal
 
+    def get_approval_statement(self, proposal_id: str, *, today: date | None = None) -> str | None:
+        """Return the plain-language approver summary for `proposal_id` (patch P8 B2, P10)."""
+        proposal = self.get_proposal(proposal_id)
+        mandate = self.mandates.get_version(proposal.customerId, proposal.mandateVersion)
+        return format_approval_statement(proposal, mandate=mandate, today=today)
+
     def get_approver_view(
         self,
         proposal_id: str,
@@ -504,7 +652,7 @@ class ProposalGateway:
         offer: Offer | OfferResult | None = None,
         proposal_id: str | None = None,
         now: datetime | None = None,
-        partial_items: frozenset[str] = frozenset(),
+        partial_items: frozenset[str] | None = None,
         instruction_ignored: bool = False,
         clarification_needed: bool = False,
         auto_confirm: bool = True,
@@ -574,12 +722,17 @@ class ProposalGateway:
             raise ValueError("now must be timezone-aware")
 
         line_inputs = self._line_inputs_for(stored)
+        effective_partial = (
+            frozenset(stored.partial_items | _inferred_offer_partial_items(bound_offer))
+            if partial_items is None
+            else frozenset(partial_items)
+        )
         policy_decision = decide(
             mandate=mandate,
             request=create_req.request,
             lines=line_inputs,
             now=eval_now,
-            partial_items=partial_items,
+            partial_items=effective_partial,
             instruction_ignored=instruction_ignored,
             clarification_needed=clarification_needed,
         )
@@ -589,7 +742,21 @@ class ProposalGateway:
 
         verdict_by_line = {v.line.line_id: v for v in policy_decision.lines}
         kept_lines = [
-            line.model_copy(update={"reasons": list(verdict_by_line[line.lineId].reasons)})
+            line.model_copy(
+                update={
+                    "reasons": list(
+                        dict.fromkeys([
+                            *(ReasonCode(r) for r in verdict_by_line[line.lineId].reasons),
+                            *(
+                                [ReasonCode.PARTIAL_AVAILABILITY]
+                                if line.itemId in effective_partial
+                                and ReasonCode.PARTIAL_AVAILABILITY in policy_decision.reasons
+                                else []
+                            ),
+                        ])
+                    )
+                }
+            )
             for line in bound_offer.lines
             if line.lineId in verdict_by_line
         ]
@@ -604,7 +771,7 @@ class ProposalGateway:
         )
 
         pid = proposal_id or _default_proposal_id(bound_offer)
-        self._partial_items[pid] = partial_items
+        self._partial_items[pid] = effective_partial
         self.log.bind_offer_entries(bound_offer.offerId, bound_offer.offerVersion, pid)
 
         # 1. OFFERED -> PROPOSED
@@ -632,7 +799,7 @@ class ProposalGateway:
         outcome: DecisionOutcome = (
             "BLOCK" if policy_decision.outcome == "NO_ORDER" else policy_decision.outcome
         )
-        reasons = list(policy_decision.reasons)
+        reasons = [ReasonCode(r) for r in policy_decision.reasons]
         approver_role = mandate.approver.role if outcome == "ASK" else None
 
         # Check if the offer is already expired at creation time (P1.4).
@@ -684,25 +851,7 @@ class ProposalGateway:
             "ASK": "PENDING_APPROVAL",
             "BLOCK": "BLOCKED",
         }[outcome]
-        self.log.record_transition(
-            customer_id=create_req.customerId,
-            proposal_id=pid,
-            offer_id=bound_offer.offerId,
-            offer_version=bound_offer.offerVersion,
-            offer_hash=bound_offer.offerHash,
-            mandate_version=mandate.version,
-            timestamp=eval_now,
-            actor="gateway:policy",
-            event="POLICY_DECIDED",
-            from_state="PROPOSED",
-            to_state=target_state,
-            reasons=reasons,
-            rule=rule_summary(policy_decision.findings),
-            facts=decisive_facts(kept_lines),
-            summary=decision_summary(outcome, reasons, total_excl_vat=totals.exclVat, mandate=mandate),
-        )
-
-        proposal = Proposal(
+        preview_proposal = Proposal(
             proposalId=pid,
             customerId=create_req.customerId,
             mandateVersion=mandate.version,
@@ -723,6 +872,34 @@ class ProposalGateway:
             excluded=excluded,
             totals=totals,
         )
+        base_summary = decision_summary(outcome, reasons, total_excl_vat=totals.exclVat, mandate=mandate)
+        approval_statement = (
+            format_approval_statement(preview_proposal, mandate=mandate, today=eval_now.date())
+            if outcome == "ASK" and (
+                ReasonCode.PARTIAL_AVAILABILITY in reasons or ReasonCode.DATE_LATER in reasons
+            )
+            else None
+        )
+        policy_summary = f"{base_summary} {approval_statement}" if approval_statement else base_summary
+        self.log.record_transition(
+            customer_id=create_req.customerId,
+            proposal_id=pid,
+            offer_id=bound_offer.offerId,
+            offer_version=bound_offer.offerVersion,
+            offer_hash=bound_offer.offerHash,
+            mandate_version=mandate.version,
+            timestamp=eval_now,
+            actor="gateway:policy",
+            event="POLICY_DECIDED",
+            from_state="PROPOSED",
+            to_state=target_state,
+            reasons=reasons,
+            rule=rule_summary(policy_decision.findings),
+            facts=decisive_facts(kept_lines),
+            summary=policy_summary,
+        )
+
+        proposal = preview_proposal
         self._save_proposal(proposal)
 
         if target_state == "PENDING_APPROVAL":
@@ -979,10 +1156,17 @@ class ProposalGateway:
                     f"line {line.lineId} ({line.productId}) failed rules: "
                     f"{', '.join(str(c) for c in verdict.exclusion_codes)}"
                 )
-            elif list(verdict.reasons) != list(line.reasons):
-                diffs.append(
-                    f"line {line.lineId} reasons changed {list(line.reasons)} → {list(verdict.reasons)}"
-                )
+            else:
+                expected_line_reasons = [
+                    r for r in line.reasons if r != ReasonCode.PARTIAL_AVAILABILITY
+                ]
+                actual_line_reasons = [
+                    r for r in verdict.reasons if r != ReasonCode.PARTIAL_AVAILABILITY
+                ]
+                if actual_line_reasons != expected_line_reasons:
+                    diffs.append(
+                        f"line {line.lineId} reasons changed {list(line.reasons)} → {list(verdict.reasons)}"
+                    )
             refreshed_line_inputs.append(probe)
 
         if not diffs and len(refreshed_line_inputs) == len(proposal.lines):
@@ -1319,6 +1503,7 @@ __all__ = [
     "create_proposal",
     "decideApproval",
     "decide_approval",
+    "format_approval_statement",
     "getAuditTrail",
     "getProposal",
     "get_audit_trail",
