@@ -97,12 +97,12 @@ _ALLERGEN_VOCAB: tuple[tuple[tuple[Requirement, ...], str | None, str | None], .
     ((Requirement(kind="AVOID_ALLERGEN", code="AS"),), r"sesame", r"seesami"),
     ((Requirement(kind="AVOID_ALLERGEN", code="BC"),), r"celery", r"selleri"),
     ((Requirement(kind="AVOID_ALLERGEN", code="BM"),), r"mustard", r"sinappi|sinapi"),
-    ((Requirement(kind="AVOID_ALLERGEN", code="NL"),), r"lupin", r"lupiini"),
+    ((Requirement(kind="AVOID_ALLERGEN", code="NL"),), r"lupin", r"lupiini|lupiin"),
     ((Requirement(kind="AVOID_ALLERGEN", code="AU"),), r"sulphites?|sulfites?", r"sulfiiti|sulfiit"),
     ((Requirement(kind="AVOID_ALLERGEN", code="UW"),), r"wheat", r"vehnä"),
 )
 _NEGATION_EN = (r"(?:no|without|free\s+(?:of|from)|not\s+containing|contains?\s+no|zero|avoid(?:ing)?|"
-                r"excluding|exclude)\s+(?:any\s+|added\s+|traces\s+of\s+)?")
+                r"excluding|exclude)\s+(?:any\s+)?(?:added\s+|traces\s+of\s+)?")
 _NEGATION_FI = r"(?:ilman|ei)\s+"
 
 
@@ -130,6 +130,12 @@ _REQUIREMENTS: tuple[tuple[str, tuple[Requirement, ...]], ...] = (
     (r"\bvegetarian\b", (Requirement(kind="CLAIM", code="VEGETARIAN"),)),
 )
 _REQUIREMENT_RES = tuple((re.compile(p, re.IGNORECASE), r) for p, r in _REQUIREMENTS)
+_DIET_RES = (
+    (re.compile(r"\b(?:keliaak(?:ikko|iko)\w*|co?eliacs?)\b", re.IGNORECASE),
+     (Requirement(kind="CLAIM", code="FREE_FROM_GLUTEN"),)),
+    (re.compile(r"\b(?:maidottom(?:alle|ille)|milk[\s-]+allergic)\b", re.IGNORECASE),
+     (Requirement(kind="AVOID_ALLERGEN", code="AM"),)),
+)
 _REQUIREMENT_LABELS = {
     "FREE_FROM_LACTOSE": "lactose-free", "FREE_FROM_GLUTEN": "gluten-free", "AM": "milk-free",
     "AE": "egg-free", "AP": "peanut-free", "AN": "nut-free", "AY": "soy-free", "AF": "fish-free",
@@ -365,6 +371,27 @@ _PUNCTUATION = re.compile(r"[()\[\]{}.,:;!?\"“”«»—–/]+")
 
 UNIT_WORDS = "litres, kilograms, pieces or cases"
 
+# Explicit exclusion lists keep every term, not just the first allergen after a negation.
+# Stop words keep delivery clauses and another exclusion out of the ingredient list.
+_EXCLUSION_STOP = "|".join(re.escape(w) for w in sorted(
+    _STOPWORDS | _BENIGN_NEGATED | {"no", "without", "ilman", "ei", "eivät"}, key=len, reverse=True,
+))
+_EXCLUSION_WORD = rf"(?!(?:{_EXCLUSION_STOP})\b)(?:tree[\s-]+nuts?|[^\W\d_][\w-]*)"
+_EXCLUSION_JOIN = r"(?:\s*,\s*(?:(?:tai|eikä|ja|sekä|or|and|nor)\s+)?|\s+(?:tai|eikä|ja|sekä|or|and|nor)\s+)"
+_EXCLUSION_TERMS = rf"{_EXCLUSION_WORD}(?:{_EXCLUSION_JOIN}{_EXCLUSION_WORD})*"
+_EXCLUSION_RES = (
+    re.compile(rf"\b(?:(?:ei(?:vät)?\s+saa\s+sisältää|ilman)\s+|{_NEGATION_EN})"
+               rf"(?P<terms>{_EXCLUSION_TERMS})", re.IGNORECASE),
+    re.compile(rf"\b(?P<terms>{_EXCLUSION_TERMS})\s+ei\s+saa\s+olla\b", re.IGNORECASE),
+)
+_EXCLUSION_TERM_RE = re.compile(r"tree[\s-]+nuts?|[^\W\d_][\w-]*", re.IGNORECASE)
+_EXCLUSION_CONJUNCTIONS = {"tai", "eikä", "ja", "sekä", "or", "and", "nor"}
+_UNKNOWN_FI_EXCLUSION_RE = re.compile(r"\bei(?:vät)?\s+saa\s+sisältää\b|\bei\s+saa\s+olla\b", re.IGNORECASE)
+# Only a standalone free-from statement is read this way, never a suffix inside a brand/product name.
+_FI_FREE_STATEMENT_RE = re.compile(
+    r"(?:täysin\s+)?[^\W\d_]+(?:ton|tön|tonta|töntä|ttomia|ttömiä|ttoman|ttömän)", re.IGNORECASE,
+)
+
 
 # --------------------------------------------------------------------------- helpers
 
@@ -566,6 +593,10 @@ def _extract(fragment: str) -> tuple[str, list[Requirement], list[Preference], s
         return " "
 
     rest = _PRODUCT_ID_RE.sub(take_id, fragment)
+    rest, excluded, _unknown = _take_exclusions(rest)
+    requirements.extend(excluded)
+    for pattern, _found in _DIET_RES:
+        rest = pattern.sub(" ", rest)
     for pattern, found in _REQUIREMENT_RES:
         if pattern.search(rest):
             requirements.extend(r for r in found if r not in requirements)
@@ -596,13 +627,51 @@ def _extract(fragment: str) -> tuple[str, list[Requirement], list[Preference], s
     return rest, requirements, preferences, product_id, packs
 
 
+def _take_exclusions(text: str) -> tuple[str, list[Requirement], str | None]:
+    """Read explicit ingredient lists with the same vocabulary as individual free-from phrases."""
+    requirements: list[Requirement] = []
+    unknown = None
+
+    def take(match: re.Match) -> str:
+        nonlocal unknown
+        for term in _EXCLUSION_TERM_RE.finditer(match["terms"]):
+            word = term.group(0)
+            if word.lower() in _EXCLUSION_CONJUNCTIONS:
+                continue
+            # A delivery date after a comma ends the list, rather than naming an ingredient.
+            if any(pattern.fullmatch(word) for _kind, pattern in _DATE_RES):
+                return " " + match.group(0)[term.start() + match.start("terms") - match.start():]
+            found = next((reqs for reqs, en, fi in _ALLERGEN_VOCAB
+                          if (en and re.fullmatch(en, word, re.IGNORECASE))
+                          or (fi and re.fullmatch(rf"(?:{fi})\w*", word, re.IGNORECASE))), None)
+            if found is None:
+                unknown = unknown or " ".join(match.group(0).split())
+            else:
+                requirements.extend(r for r in found if r not in requirements)
+        return " "
+
+    for pattern in _EXCLUSION_RES:
+        text = pattern.sub(take, text)
+    return text, requirements, unknown
+
+
 def _unknown_negation(text: str) -> str | None:
     """Return a negated word the vocabulary cannot map ("no sugar", "salt-free"), or None."""
     rest = _PRODUCT_ID_RE.sub(" ", text)
+    rest, _requirements, unknown = _take_exclusions(rest)
+    if unknown:
+        return unknown
     for pattern, _found in _REQUIREMENT_RES:
         rest = pattern.sub(" ", rest)
     for _kind, pattern in _DATE_RES:
         rest = pattern.sub(" ", rest)
+    if match := _UNKNOWN_FI_EXCLUSION_RE.search(rest):
+        return match.group(0)
+    for sentence in _SENTENCE_SPLIT.split(rest):
+        for chunk in _split_chunks(sentence):
+            statement = chunk.strip(" .!?;:\t\n")
+            if _FI_FREE_STATEMENT_RE.fullmatch(statement):
+                return statement
     for m in _UNKNOWN_NEGATION_RE.finditer(rest):
         word = (m["word"] or m["free"]).lower()
         if word not in _BENIGN_NEGATED:
@@ -665,6 +734,7 @@ class _Fallback:
     explicit_date: date | None
     items: list[_ItemDraft]
     notes: list[str] = field(default_factory=list)  # request-level facts any reading must keep (deadline)
+    global_requirements: list[Requirement] = field(default_factory=list)
 
 
 def _split_chunks(sentence: str) -> list[str]:
@@ -754,12 +824,17 @@ def _fallback(
 
     items: list[_ItemDraft] = []
     extra_requirements: list[Requirement] = []
+    for pattern, found in _DIET_RES:
+        if pattern.search(clean):
+            extra_requirements.extend(r for r in found if r not in extra_requirements)
     for sentence in _SENTENCE_SPLIT.split(clean):
         if not _QUANTITY_RE.search(sentence):
             # A sentence without a quantity can still carry a hard requirement ("It must be gluten-free").
             for pattern, found in _REQUIREMENT_RES:
                 if pattern.search(sentence):
                     extra_requirements.extend(r for r in found if r not in extra_requirements)
+            _rest, found, _unknown = _take_exclusions(sentence)
+            extra_requirements.extend(r for r in found if r not in extra_requirements)
             continue
         fragments: list[str] = []
         pending = ""
@@ -833,6 +908,9 @@ def _fallback(
     requested = deadline_day or (explicit.value if explicit else today + timedelta(days=1))
     if deadline is not None:
         notes.append(_deadline_note(deadline, requested, today))
+    if extra_requirements:
+        labels = ", ".join(_REQUIREMENT_LABELS.get(r.code, r.code) for r in extra_requirements)
+        notes.append(f"Applied to every item: {labels}")
     request = None
     if items and question is None and safety_question is None:
         assumptions: list[str] = []
@@ -849,9 +927,6 @@ def _fallback(
         for item in items:
             assumptions.extend(item.notes)
             assumptions.extend(_item_assumptions(item.what or "", item.preferences))
-        if len(extra_requirements) and len(items) > 1:
-            labels = ", ".join(_REQUIREMENT_LABELS.get(r.code, r.code) for r in extra_requirements)
-            assumptions.append(f"Applied to every item: {labels}")
         request = StructuredRequest(
             requestText=text,
             requestedDate=requested,
@@ -870,7 +945,7 @@ def _fallback(
             assumptions=list(dict.fromkeys(assumptions)),
         )
     explicit_date = deadline_day or (explicit.value if explicit else None)
-    return _Fallback(request, question, safety_question, explicit_date, items, notes)
+    return _Fallback(request, question, safety_question, explicit_date, items, notes, extra_requirements)
 
 
 # Number words (EN/FI) directly before a unit: "ten cases", "kaksikymmentä litraa", "tuhat litraa".
@@ -1063,11 +1138,17 @@ def _from_llm(raw: dict, text: str, today: date, fallback: _Fallback) -> tuple[S
     if requested < today:
         raise ValueError("requested date in the past")
     assumptions = [a.strip()[:200] for a in raw.get("assumptions") or [] if isinstance(a, str) and a.strip()][:10]
-    # A deadline the deterministic reading found ("tänään klo 14 mennessä") is never dropped by the LLM.
+    # Deterministic deadline and request-wide requirement notes are never dropped by the LLM.
     assumptions += [note for note in fallback.notes if note not in assumptions]
     request = StructuredRequest.model_validate(
         {"requestText": text, "requestedDate": requested, "items": items, "assumptions": assumptions}
     )
+    # Request-wide constraints apply even when the LLM splits/merges items differently from the fallback.
+    request = request.model_copy(update={"items": [
+        item.model_copy(update={"requirements": [*item.requirements, *(
+            r for r in fallback.global_requirements if r not in item.requirements
+        )]}) for item in request.items
+    ]})
     # A hard requirement the deterministic reading found is never dropped by the LLM.
     if fallback.request is not None and len(fallback.request.items) == len(request.items):
         merged = []
