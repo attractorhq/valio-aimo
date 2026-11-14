@@ -12,14 +12,31 @@
 
 import hashlib
 import hmac
+import json
 import secrets
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from dataclasses import dataclass, replace
-from datetime import datetime
-from typing import cast
+from datetime import datetime, timedelta
+from threading import RLock
+from typing import Any, cast
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from webauthn import (
+    generate_authentication_options,
+    generate_registration_options,
+    options_to_json,
+    verify_authentication_response,
+    verify_registration_response,
+)
+from webauthn.helpers.exceptions import WebAuthnException
+from webauthn.helpers.structs import (
+    AuthenticatorAttachment,
+    AuthenticatorSelectionCriteria,
+    PublicKeyCredentialDescriptor,
+    ResidentKeyRequirement,
+    UserVerificationRequirement,
+)
 
 from app.contracts import (
     REASON_REGISTRY,
@@ -34,6 +51,8 @@ from app.db.models import ApprovalTokenRow
 DEMO_APPROVER_ACTOR = "human:Head Chef (link)"
 PERMISSION_NOTICE = "Single-use approval link"
 ALLOWED_ACTIONS: frozenset[str] = frozenset({"APPROVE", "REJECT"})
+_PASSKEY_TIMEOUT = timedelta(minutes=2)
+type PasskeyRole = tuple[str, str]
 
 
 class ApprovalError(ValueError):
@@ -70,6 +89,31 @@ class ApprovalExpiredError(ApprovalError):
 
 class ApprovalSupersededError(ApprovalError):
     """Raised when the proposal version was superseded and its approval is void."""
+
+
+class PasskeyApprovalError(ApprovalError):
+    """A passkey ceremony could not be completed for this approver and proposal."""
+
+
+@dataclass(frozen=True)
+class PasskeyOrigin:
+    origin: str
+    rp_id: str
+
+
+@dataclass(frozen=True)
+class _PasskeyChallenge:
+    value: bytes
+    site: PasskeyOrigin
+    expires_at: datetime
+
+
+@dataclass(frozen=True)
+class _Passkey:
+    credential_id: bytes
+    public_key: bytes
+    sign_count: int
+    site: PasskeyOrigin
 
 
 def sandbox_approval_token(token: str, sandbox_id: str, *, signing_key: bytes) -> str:
@@ -137,6 +181,7 @@ class ApprovalGrant:
     used_at: datetime | None = None
     used_action: ApprovalAction | None = None
     voided: bool = False
+    verified_with_passkey: bool = False
 
     @property
     def is_used(self) -> bool:
@@ -184,11 +229,118 @@ class ApprovalStore:
         self._session = session
         self._by_token: dict[str, ApprovalGrant] = {}
         self._by_proposal: dict[str, list[str]] = {}
+        self._lock = RLock()
+        self._passkeys: dict[PasskeyRole, _Passkey] = {}
+        self._registration: dict[PasskeyRole, _PasskeyChallenge] = {}
+        self._assertions: dict[str, _PasskeyChallenge] = {}
         if session is not None:
             for row in session.scalars(select(ApprovalTokenRow)).all():
                 grant = _row_to_grant(row)
                 self._by_token[grant.token] = grant
                 self._by_proposal.setdefault(grant.proposal_id, []).append(grant.token)
+
+    def has_passkey(self, role: PasskeyRole) -> bool:
+        with self._lock:
+            return role in self._passkeys
+
+    def registration_options(self, role: PasskeyRole, site: PasskeyOrigin, *, now: datetime) -> dict:
+        with self._lock:
+            if role in self._passkeys:
+                raise PasskeyApprovalError("This role already has a passkey in this session.")
+            customer_id, role_name = role
+            options = generate_registration_options(
+                rp_id=site.rp_id,
+                rp_name="Aimo Connect",
+                user_name=f"{role_name} · {customer_id}",
+                user_display_name=role_name,
+                timeout=int(_PASSKEY_TIMEOUT.total_seconds() * 1000),
+                authenticator_selection=AuthenticatorSelectionCriteria(
+                    authenticator_attachment=AuthenticatorAttachment.PLATFORM,
+                    resident_key=ResidentKeyRequirement.REQUIRED,
+                    user_verification=UserVerificationRequirement.REQUIRED,
+                ),
+            )
+            self._registration[role] = _PasskeyChallenge(options.challenge, site, now + _PASSKEY_TIMEOUT)
+            return json.loads(options_to_json(options))
+
+    def register_passkey(self, role: PasskeyRole, site: PasskeyOrigin, credential: dict, *, now: datetime) -> None:
+        with self._lock:
+            if role in self._passkeys:
+                raise PasskeyApprovalError("This role already has a passkey in this session.")
+            challenge = self._registration.pop(role, None)
+            if challenge is None or now >= challenge.expires_at or challenge.site != site:
+                raise PasskeyApprovalError("Passkey enrollment expired. Start again on the same site.")
+            try:
+                verified = verify_registration_response(
+                    credential=credential,
+                    expected_challenge=challenge.value,
+                    expected_rp_id=site.rp_id,
+                    expected_origin=site.origin,
+                    require_user_verification=True,
+                )
+            except (WebAuthnException, ValueError, TypeError):
+                raise PasskeyApprovalError("Passkey enrollment could not be verified.") from None
+            self._passkeys[role] = _Passkey(
+                verified.credential_id, verified.credential_public_key, verified.sign_count, site,
+            )
+
+    def approval_options(
+        self, proposal: Proposal, offer_version: int, approval_token: str, site: PasskeyOrigin,
+        *, now: datetime, passkey_now: datetime,
+    ) -> dict | None:
+        with self._lock:
+            grant = self._check_grant(proposal, offer_version, approval_token, now)
+            passkey = self._passkeys.get((grant.customer_id, grant.approver.role))
+            if passkey is None:
+                return None
+            if passkey.site != site:
+                raise PasskeyApprovalError("Use the site where this passkey was enrolled.")
+            # A fresh nonce keeps each ceremony unpredictable, and the signed challenge commits to the frozen offer.
+            binding = json.dumps([grant.proposal_id, grant.offer_version, grant.offer_hash, "APPROVE"]).encode()
+            challenge = hashlib.sha256(b"aimo-connect:approval:" + secrets.token_bytes(32) + binding).digest()
+            self._assertions = {
+                token: pending for token, pending in self._assertions.items() if passkey_now < pending.expires_at
+            }
+            self._assertions[approval_token] = _PasskeyChallenge(challenge, site, passkey_now + _PASSKEY_TIMEOUT)
+            options = generate_authentication_options(
+                rp_id=site.rp_id,
+                challenge=challenge,
+                allow_credentials=[PublicKeyCredentialDescriptor(id=passkey.credential_id)],
+                user_verification=UserVerificationRequirement.REQUIRED,
+                timeout=int(_PASSKEY_TIMEOUT.total_seconds() * 1000),
+            )
+            return json.loads(options_to_json(options))
+
+    def _verify_passkey_approval(
+        self, grant: ApprovalGrant, assertion: dict[str, Any] | None, now: datetime | None,
+    ) -> bool:
+        key = (grant.customer_id, grant.approver.role)
+        passkey = self._passkeys.get(key)
+        if passkey is None:
+            if assertion is not None:
+                raise PasskeyApprovalError("No passkey is enrolled for this role.")
+            return False
+        if assertion is None:
+            raise PasskeyApprovalError("Passkey required for this approver. Open the approval page to verify it.")
+        challenge = self._assertions.pop(grant.token, None)
+        if challenge is None or now is None or now >= challenge.expires_at:
+            raise PasskeyApprovalError("Passkey challenge expired. Try approving again.")
+        try:
+            verified = verify_authentication_response(
+                credential=assertion,
+                expected_challenge=challenge.value,
+                expected_rp_id=passkey.site.rp_id,
+                expected_origin=passkey.site.origin,
+                credential_public_key=passkey.public_key,
+                credential_current_sign_count=passkey.sign_count,
+                require_user_verification=True,
+            )
+        except (WebAuthnException, ValueError, TypeError):
+            raise PasskeyApprovalError("Passkey assertion could not be verified for this proposal.") from None
+        if verified.credential_id != passkey.credential_id:
+            raise PasskeyApprovalError("This passkey is not enrolled for the approver.")
+        self._passkeys[key] = replace(passkey, sign_count=verified.new_sign_count)
+        return True
 
     def _mint_token(self, proposal: Proposal) -> str:
         nonce = secrets.token_hex(8)
@@ -304,11 +456,13 @@ class ApprovalStore:
 
     def void_for_proposal(self, proposal_id: str) -> None:
         """Void all issued or consumed approvals for `proposal_id` (e.g. on SUPERSEDED or EXPIRED)."""
-        self._refresh_from_session()
-        for token in self._by_proposal.get(proposal_id, ()):
-            grant = self._by_token[token]
-            if not grant.voided:
-                self._save_grant(replace(grant, voided=True))
+        with self._lock:
+            self._refresh_from_session()
+            for token in self._by_proposal.get(proposal_id, ()):
+                self._assertions.pop(token, None)
+                grant = self._by_token[token]
+                if not grant.voided:
+                    self._save_grant(replace(grant, voided=True))
 
     def is_approval_valid(
         self,
@@ -329,23 +483,9 @@ class ApprovalStore:
             return True
         return False
 
-    def verify_and_consume(
-        self,
-        proposal: Proposal,
-        *,
-        offer_version: int,
-        approval_token: str,
-        action: str,
-        now: datetime,
-    ) -> ApprovalGrant:
-        """Verify single use, expiry and binding to `proposalId + offerVersion + offerHash`, then consume."""
+    def _check_grant(self, proposal: Proposal, offer_version: int, approval_token: str, now: datetime) -> ApprovalGrant:
         if now.tzinfo is None:
             raise ValueError("now must be timezone-aware")
-        if action not in ALLOWED_ACTIONS:
-            raise InvalidApprovalActionError(
-                f"Invalid approval action {action!r}; only APPROVE or REJECT is allowed",
-                proposal=proposal,
-            )
         _assert_proposal_approvable(proposal)
         self._refresh_from_session()
 
@@ -383,9 +523,26 @@ class ApprovalStore:
                 proposal=proposal,
             )
 
-        consumed = replace(grant, used_at=now, used_action=cast(ApprovalAction, action))
-        self._save_grant(consumed)
-        return consumed
+        return grant
+
+    def verify_and_consume(
+        self, proposal: Proposal, *, offer_version: int, approval_token: str, action: str, now: datetime,
+        passkey_assertion: dict[str, Any] | None = None, passkey_now: datetime | None = None,
+    ) -> ApprovalGrant:
+        """Verify the current grant and any required passkey before consuming the token."""
+        if action not in ALLOWED_ACTIONS:
+            raise InvalidApprovalActionError(
+                f"Invalid approval action {action!r}; only APPROVE or REJECT is allowed", proposal=proposal,
+            )
+        with self._lock:
+            grant = self._check_grant(proposal, offer_version, approval_token, now)
+            verified = action == "APPROVE" and self._verify_passkey_approval(grant, passkey_assertion, passkey_now)
+            consumed = replace(
+                grant, used_at=now, used_action=cast(ApprovalAction, action), verified_with_passkey=verified,
+            )
+            self._save_grant(consumed)
+            self._assertions.pop(approval_token, None)
+            return consumed
 
 
 __all__ = [

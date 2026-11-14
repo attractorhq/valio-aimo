@@ -4,6 +4,7 @@ import { useParams, useSearchParams } from 'react-router-dom'
 import { ApprovalCard } from '../components/approver/ApprovalCard'
 import { approverChannel, gateway } from '../lib/gateway'
 import { LoadingSection } from '../components/Loading'
+import { decideWithPasskey } from './ApproverPasskeys'
 
 /**
  * `/approve/:token` phone sign-off page (P3, P10 S3).
@@ -69,6 +70,7 @@ export function ApproveMobile() {
           mandate={mandate}
           showQr={false}
           initialToken={decodedToken}
+          decideApproval={decideWithPasskey}
           initialApprovalStatement={view.data.approvalStatement}
         />
       )}

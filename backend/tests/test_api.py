@@ -247,7 +247,10 @@ def test_openapi_keeps_decide_approval_off_the_agent_channel(api):
     assert {t["name"] for t in spec["tags"]} >= {"Agent channel", "Approver channel"}
     for path, operations in spec["paths"].items():
         for operation in operations.values():
-            if operation["operationId"] in ("decideApproval", "getApproverView", "listApproverProposals"):
+            if operation["operationId"] in (
+                "decideApproval", "getApproverView", "listApproverProposals", "getApproverPasskeyStatus",
+                "getApproverPasskeyRegistrationOptions", "registerApproverPasskey", "getApproverPasskeyApprovalOptions",
+            ):
                 assert path.startswith(APPROVER) and operation["tags"] == ["Approver channel"]
             elif path.startswith("/v0.1/admin/"):
                 assert operation["tags"] == ["Buyer admin"]  # T21: humans only, never the agent channel

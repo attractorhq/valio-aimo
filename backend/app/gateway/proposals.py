@@ -1196,6 +1196,8 @@ class ProposalGateway:
         now: datetime | None = None,
         actor: str = DEMO_APPROVER_ACTOR,
         auto_recheck: bool = True,
+        passkey_assertion: dict | None = None,
+        passkey_now: datetime | None = None,
     ) -> Proposal:
         """Process an approver's `APPROVE` or `REJECT` decision on the approver channel (P1.3, P2.5, P3)."""
         if self._session is not None and proposal_id not in self._proposals:
@@ -1218,13 +1220,17 @@ class ProposalGateway:
                 proposal=expired,
             )
 
-        self.approvals.verify_and_consume(
+        grant = self.approvals.verify_and_consume(
             proposal,
             offer_version=offer_version,
             approval_token=approval_token,
             action=str(action),
             now=eval_now,
+            passkey_assertion=passkey_assertion,
+            passkey_now=passkey_now,
         )
+        if grant.verified_with_passkey:
+            actor = f"human:{grant.approver.role} (passkey)"
 
         if action == "REJECT":
             self.log.record_transition(

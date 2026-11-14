@@ -6,6 +6,7 @@ import { formatClock, formatMoney, reasonChip } from '../lib/format'
 import { ApprovalCard } from '../components/approver/ApprovalCard'
 import { LoadingSection, Skeleton } from '../components/Loading'
 import { chooseApproverRole, chosenApproverRole } from '../lib/demoAccess'
+import { decideWithPasskey, PasskeyEnrolment } from './ApproverPasskeys'
 import {
   approvalReasons,
   contextReasons,
@@ -91,6 +92,13 @@ export function Approver() {
           )
         )}
       </header>
+      {mandate && (
+        <PasskeyEnrolment
+          key={mandate.customerId}
+          customerId={mandate.customerId}
+          role={mandate.approver.role}
+        />
+      )}
 
       {!customerId ? mandates.error ? (
         <p className="notice notice-error" role="alert">Could not load the approver queue.</p>
@@ -185,6 +193,7 @@ export function Approver() {
               key={selected.proposal.proposalId}
               item={selected}
               mandate={mandate}
+              decideApproval={decideWithPasskey}
               onDecisionStart={() => setSelectedId(selected.proposal.proposalId)}
             />
           ) : !error ? (

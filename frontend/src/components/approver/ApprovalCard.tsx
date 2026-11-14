@@ -12,7 +12,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import type { Mandate } from '../../lib/contracts'
-import { approverChannel, GatewayError, type ApproverItem } from '../../lib/gateway'
+import { approverChannel, type ApproverChannel, type ApproverItem } from '../../lib/gateway'
 import {
   formatClock,
   formatDate,
@@ -80,6 +80,7 @@ export function ApprovalCard({
   initialToken,
   initialApprovalStatement,
   onDecisionStart,
+  decideApproval = approverChannel.decide,
 }: {
   item: ApproverItem
   mandate?: Mandate
@@ -87,6 +88,7 @@ export function ApprovalCard({
   initialToken?: string
   initialApprovalStatement?: string | null
   onDecisionStart?: () => void
+  decideApproval?: ApproverChannel['decide']
 }) {
   const { proposal } = item
   const queryClient = useQueryClient()
@@ -101,7 +103,7 @@ export function ApprovalCard({
   const activeToken = initialToken ?? view.data?.approvalToken
   const decide = useMutation({
     mutationFn: (action: 'APPROVE' | 'REJECT') =>
-      approverChannel.decide({
+      decideApproval({
         proposalId: proposal.proposalId,
         offerVersion: proposal.offerVersion,
         approvalToken: activeToken!,
@@ -142,7 +144,7 @@ export function ApprovalCard({
       ? `${proposal.approverRole ?? mandate?.approver.role ?? 'Approver'} signs off on ${formatMoney(excess.toFixed(2))} over the auto-approve limit.`
       : null
   const total = formatMoney(proposal.totals.exclVat)
-  const error = decide.error instanceof GatewayError ? decide.error : undefined
+  const error = decide.error
 
   if (pending && !initialToken && view.isPending) {
     return <LoadingSection label="approval details" variant="approval" className="panel" />

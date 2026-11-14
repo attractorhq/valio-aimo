@@ -128,6 +128,7 @@ export type DecideInput = {
   approvalToken: string
   action: ApprovalAction
   comment?: string
+  passkeyAssertion?: object
 }
 
 /** Approver channel. Never used by the agent view. */
@@ -1096,7 +1097,7 @@ export const approverChannel: ApproverChannel = {
       qrPayload: viewData.qrPayload ?? approvalUrl,
     }
   },
-  async decide({ proposalId, offerVersion, approvalToken, action, comment }) {
+  async decide({ proposalId, offerVersion, approvalToken, action, comment, passkeyAssertion }) {
     if (isMockId(proposalId) || isMockId(approvalToken)) {
       return mockApproverChannel.decide({
         proposalId,
@@ -1128,6 +1129,7 @@ export const approverChannel: ApproverChannel = {
         approvalToken,
         action,
         comment: comment || null,
+        passkeyAssertion,
       }),
     })
     if (!res.ok) {
