@@ -18,6 +18,24 @@ scripts/build-catalog
 [ -s data/catalog/catalog.json ] || fail "the catalogue artifact was not built (data/catalog/catalog.json)."
 
 (cd frontend && npm ci && npm run build)
-(cd edge && npm ci && npm run check && npx wrangler deploy "$@")
+(cd edge && npm ci && npm run check)
+if docker buildx version >/dev/null 2>&1; then
+  (cd edge && npx wrangler deploy "$@")
+else
+  # No docker-buildx (wrangler builds with `docker build --load`): build with the legacy builder, push the
+  # image to the Cloudflare registry and deploy a generated config that points at it (gitignored).
+  tag="valio-aimo-gateway:$(git rev-parse --short HEAD)$(git diff --quiet HEAD || echo "-dirty$(date +%s)")"
+  DOCKER_BUILDKIT=0 docker build -q -f backend/Dockerfile -t "$tag" .
+  image=$(cd edge && npx wrangler containers push "$tag" | sed -n 's/^Pushed image: //p' | tail -1)
+  [ -n "$image" ] || fail "pushing $tag to the Cloudflare registry failed."
+  python3 - "$image" <<'EOF'
+import json, re, sys
+cfg = json.loads(re.sub(r"^\s*//.*$", "", open("edge/wrangler.jsonc").read(), flags=re.M))
+cfg["containers"][0]["image"] = sys.argv[1]
+cfg["containers"][0].pop("image_build_context", None)
+open("edge/wrangler.registry.json", "w").write(json.dumps(cfg, indent=2))
+EOF
+  (cd edge && npx wrangler deploy --config wrangler.registry.json "$@")
+fi
 
 echo "deploy: ok. Smoke test: curl -fsS https://valio-aimo.<account>.workers.dev/health"
