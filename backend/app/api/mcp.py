@@ -819,7 +819,7 @@ def _sse_messages(payloads: list[dict[str, Any]]) -> Iterator[str]:
 @router.post("/mcp", operation_id="mcpPost", summary="MCP Streamable HTTP endpoint (agent-channel tools only)")
 @router.post("/mcp/", include_in_schema=False)
 async def mcp_post(request: Request, state: TryState) -> Response:
-    incoming_session = request.headers.get("mcp-session-id")
+    incoming_session = getattr(request.state, "mcp_session_id", None) or request.headers.get("mcp-session-id")
     accept = (request.headers.get("accept") or "").lower()
     raw_body = await request.body()
 

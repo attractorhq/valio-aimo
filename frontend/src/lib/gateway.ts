@@ -686,12 +686,15 @@ async function parseErrorResponse(res: Response): Promise<GatewayError> {
   }
 }
 
-async function ensureSource(): Promise<DataSource> {
-  if (probePromise) return probePromise
-  probePromise = (async () => {
+let healthProbe: Promise<GatewayHealth | null> | null = null
+
+function probeHealth(): Promise<GatewayHealth | null> {
+  // Bootstrap the HttpOnly session cookie once, not from concurrent first-request probes.
+  if (healthProbe) return healthProbe
+  healthProbe = (async () => {
     if (import.meta.env.VITE_API_BASE_URL === 'off') {
       setSource('MOCK')
-      return 'MOCK'
+      return null
     }
     try {
       const res = await fetch('/health', {
@@ -700,26 +703,34 @@ async function ensureSource(): Promise<DataSource> {
       })
       if (!res.ok) {
         setSource('MOCK')
-        return 'MOCK'
+        return null
       }
       const ct = (res.headers.get('content-type') || '').toLowerCase()
       if (!ct.includes('application/json')) {
         setSource('MOCK')
-        return 'MOCK'
+        return null
       }
       const data = (await res.json()) as GatewayHealth
       if (data && data.ready) {
         activeHealthMode = data.mode
         setSource('GATEWAY')
-        return 'GATEWAY'
+      } else {
+        setSource('MOCK')
       }
-      setSource('MOCK')
-      return 'MOCK'
+      return data
     } catch {
       setSource('MOCK')
-      return 'MOCK'
+      return null
     }
-  })()
+  })().finally(() => {
+    healthProbe = null
+  })
+  return healthProbe
+}
+
+async function ensureSource(): Promise<DataSource> {
+  if (probePromise) return probePromise
+  probePromise = probeHealth().then((health) => (health?.ready ? 'GATEWAY' : 'MOCK'))
   return probePromise
 }
 
@@ -735,36 +746,7 @@ export const gateway: Gateway = {
     return activeHealthMode
   },
   async checkHealth() {
-    if (import.meta.env.VITE_API_BASE_URL === 'off') {
-      setSource('MOCK')
-      return null
-    }
-    try {
-      const res = await fetch('/health', {
-        headers: { Accept: 'application/json' },
-        signal: AbortSignal.timeout(2000),
-      })
-      if (!res.ok) {
-        setSource('MOCK')
-        return null
-      }
-      const ct = (res.headers.get('content-type') || '').toLowerCase()
-      if (!ct.includes('application/json')) {
-        setSource('MOCK')
-        return null
-      }
-      const data = (await res.json()) as GatewayHealth
-      if (data.ready) {
-        activeHealthMode = data.mode
-        setSource('GATEWAY')
-      } else {
-        setSource('MOCK')
-      }
-      return data
-    } catch {
-      setSource('MOCK')
-      return null
-    }
+    return probeHealth()
   },
   async listMandates() {
     const src = await ensureSource()
@@ -1060,7 +1042,7 @@ export const approverChannel: ApproverChannel = {
     }
 
     const vRes = await fetch(`/v0.1/approver/proposals/${encodeURIComponent(targetProposalId)}`, {
-      headers: { Accept: 'application/json' },
+      headers: { Accept: 'application/json', 'X-Approval-Token': approvalToken },
     })
     if (!vRes.ok) {
       // 1a. If the proposal is already decided/superseded on the server, return its current state

@@ -1,16 +1,22 @@
-"""Process-wide gateway wiring: catalogue, mandates, Valio source and the proposal state machine.
+"""Shared supplier resources with bounded, per-visitor demo gateway state.
 
 Built lazily on the first request so `/health` and `/docs` work before the catalogue exists. State lives in
 memory and resets on restart/deploy (accepted, docs/WORKFLOW.md → Decisions).
 """
 
 import os
+import re
+import secrets
+import time
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from threading import Lock
+from threading import Lock, RLock
 from typing import Literal
+
+from fastapi import HTTPException, Request
 
 from app.catalog.build import ROOT_DIR, get_cached_catalog
 from app.config import get_settings
@@ -21,6 +27,9 @@ from app.valio import LiveValioProvider, RecordedValioProvider
 
 Mode = Literal["LIVE", "RECORDED"]
 DEFAULT_FIXTURES_DIR = ROOT_DIR / "data/fixtures"
+SANDBOX_COOKIE = "voa_sandbox"
+SANDBOX_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,100}\Z")
+_EPHEMERAL_SIGNING_KEY = secrets.token_bytes(32)
 
 
 class GatewayUnavailable(RuntimeError):
@@ -38,6 +47,7 @@ class GatewayState:
     mode: Mode
     clock: Callable[[], datetime] = utc_now
     proposal_ids: list[str] = field(default_factory=list)
+    sandbox_id: str = "shared"
 
     def now_for(self, mode: str) -> datetime | None:
         """Live data runs on the wall clock. Recorded data runs frozen at its capture time (None = the
@@ -89,23 +99,129 @@ def build_state() -> GatewayState:
     return GatewayState(gateway=gateway, catalog=list(artifact.products), mode=mode)
 
 
-_state: GatewayState | None = None
+def sandbox_signing_key() -> bytes:
+    """Domain-separated capabilities/reset keys use the configured secret or a process-local key."""
+    configured = os.environ.get("APPROVAL_SIGNING_KEY")
+    return configured.encode() if configured else _EPHEMERAL_SIGNING_KEY
+
+
+def fresh_sandbox(resources: GatewayState, sandbox_id: str) -> GatewayState:
+    gateway = ProposalGateway(
+        mandates=MandateBook(m.model_copy(deep=True) for m in DEMO_MANDATES), provider=resources.gateway.provider,
+        signing_key=sandbox_signing_key(),
+    )
+    # Do not copy the catalogue per visitor. Only mandates, stores, approvals and hash chains are private.
+    gateway.products = resources.gateway.products
+    return GatewayState(gateway, resources.catalog, resources.mode, resources.clock, sandbox_id=sandbox_id)
+
+
+def reset_sandbox(state: GatewayState) -> None:
+    """Discard every proposal (confirmed included), token, mandate edit and audit-chain link."""
+    fresh = fresh_sandbox(state, state.sandbox_id)
+    state.gateway = fresh.gateway
+    state.proposal_ids.clear()
+
+
+class SandboxRegistry:
+    """Thread-safe LRU, at most 500 sandboxes, expiring after six idle hours (not recorded data time)."""
+
+    def __init__(self, factory: Callable[[str], GatewayState], *, capacity=500, idle_seconds=6 * 60 * 60,
+                 monotonic: Callable[[], float] = time.monotonic):
+        if capacity < 1 or idle_seconds <= 0:
+            raise ValueError("Sandbox capacity and idle expiry must be positive")
+        self.factory, self.capacity, self.idle_seconds, self.monotonic = factory, capacity, idle_seconds, monotonic
+        self._states: OrderedDict[str, tuple[float, GatewayState]] = OrderedDict()
+        self._lock = RLock()
+
+    def _expire(self, now: float) -> None:
+        while self._states and next(iter(self._states.values()))[0] + self.idle_seconds <= now:
+            self._states.popitem(last=False)
+
+    def get(self, sandbox_id: str, *, create=True) -> GatewayState:
+        with self._lock:
+            now = self.monotonic()
+            self._expire(now)
+            entry = self._states.pop(sandbox_id, None)
+            if entry is None:
+                if not create:
+                    raise HTTPException(404, "This demo session expired or was evicted; request a new proposal.")
+                state = self.factory(sandbox_id)
+                if len(self._states) >= self.capacity:
+                    self._states.popitem(last=False)
+            else:
+                state = entry[1]
+            self._states[sandbox_id] = (now, state)
+            return state
+
+    def count(self) -> int:
+        with self._lock:
+            self._expire(self.monotonic())
+            return len(self._states)
+
+    def reset_all(self) -> int:
+        with self._lock:
+            count = len(self._states)
+            for _last_used, state in self._states.values():
+                reset_sandbox(state)
+            self._states.clear()
+            return count
+
+
+_state: GatewayState | None = None  # resource template only; never used for visitor mutations
+_registry: SandboxRegistry | None = None
 _lock = Lock()
 
 
-def try_state() -> GatewayState | GatewayUnavailable:
+def sandbox_registry() -> SandboxRegistry:
+    global _state, _registry
+    with _lock:
+        if _state is None:
+            _state = build_state()
+            _registry = None
+        if _registry is None:
+            resources = _state
+            _registry = SandboxRegistry(lambda sandbox_id: fresh_sandbox(resources, sandbox_id))
+        return _registry
+
+
+def sandbox_count() -> int:
+    return _registry.count() if _registry is not None else 0
+
+
+def request_sandbox_id(request: Request) -> str | None:
+    header = request.headers.get("x-demo-sandbox")
+    if header is not None:
+        if not SANDBOX_ID_RE.fullmatch(header):
+            raise HTTPException(400, "X-Demo-Sandbox must be 1–100 letters, digits, underscores or hyphens.")
+        return header
+    cookie = getattr(request.state, "demo_sandbox", None) or request.cookies.get(SANDBOX_COOKIE)
+    return cookie if cookie and SANDBOX_ID_RE.fullmatch(cookie) else None
+
+
+async def try_state(request: Request) -> GatewayState | GatewayUnavailable:
     """For /health: report an unconfigured gateway instead of failing. Tests override it like get_state."""
     try:
-        return get_state()
+        return await get_state(request)
     except GatewayUnavailable as exc:
         return exc
 
 
-def get_state() -> GatewayState:
-    """FastAPI dependency. Tests override it with a synthetic state."""
-    global _state
-    if _state is None:
-        with _lock:
-            if _state is None:
-                _state = build_state()
-    return _state
+async def get_state(request: Request) -> GatewayState:
+    """FastAPI dependency; plain cookieless REST stays shared, negotiated MCP sessions do not."""
+    sandbox_id = request_sandbox_id(request)
+    if sandbox_id is None and request.url.path.rstrip("/") == "/mcp":
+        session_id = request.headers.get("mcp-session-id")
+        if session_id is None and request.method == "POST":
+            try:
+                body = await request.json()
+            except ValueError:
+                body = None
+            messages = body if isinstance(body, list) else [body]
+            if any(isinstance(message, dict) and message.get("method") == "initialize" for message in messages):
+                session_id = "mcp-" + secrets.token_hex(16)
+                request.state.mcp_session_id = session_id
+        if session_id is not None:
+            if not SANDBOX_ID_RE.fullmatch(session_id) or len(session_id) > 90:
+                raise HTTPException(400, "Invalid MCP session id.")
+            sandbox_id = "mcp-" + session_id
+    return sandbox_registry().get(sandbox_id or "shared")
