@@ -33,6 +33,8 @@ test('the card rows and the footer statement read the same requirement facts', a
   await page.goto('/')
   await page.getByRole('button', { name: /^Scenario B:/ }).click()
   await expect(step(page, 'Approval')).toHaveAttribute('aria-current', 'step')
+  await page.getByRole('button', { name: 'Order details' }).click()
+  await page.getByRole('button', { name: 'Approval details' }).click()
 
   const checks = proposalRequirementChecks(proposalB)
   expect(checks.length).toBeGreaterThan(0)
@@ -119,6 +121,7 @@ test('the AUTO banner names supplier-declared evidence and counts it', async ({ 
 
   await page.goto('/')
   await page.getByRole('button', { name: /^Scenario A:/ }).click()
+  await page.getByRole('button', { name: 'Approval details' }).click()
   const approval = step(page, 'Approval')
   await expect(approval).toContainText('Every required fact verified or declared by the supplier.')
   await expect(approval.getByTestId('evidence-counts')).toHaveText(evidenceCountsText(counts))
@@ -223,6 +226,10 @@ test('T86: empty requirement list never says "No hard requirements were stated" 
   const combined = explainWhyNotAuto(multiAskProposal)
   expect(combined).toContain('earliest delivery is Mon 16 Nov instead of requested Fri 13 Nov')
   expect(combined).toContain('only 95 kg of the requested 120 kg of macaroni is available in stock')
-  expect(combined).toContain('historical delivery reliability (91 %) is below the mandate threshold')
-  expect(combined).toContain('the order total (€506.16 excl. VAT) is above your €500.00 auto-approve limit')
+  expect(combined).toContain(
+    'historical delivery reliability (91 %) is below the mandate threshold',
+  )
+  expect(combined).toContain(
+    'the order total (€506.16 excl. VAT) is above your €500.00 auto-approve limit',
+  )
 })

@@ -7,10 +7,18 @@ type Props = {
   detail?: string
   noOrder?: NoOrderDetails | null
   hasExclusions: boolean
+  onShowExclusions?: () => void
   onRetry?: (date: string) => void
 }
 
-export function NoOrderBanner({ summary, detail, noOrder, hasExclusions, onRetry }: Props) {
+export function NoOrderBanner({
+  summary,
+  detail,
+  noOrder,
+  hasExclusions,
+  onShowExclusions,
+  onRetry,
+}: Props) {
   const earliest = noOrder?.earliestDelivery
 
   return (
@@ -62,7 +70,9 @@ export function NoOrderBanner({ summary, detail, noOrder, hasExclusions, onRetry
       )}
       {hasExclusions && (
         <p className="result-links">
-          <a href="#step-2">Excluded candidates</a>
+          <a href="#step-2" onClick={onShowExclusions}>
+            Excluded candidates
+          </a>
         </p>
       )}
     </section>

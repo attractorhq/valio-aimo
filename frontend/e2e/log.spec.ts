@@ -17,8 +17,8 @@ test('scenario A: the chain from request to confirmed is readable', async ({ pag
   await expect(decision).toContainText('Proposed → Agent decided')
   await expect(entries(page).last()).toContainText('Re-checked live → Confirmed')
   const offer = entries(page).filter({ hasText: 'Offer at a fixed price' })
-  await expect(offer).toContainText('Verified')
-  await expect(offer).toContainText('Declared')
+  await expect(offer).toContainText('Confirmed')
+  await expect(offer).toContainText('Supplier says')
   await expect(offer).toContainText('valio-aimo.price-api')
 })
 

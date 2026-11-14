@@ -44,9 +44,7 @@ test('B: main view ASK → Approver panel → Approve → confirmed in both view
   await expect(approver.getByRole('heading', { name: 'Approver — Head Chef' })).toBeVisible()
   const card = approver.getByRole('article')
   await expect(card.getByRole('heading')).toHaveText('Approving version 1')
-  await expect(card).toContainText(
-    '€506.16 is above your €500.00 auto-approve limit. Everything else is verified or declared.',
-  )
+  await expect(card).toContainText('Head Chef signs off on €6.16 over the auto-approve limit.')
   await expect(card).toContainText('Synthetic gluten-free macaroni 5 kg')
   await expect(card).toContainText('18 bag')
   await expect(card).toContainText('Mon 16 Nov')
@@ -215,9 +213,7 @@ test('phone approval via QR (/approve/:token) at 390 px and across separate devi
   await expect(phone.getByRole('heading', { name: 'Approver — Head Chef' })).toBeVisible()
   const card = phone.getByRole('article')
   await expect(card.getByRole('heading')).toHaveText('Approving version 1')
-  await expect(card).toContainText(
-    '€506.16 is above your €500.00 auto-approve limit. Everything else is verified or declared.',
-  )
+  await expect(card).toContainText('Head Chef signs off on €6.16 over the auto-approve limit.')
   await expect(card).toContainText('Synthetic gluten-free macaroni 5 kg')
   await expect(card).toContainText('Single-use approval link')
 

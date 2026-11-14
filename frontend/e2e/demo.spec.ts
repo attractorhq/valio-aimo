@@ -212,6 +212,9 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
 
     // 1. Scenario A (AUTO): 464306 × 1,000 = €1,010.00 excl. VAT
     await page.getByRole('button', { name: /^Scenario A:/ }).click()
+    for (const name of ['Request', 'Lookup', 'Order', 'Approval']) {
+      await page.getByRole('button', { name: `${name} details` }).click()
+    }
     await expect(step(page, 'Request')).toContainText('Lactose-free')
     await expect(step(page, 'Request')).toContainText('Mon 16 Nov')
     await expect(step(page, 'Order')).toContainText(/offer v1 · €1,010\.00 excl\. VAT/i)
@@ -223,7 +226,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     await cardA.getByRole('button', { name: /Show facts/ }).click()
     const stockRow = cardA.locator('dl > div').filter({ hasText: /^Stock/ })
     await expect(stockRow).toContainText('Stock not tracked · Valio accepts any quantity')
-    await expect(stockRow).toContainText(/declared/i)
+    await expect(stockRow).toContainText('Supplier says')
     await expect(cardA).not.toContainText('Plenty in stock')
 
     // 2. Scenario B (ASK; the approver approves v1): €506.16 > €500.00 for M2 (STRICT)
@@ -245,7 +248,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
       '€506.16 excl. VAT is above your €500.00 auto-approve limit.',
     )
     // Agent view never has an approve button or approval link/QR (P3, AC15)
-    await expect(page.getByRole('button', { name: /approve/i })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /^Approve(?:\s|$)/i })).toHaveCount(0)
     await expect(page.getByRole('img', { name: /Scan on a phone/i })).toHaveCount(0)
 
     // Separate Approver panel signs off version 1
@@ -260,9 +263,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
 
     const card = approverPage.getByRole('article')
     await expect(card.getByRole('heading')).toHaveText('Approving version 1')
-    await expect(card).toContainText(
-      '€506.16 is above your €500.00 auto-approve limit. Everything else is verified or declared.',
-    )
+    await expect(card).toContainText('Head Chef signs off on €6.16 over the auto-approve limit.')
     await expect(card).toContainText('Single-use approval link')
 
     await card.getByRole('button', { name: 'Approve €506.16' }).click()
@@ -283,7 +284,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
       '€20,200.00 excl. VAT is above your €5,000.00 hard limit.',
     )
     await expect(approvalStepC).toContainText('Instruction ignored')
-    await expect(page.getByRole('button', { name: /approve/i })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /^Approve(?:\s|$)/i })).toHaveCount(0)
 
     await page.screenshot({
       path: `test-results/demo-flow-${info.project.name}.png`,

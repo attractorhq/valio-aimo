@@ -1,5 +1,5 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { Ban, CheckCircle2, Circle, Hourglass, LoaderCircle } from 'lucide-react'
+import { Children, type ReactNode } from 'react'
+import { Ban, CheckCircle2, ChevronDown, Circle, Hourglass, LoaderCircle } from 'lucide-react'
 
 export type StepStatus = 'idle' | 'running' | 'done' | 'waiting' | 'blocked'
 
@@ -30,6 +30,8 @@ export function Step({
   statusWord,
   current,
   liveStatus,
+  expanded,
+  onToggle,
   children,
 }: {
   number: number
@@ -39,18 +41,13 @@ export function Step({
   statusWord?: string
   current?: boolean
   liveStatus?: string
+  expanded: boolean
+  onToggle: () => void
   children?: ReactNode
 }) {
   const id = `step-${number}`
-  const content = useRef<HTMLDivElement>(null)
-  const [height, setHeight] = useState<number>()
-  useLayoutEffect(() => {
-    const element = content.current
-    if (!element) return
-    const observer = new ResizeObserver(() => setHeight(element.getBoundingClientRect().height))
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [])
+  const detailsId = `${id}-details`
+  const hasDetails = Children.toArray(children).length > 0
   return (
     <li
       className={`step step-${status}`}
@@ -71,17 +68,27 @@ export function Step({
               {status === 'running' ? (liveStatus ?? 'Working…') : summary}
             </p>
           </div>
-          <StatusPill status={status} word={statusWord} />
-        </header>
-        <div className="step-reveal" style={{ height }}>
-          <div ref={content}>
-            {children && (
-              <div key={status} className="step-content">
-                {children}
-              </div>
+          <div className="step-controls">
+            <StatusPill status={status} word={statusWord} />
+            {hasDetails && (
+              <button
+                type="button"
+                className="disclosure-btn step-toggle"
+                aria-label={`${title} details`}
+                aria-expanded={expanded}
+                aria-controls={detailsId}
+                onClick={onToggle}
+              >
+                <ChevronDown size={16} aria-hidden />
+              </button>
             )}
           </div>
-        </div>
+        </header>
+        {hasDetails && (
+          <div className="step-content" id={detailsId} hidden={!expanded}>
+            {children}
+          </div>
+        )}
       </section>
     </li>
   )

@@ -77,6 +77,11 @@ test('after a clarification the Lookup step shows only "Not started", no lone di
     .fill('something for the weekend brunch, enough for about 200 guests')
   await page.getByRole('button', { name: 'Run request' }).click()
   await expect(page.getByRole('region', { name: 'Clarification needed' })).toContainText(QUESTION)
+  const requestDetails = page.getByRole('button', { name: 'Request details' })
+  await requestDetails.click()
+  await expect(page.getByRole('region', { name: 'Clarification needed' })).toBeHidden()
+  await requestDetails.click()
+  await expect(page.getByRole('region', { name: 'Clarification needed' })).toContainText(QUESTION)
 
   const lookup = step(page, 'Lookup')
   await expect(lookup).toContainText('Not started')

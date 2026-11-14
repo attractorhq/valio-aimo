@@ -16,7 +16,7 @@ test('the open spec is linked from the main view and explains labels, reasons an
   expect(overflow).toBeLessThanOrEqual(1)
 
   const levels = page.getByRole('region', { name: 'Trust levels' })
-  for (const word of ['Verified', 'Declared', 'Estimate', 'Unknown', 'Conflict · K1']) {
+  for (const word of ['Confirmed', 'Supplier says', 'Estimate', 'Unknown', 'Conflict · K1']) {
     await expect(levels).toContainText(word)
   }
 

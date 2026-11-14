@@ -7,7 +7,8 @@ export type ItemPlanSummary = {
   shortlistIds: string[]
 }
 
-const FAT_ASSUMPTION_RE = /^(?:any\s+fat(?:\s*(?:%|percent(?:age)?))?|\d+(?:[.,]\d+)?\s*%(?:\s*fat)?)$/i
+const FAT_ASSUMPTION_RE =
+  /^(?:any\s+fat(?:\s*(?:%|percent(?:age)?))?|\d+(?:[.,]\d+)?\s*%(?:\s*fat)?)$/i
 const FAT_INPUT_RE = /^(\d+(?:[.,]\d+)?)\s*%?(?:\s*fat)?$/i
 const SENTENCE_ASSUMPTION_RE = /\s*\([^()]+\)(?=\s*(?:[.;!\n]|$))/
 
@@ -75,11 +76,7 @@ function toRequestQualifier(oldChip: string, newChip: string): string | null {
  * Inserts or updates the qualifier before trailing sentence punctuation so the deterministic parser
  * associates it with the item in that sentence.
  */
-export function applyAssumptionEdit(
-  requestText: string,
-  oldChip: string,
-  newChip: string,
-): string {
+export function applyAssumptionEdit(requestText: string, oldChip: string, newChip: string): string {
   const qualifier = toRequestQualifier(oldChip, newChip)
   if (qualifier === null) return requestText
 
@@ -107,8 +104,11 @@ export function AssumptionChips({
   disabled?: boolean
 }) {
   const chips = buildAssumptionChips(request)
+  const fatChipIndex = chips.findIndex((chip) => FAT_ASSUMPTION_RE.test(chip.trim()))
+  if (fatChipIndex > 1) chips.unshift(...chips.splice(fatChipIndex, 1))
   const [editingChip, setEditingChip] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  const [showMore, setShowMore] = useState(false)
 
   if (!chips.length) {
     return <span className="muted">None</span>
@@ -141,7 +141,7 @@ export function AssumptionChips({
 
   return (
     <ul className="chip-list" aria-label="Assumptions">
-      {chips.map((chip) => {
+      {(showMore ? chips : chips.slice(0, 2)).map((chip) => {
         const isEditing = editingChip === chip
         if (isEditing) {
           return (
@@ -207,6 +207,18 @@ export function AssumptionChips({
           </li>
         )
       })}
+      {chips.length > 2 && (
+        <li>
+          <button
+            type="button"
+            className="disclosure-btn"
+            aria-expanded={showMore}
+            onClick={() => setShowMore(!showMore)}
+          >
+            {showMore ? 'Show fewer assumptions' : `+${chips.length - 2} more`}
+          </button>
+        </li>
+      )}
     </ul>
   )
 }

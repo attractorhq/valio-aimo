@@ -150,8 +150,10 @@ for (const size of [
     // the top, so check the first screen from there.
     await page.evaluate(() => window.scrollTo(0, 0))
     const banner = page.getByTestId('result-banner')
-    await expect(banner.getByText(/Waiting for/)).toBeInViewport()
-    await expect(banner.getByText('€506.16')).toBeInViewport()
+    const summary = banner.getByTestId('result-summary')
+    await expect(summary).toContainText('Needs Head Chef')
+    await expect(summary).toContainText('€506.16')
+    await expect(summary).toBeInViewport({ ratio: 1 })
     expect(await page.evaluate(() => window.scrollY)).toBe(0)
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
@@ -169,6 +171,8 @@ test('the page stays short with defaults, and expanding still shows every fact',
 
   // Collapsed: a one-line summary per item, no fact rows.
   const lookup = page.getByRole('region', { name: 'Excluded candidates' })
+  await expect(lookup).toBeHidden()
+  await page.getByRole('button', { name: 'Lookup details' }).click()
   await expect(lookup).toContainText(`${excluded.length} excluded`)
   await expect(lookup.locator('[data-fact]')).toHaveCount(0)
 
