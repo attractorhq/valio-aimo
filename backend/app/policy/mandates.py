@@ -83,6 +83,9 @@ def _show(field: str, value: Any) -> str:
         return "none"
     if isinstance(value, list):
         return ", ".join(map(str, value)) or "any"
+    if field == "restaurantPreferences":
+        text = " ".join(str(value).split())
+        return f"'{text[:80]}…'" if len(text) > 80 else (f"'{text}'" if text else "none")
     return str(value)
 
 

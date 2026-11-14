@@ -208,6 +208,12 @@ class Mandate(Contract):
     )
     validFrom: date | None = Field(default=None, description="First day (Europe/Helsinki) the mandate applies.")
     validTo: date | None = Field(default=None, description="Last day (Europe/Helsinki) the mandate applies.")
+    # T174 (#174): soft, free-text kitchen preferences the purchasing LLM reads as data. Never policy.
+    restaurantPreferences: str = Field(
+        default="",
+        max_length=1000,
+        description="Soft restaurant preferences for interpreting requests; never overrides requirements or limits.",
+    )
 
     @model_validator(mode="after")
     def _window_in_order(self) -> "Mandate":

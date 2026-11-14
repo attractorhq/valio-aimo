@@ -130,6 +130,7 @@ export type Mandate = {
   allowedCategories?: Array<string>;
   validFrom?: string | null;
   validTo?: string | null;
+  restaurantPreferences?: string;
 };
 
 export type Offer = {

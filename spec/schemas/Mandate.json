@@ -131,6 +131,13 @@
       "default": null,
       "description": "Last day (Europe/Helsinki) the mandate applies.",
       "title": "Validto"
+    },
+    "restaurantPreferences": {
+      "default": "",
+      "description": "Soft restaurant preferences for interpreting requests; never overrides requirements or limits.",
+      "maxLength": 1000,
+      "title": "Restaurantpreferences",
+      "type": "string"
     }
   },
   "required": [

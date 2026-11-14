@@ -31,6 +31,7 @@ const FIELD_LABELS: Record<string, string> = {
   allowedCategories: 'allowed categories',
   validFrom: 'valid from',
   validTo: 'valid until',
+  restaurantPreferences: 'restaurant preferences',
 }
 
 const SHIPPED_DEFAULTS: Record<
@@ -93,6 +94,10 @@ function showValue(field: string, value: unknown): string {
     return value === 'STRICT' ? 'Strict' : 'Standard'
   }
   if ((field === 'validFrom' || field === 'validTo') && typeof value === 'string') return formatDate(value)
+  if (field === 'restaurantPreferences' && typeof value === 'string') {
+    if (!value) return 'none'
+    return value.length > 60 ? `“${value.slice(0, 60)}…”` : `“${value}”`
+  }
   if (value === null || value === undefined) return 'none'
   if (typeof value === 'boolean') return value ? 'yes' : 'no'
   if (Array.isArray(value)) return value.length ? value.join(', ') : field === 'allowedCategories' ? 'any' : 'none'
@@ -351,6 +356,119 @@ export function MandateControls({
   )
 }
 
+export const MAX_PREFERENCES_LENGTH = 1000
+const PREFERENCES_EXAMPLE =
+  'e.g. Our head chef prefers cream rather than milk for cooking and baking, when appropriate.'
+
+/**
+ * #174: free-text restaurant preferences the purchasing agent's language model reads as soft context on later
+ * requests. Never policy: limits, allergens, requirements and approvals stay deterministic. Saving creates a new,
+ * audited mandate version like any other buyer-admin change.
+ */
+export function RestaurantPreferences({
+  mandate,
+  live,
+  onChanged,
+}: {
+  mandate: Mandate
+  live: boolean
+  onChanged?: (result: MandateChangeResult) => void
+}) {
+  const queryClient = useQueryClient()
+  const saved = mandate.restaurantPreferences ?? ''
+  const [draft, setDraft] = useState(saved)
+  const [message, setMessage] = useState<string>()
+  useEffect(() => {
+    setDraft(saved)
+  }, [mandate.customerId, saved])
+
+  const save = useMutation({
+    mutationFn: (text: string) => {
+      const value = text.trim()
+      if (value.length > MAX_PREFERENCES_LENGTH)
+        throw new Error(`Keep the preferences under ${MAX_PREFERENCES_LENGTH} characters.`)
+      if (value === saved) throw new Error('Nothing to change.')
+      return changeMandate(mandate.customerId, { restaurantPreferences: value })
+    },
+    onSuccess: (data) => {
+      setMessage(
+        data.mandate.restaurantPreferences
+          ? `Preferences saved · mandate v${data.mandate.version}`
+          : `Preferences cleared · mandate v${data.mandate.version}`,
+      )
+      queryClient.invalidateQueries({ queryKey: ['mandate-default', mandate.customerId] })
+      queryClient.invalidateQueries({ queryKey: ['mandates'] })
+      onChanged?.(data)
+    },
+    onMutate: () => setMessage(undefined),
+  })
+  const busy = save.isPending
+  const tooLong = draft.trim().length > MAX_PREFERENCES_LENGTH
+
+  return (
+    <section className="panel" aria-labelledby="restaurant-preferences-heading">
+      <h2 id="restaurant-preferences-heading" className="panel-title">
+        Restaurant preferences
+      </h2>
+      <p className="muted small">
+        Kitchen habits the agent considers when it reads a request. They never override what a request asks
+        for, allergen or dietary requirements, spending limits or approvals.
+      </p>
+      <form
+        className="mt-2 grid gap-2"
+        onSubmit={(event) => {
+          event.preventDefault()
+          save.mutate(draft)
+        }}
+      >
+        <label className="field-label" htmlFor="restaurant-preferences">
+          Preferences for {mandate.organisationName}
+        </label>
+        <textarea
+          id="restaurant-preferences"
+          rows={4}
+          value={draft}
+          placeholder={PREFERENCES_EXAMPLE}
+          aria-describedby="restaurant-preferences-count"
+          aria-invalid={tooLong}
+          onChange={(event) => setDraft(event.target.value)}
+          disabled={!live || busy}
+          className="rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface)] px-3 py-1.5"
+        />
+        <p id="restaurant-preferences-count" className={`small ${tooLong ? 'text-[var(--block)]' : 'muted'}`}>
+          {draft.trim().length} / {MAX_PREFERENCES_LENGTH} characters
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <button type="submit" className="btn btn-primary" disabled={!live || busy || tooLong}>
+            Save preferences
+          </button>
+          <button
+            type="button"
+            className="btn"
+            disabled={!live || busy || !saved}
+            onClick={() => {
+              setDraft('')
+              save.mutate('')
+            }}
+          >
+            Clear preferences
+          </button>
+        </div>
+      </form>
+      {save.error && (
+        <p className="notice notice-error small mt-2" role="alert">
+          {save.error.message}
+        </p>
+      )}
+      {message && (
+        <p className="notice small mt-2" role="status">
+          {message}
+        </p>
+      )}
+    </section>
+  )
+}
+
 /**
  * T46 `/admin` view: buyer-admin mandate controls moved off the buyer page and explicitly labelled
  * "Buyer admin".
@@ -415,6 +533,15 @@ export function BuyerAdmin() {
           )}
           {mandate && adminEntered && (
             <MandateControls
+              mandate={mandate}
+              live={live}
+              onChanged={() => {
+                mandates.refetch()
+              }}
+            />
+          )}
+          {mandate && adminEntered && (
+            <RestaurantPreferences
               mandate={mandate}
               live={live}
               onChanged={() => {
