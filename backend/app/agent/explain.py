@@ -275,7 +275,7 @@ def template_explanation(
 
     total_str = format_money(proposal.totals.exclVat)
     date_str = format_date(proposal.requestedDate)
-    approver = proposal.approverRole or (mandate.approver.role if mandate else "Head Chef (demo)")
+    approver = proposal.approverRole or (mandate.approver.role if mandate else "Head Chef")
     auto_limit_str = format_money(mandate.autoApproveLimitEur) if mandate else None
     hard_limit_str = format_money(mandate.hardLimitEur) if mandate else None
 

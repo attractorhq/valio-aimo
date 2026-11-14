@@ -14,7 +14,7 @@ from app.contracts import Approver, AuditEntry, Mandate, format_money
 M1 = Mandate(
     customerId="nordic-harbour-hotels",
     version=1,
-    organisationName="Nordic Harbour Hotels (demo)",
+    organisationName="Nordic Harbour Hotels",
     segment="hotel chain",
     allergenMode="STANDARD",
     autoApproveLimitEur=Decimal("1500.00"),
@@ -24,12 +24,12 @@ M1 = Mandate(
     minReliability=Decimal("0.80"),
     enforceCutoff=True,
     forbiddenAllergens=[],
-    approver=Approver(name="Purchasing Manager (demo)", role="Purchasing Manager (demo)"),
+    approver=Approver(name="Purchasing Manager", role="Purchasing Manager"),
 )
 M2 = Mandate(
     customerId="northbay-school-kitchen",
     version=1,
-    organisationName="Northbay School Kitchen (demo)",
+    organisationName="Northbay School Kitchen",
     segment="school kitchen",
     allergenMode="STRICT",
     autoApproveLimitEur=Decimal("500.00"),
@@ -39,7 +39,7 @@ M2 = Mandate(
     minReliability=Decimal("0.80"),
     enforceCutoff=True,
     forbiddenAllergens=[],
-    approver=Approver(name="Head Chef (demo)", role="Head Chef (demo)"),
+    approver=Approver(name="Head Chef", role="Head Chef"),
 )
 DEMO_MANDATES = (M1, M2)
 

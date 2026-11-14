@@ -9,6 +9,7 @@ import {
 } from '../../lib/format'
 import { TrustBadge } from '../trust/TrustBadge'
 import { TrustCard } from '../trust/TrustCard'
+import { SplitProposalSummary } from '../proposal/SplitProposalSummary'
 import { Alternatives } from './Alternatives'
 
 /**
@@ -38,6 +39,7 @@ export function OrderProposalView({
 
   return (
     <div>
+      <SplitProposalSummary proposal={proposal} offer={offer} request={req} />
       <div className="table-scroll">
         <table className="data-table order-table stack-on-mobile">
           <caption className="visually-hidden">Order proposal lines</caption>
@@ -68,7 +70,9 @@ export function OrderProposalView({
                     </div>
                     {stockFact && (
                       <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs font-normal">
-                        <span className="muted">{stockFact.display}</span>
+                        <span className="muted" title={stockFact.method ?? undefined}>
+                          {stockFact.display}
+                        </span>
                         <TrustBadge level={stockFact.level} conflict={stockFact.conflict} />
                       </div>
                     )}
@@ -121,8 +125,7 @@ export function OrderProposalView({
       </dl>
 
       <p className="muted small my-0.5">
-        Prices fixed in offer v{source.offerVersion} until {formatClock(source.validUntil)} · bound
-        to mandate v{resolvedMandateVer}
+        Prices fixed until {formatClock(source.validUntil)} · mandate v{resolvedMandateVer}
       </p>
 
       <div className="mt-0.5 grid gap-0.5" aria-label="Order line trust cards">

@@ -5,6 +5,7 @@
 // In live/recorded mode, both talk to `/v0.1/*` on the same origin (proxied to :8000 in Vite dev).
 // When the `/v0.1` gateway is unreachable, the UI falls back explicitly to the synthetic mocks in
 // `src/mocks/`, labelled "Synthetic mock data". Mock and live results are never mixed silently.
+import { ALLOW_MOCK } from './env'
 import type {
   ApprovalAction,
   ApproverView,
@@ -485,7 +486,7 @@ export const mockApproverChannel: ApproverChannel = {
       approvalUrl,
       qrPayload: approvalUrl,
       expiresAt: record.proposal.validUntil,
-      permissionNotice: 'Demo approval link — single use',
+      permissionNotice: 'Single-use approval link',
       loggedAt: record.loggedAt,
     }
   },
@@ -532,7 +533,7 @@ export const mockApproverChannel: ApproverChannel = {
       approvalUrl,
       qrPayload: approvalUrl,
       expiresAt: record.proposal.validUntil,
-      permissionNotice: 'Demo approval link — single use',
+      permissionNotice: 'Single-use approval link',
       loggedAt: record.loggedAt,
     }
   },
@@ -547,7 +548,7 @@ export const mockApproverChannel: ApproverChannel = {
     if (record.tokenUsed) {
       throw new GatewayError(
         'TOKEN_USED',
-        'This approval link was already used. Each demo link works once.',
+        'This approval link was already used. Each link works once.',
       )
     }
     if (proposal.state === 'SUPERSEDED') {
@@ -633,7 +634,7 @@ function mapBackendError(code: string | undefined, message: string, status: numb
     case 'TOKEN_ALREADY_USED':
       return new GatewayError(
         'TOKEN_USED',
-        'This approval link was already used. Each demo link works once.',
+        'This approval link was already used. Each link works once.',
       )
     case 'APPROVAL_TOKEN_INVALID':
       return new GatewayError('TOKEN_INVALID', 'This approval link is not valid for this proposal.')
@@ -686,40 +687,50 @@ async function parseErrorResponse(res: Response): Promise<GatewayError> {
   }
 }
 
+let healthProbe: Promise<GatewayHealth | null> | null = null
+
+function probeHealth(): Promise<GatewayHealth | null> {
+  // Bootstrap the HttpOnly session cookie once, not from concurrent first-request probes.
+  if (healthProbe) return healthProbe
+  healthProbe = (async () => {
+    if (ALLOW_MOCK && import.meta.env.VITE_API_BASE_URL === 'off') {
+      setSource('MOCK')
+      return null
+    }
+    // Production never falls back to synthetic data: retry a slow or restarting gateway, then use it anyway so
+    // requests show real errors. Dev and test builds fall back to mocks after one quick probe.
+    const attempts = ALLOW_MOCK ? 1 : 4
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      try {
+        const res = await fetch('/health', {
+          headers: { Accept: 'application/json' },
+          signal: AbortSignal.timeout(ALLOW_MOCK ? 2000 : 8000),
+        })
+        const ct = (res.headers.get('content-type') || '').toLowerCase()
+        if (res.ok && ct.includes('application/json')) {
+          const data = (await res.json()) as GatewayHealth
+          if (data && data.ready) {
+            activeHealthMode = data.mode
+            setSource('GATEWAY')
+            return data
+          }
+        }
+      } catch {
+        // retry below
+      }
+      if (attempt < attempts - 1) await new Promise((r) => setTimeout(r, 1500))
+    }
+    setSource(ALLOW_MOCK ? 'MOCK' : 'GATEWAY')
+    return null
+  })().finally(() => {
+    healthProbe = null
+  })
+  return healthProbe
+}
+
 async function ensureSource(): Promise<DataSource> {
   if (probePromise) return probePromise
-  probePromise = (async () => {
-    if (import.meta.env.VITE_API_BASE_URL === 'off') {
-      setSource('MOCK')
-      return 'MOCK'
-    }
-    try {
-      const res = await fetch('/health', {
-        headers: { Accept: 'application/json' },
-        signal: AbortSignal.timeout(2000),
-      })
-      if (!res.ok) {
-        setSource('MOCK')
-        return 'MOCK'
-      }
-      const ct = (res.headers.get('content-type') || '').toLowerCase()
-      if (!ct.includes('application/json')) {
-        setSource('MOCK')
-        return 'MOCK'
-      }
-      const data = (await res.json()) as GatewayHealth
-      if (data && data.ready) {
-        activeHealthMode = data.mode
-        setSource('GATEWAY')
-        return 'GATEWAY'
-      }
-      setSource('MOCK')
-      return 'MOCK'
-    } catch {
-      setSource('MOCK')
-      return 'MOCK'
-    }
-  })()
+  probePromise = probeHealth().then((health) => (health?.ready || !ALLOW_MOCK ? 'GATEWAY' : 'MOCK'))
   return probePromise
 }
 
@@ -735,36 +746,7 @@ export const gateway: Gateway = {
     return activeHealthMode
   },
   async checkHealth() {
-    if (import.meta.env.VITE_API_BASE_URL === 'off') {
-      setSource('MOCK')
-      return null
-    }
-    try {
-      const res = await fetch('/health', {
-        headers: { Accept: 'application/json' },
-        signal: AbortSignal.timeout(2000),
-      })
-      if (!res.ok) {
-        setSource('MOCK')
-        return null
-      }
-      const ct = (res.headers.get('content-type') || '').toLowerCase()
-      if (!ct.includes('application/json')) {
-        setSource('MOCK')
-        return null
-      }
-      const data = (await res.json()) as GatewayHealth
-      if (data.ready) {
-        activeHealthMode = data.mode
-        setSource('GATEWAY')
-      } else {
-        setSource('MOCK')
-      }
-      return data
-    } catch {
-      setSource('MOCK')
-      return null
-    }
+    return probeHealth()
   },
   async listMandates() {
     const src = await ensureSource()
@@ -774,7 +756,7 @@ export const gateway: Gateway = {
         headers: { Accept: 'application/json' },
       })
       if (!res.ok) {
-        if (res.status === 502 || res.status === 503 || res.status === 504) {
+        if (ALLOW_MOCK && (res.status === 502 || res.status === 503 || res.status === 504)) {
           setSource('MOCK')
           return mockGateway.listMandates()
         }
@@ -787,7 +769,7 @@ export const gateway: Gateway = {
       }
       return mandates
     } catch (err) {
-      if (err instanceof GatewayError) throw err
+      if (err instanceof GatewayError || !ALLOW_MOCK) throw err
       setSource('MOCK')
       return mockGateway.listMandates()
     }
@@ -1060,7 +1042,7 @@ export const approverChannel: ApproverChannel = {
     }
 
     const vRes = await fetch(`/v0.1/approver/proposals/${encodeURIComponent(targetProposalId)}`, {
-      headers: { Accept: 'application/json' },
+      headers: { Accept: 'application/json', 'X-Approval-Token': approvalToken },
     })
     if (!vRes.ok) {
       // 1a. If the proposal is already decided/superseded on the server, return its current state
@@ -1073,12 +1055,12 @@ export const approverChannel: ApproverChannel = {
           return {
             proposal: prop,
             approver: {
-              name: prop.approverRole ?? 'Head Chef (demo)',
-              role: prop.approverRole ?? 'Head Chef (demo)',
+              name: prop.approverRole ?? 'Head Chef',
+              role: prop.approverRole ?? 'Head Chef',
             },
             approvalToken,
             expiresAt: prop.validUntil,
-            permissionNotice: 'Demo approval link — single use',
+            permissionNotice: 'Single-use approval link',
           }
         }
       }

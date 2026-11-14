@@ -1,7 +1,7 @@
 import { Ban, CheckCircle2, Hourglass, Info, ShieldCheck } from 'lucide-react'
 import type { Mandate, Proposal, ReasonCode } from '../../lib/contracts'
 import { REASON_REGISTRY } from '../../lib/contracts'
-import { uniqueReasons } from '../approver/explain'
+import { committedLimitSentence, explainWhyNotAuto, plainReason, uniqueReasons } from '../approver/explain'
 import {
   formatClock,
   formatDate,
@@ -112,8 +112,7 @@ export function OrderProposal({ proposal }: { proposal: Proposal }) {
         </div>
       </dl>
       <p className="muted small">
-        Prices fixed in offer v{proposal.offerVersion} until {formatClock(proposal.validUntil)} ·
-        bound to mandate v{proposal.mandateVersion}
+        Prices fixed until {formatClock(proposal.validUntil)} · mandate v{proposal.mandateVersion}
       </p>
     </div>
   )
@@ -138,13 +137,15 @@ export function approvalLabel(proposal: Proposal): string {
     case 'EXPIRED':
       return 'Offer expired · re-quote needed'
     case 'SUPERSEDED':
-      return 'Superseded by a new proposal version'
+      return 'Superseded by a new version'
     default:
       return 'Deciding'
   }
 }
 
 function explain(code: ReasonCode, proposal: Proposal, mandate?: Mandate): string {
+  const committed = committedLimitSentence(code, proposal, mandate)
+  if (committed) return committed
   const params: Record<string, string> = { total: formatMoney(proposal.totals.exclVat) }
   if (mandate) {
     params.limit = formatMoney(
@@ -152,7 +153,7 @@ function explain(code: ReasonCode, proposal: Proposal, mandate?: Mandate): strin
     )
   }
   const text = reasonText(code, params)
-  return /\{\w+\}/.test(text) ? reasonChip(code) : text
+  return /\{\w+\}/.test(text) ? (plainReason(code, proposal, mandate) ?? reasonChip(code)) : text
 }
 
 /** Step 4: the server's decision. The agent view never shows an approve button (P3). */
@@ -166,7 +167,7 @@ export function ApprovalOutcome({ proposal, mandate }: { proposal: Proposal; man
         <Icon size={22} aria-hidden />
         <span>
           <span className="outcome-word">{decision}</span>
-          {decision === 'AUTO' && 'Every fact is proven and the order is inside the mandate.'}
+          {decision === 'AUTO' && 'Every required fact is verified or declared, inside the mandate.'}
           {decision === 'ASK' && `Waiting for ${approver ?? 'the approver'}`}
           {decision === 'BLOCK' && 'This order breaks the mandate.'}
         </span>
@@ -213,7 +214,15 @@ function resultTone(proposal: Proposal): 'auto' | 'ask' | 'block' {
  * T43: the result first. Decision, total and order lines, then the reasons, with links down to the
  * evidence. Every detail stays in steps 1–4 below.
  */
-export function ResultBanner({ proposal, logHref }: { proposal: Proposal; logHref?: string }) {
+export function ResultBanner({
+  proposal,
+  mandate,
+  logHref,
+}: {
+  proposal: Proposal
+  mandate?: Mandate
+  logHref?: string
+}) {
   const tone = resultTone(proposal)
   const Icon =
     tone === 'auto' ? CheckCircle2 : tone === 'ask' ? Hourglass : tone === 'block' ? Ban : Info
@@ -246,6 +255,12 @@ export function ResultBanner({ proposal, logHref }: { proposal: Proposal; logHre
           </li>
         ))}
       </ul>
+      {proposal.decision === 'ASK' && proposal.state === 'PENDING_APPROVAL' && (
+        <p className="text-xs text-[var(--ink)]" data-testid="result-why">
+          Not auto-approved because{' '}
+          {explainWhyNotAuto(proposal, mandate, { omitTotalAmount: true })}.
+        </p>
+      )}
       {proposal.reasons.length > 0 && (
         <ul className="chip-list" aria-label="Decision reasons">
           {uniqueReasons(proposal.reasons).map((code) => (
@@ -256,8 +271,8 @@ export function ResultBanner({ proposal, logHref }: { proposal: Proposal; logHre
         </ul>
       )}
       <p className="result-links">
-        <a href="#step-3">Order lines and evidence</a>
-        <a href="#step-4">Decision and reasons</a>
+        <a href="#step-3">Order lines</a>
+        <a href="#step-4">Reasons</a>
         {logHref && <a href={logHref}>Decision log</a>}
       </p>
     </section>
@@ -281,7 +296,7 @@ export function NoOrderBanner({ summary, detail }: { summary: string; detail?: s
       </p>
       {detail && <p className="mt-1 text-sm text-[var(--ink)]">{detail}</p>}
       <p className="result-links">
-        <a href="#step-2">Why: excluded candidates</a>
+        <a href="#step-2">Excluded candidates</a>
       </p>
     </section>
   )

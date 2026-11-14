@@ -30,14 +30,14 @@
    "offerHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
    "mandateVersion": 1,
    "timestamp": "2026-11-13T21:58:00+02:00",
-   "actor": "approver:Head Chef (demo)",
+   "actor": "approver:Head Chef",
    "event": "APPROVED",
    "fromState": "PENDING_APPROVAL",
    "toState": "APPROVED",
    "reasons": [],
    "rule": null,
    "facts": [],
-   "summary": "Head Chef (demo) approved version 1 of this proposal (€506.16).",
+   "summary": "Head Chef approved version 1 of this proposal (€506.16).",
    "comment": "OK for Monday."
   },
   {

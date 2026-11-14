@@ -1,4 +1,5 @@
-import { ExternalLink, ShieldCheck, UserRoundCheck } from 'lucide-react'
+import { ExternalLink } from 'lucide-react'
+import { useState } from 'react'
 import { Link, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { BuyerAdmin } from './components/mandate/MandateControls'
 import { Main } from './pages/Main'
@@ -7,6 +8,7 @@ import { ApproveMobile } from './pages/ApproveMobile'
 import { Log } from './pages/Log'
 import { Spec } from './pages/Spec'
 import { ValioView } from './pages/ValioView'
+import { gateway, MOCK_STORE_KEY } from './lib/gateway'
 
 function LogRoute() {
   const { proposalId } = useParams()
@@ -16,35 +18,35 @@ function LogRoute() {
 export default function App() {
   const { pathname } = useLocation()
   const approver = pathname.startsWith('/approver') || pathname.startsWith('/approve/')
+  const [resetting, setResetting] = useState(false)
+  const [resetError, setResetError] = useState('')
+
+  async function resetSession() {
+    setResetting(true)
+    setResetError('')
+    try {
+      await gateway.checkHealth()
+      if (gateway.source === 'GATEWAY') {
+        const response = await fetch('/v0.1/admin/demo/reset', { method: 'POST' })
+        if (!response.ok) throw new Error('Could not reset your session. Please try again.')
+      }
+      localStorage.removeItem(MOCK_STORE_KEY)
+      localStorage.removeItem('verified-or-ask.token-proposal-map.v1')
+      window.location.assign('/')
+    } catch (error) {
+      setResetError(error instanceof Error ? error.message : 'Could not reset your session.')
+      setResetting(false)
+    }
+  }
   return (
     <div className={`app ${approver ? 'app-approver' : ''}`}>
       <a href="#main" className="skip-link">
         {approver ? 'Skip to proposals for approval' : 'Skip to the purchasing flow'}
       </a>
       <header className="app-header">
-        <div className="brand">
-          <span className="brand-wordmark" aria-label="Valio Aimo">
-            Valio Aimo
-          </span>
-          {approver ? (
-            <UserRoundCheck size={18} aria-hidden className="shrink-0" />
-          ) : (
-            <ShieldCheck size={18} aria-hidden className="shrink-0" />
-          )}
-          <div className="min-w-0">
-            <div className="brand-title-row">
-              <span className="brand-name">{approver ? 'Approver panel' : 'Trusted Trade Gateway'}</span>
-              <span className="brand-gateway">
-                {approver ? '· Trusted Trade Gateway' : '· Verified or Ask'}
-              </span>
-            </div>
-            <span className="brand-sub">
-              {approver
-                ? 'Human sign-off channel · not the agent · Prototype for the Valio Aimo Junction 2026 challenge · not an official Valio service'
-                : 'Prototype for the Valio Aimo Junction 2026 challenge · not an official Valio service'}
-            </span>
-          </div>
-        </div>
+        <Link to="/" className="brand" aria-label="Valio Aimo · Trusted Trade Gateway">
+          <img src="/brand/valio-aimo-logo-white.svg" alt="Valio Aimo" className="brand-logo" />
+        </Link>
         <nav className="app-nav" aria-label="Views">
           <Link
             to="/"
@@ -55,19 +57,11 @@ export default function App() {
           </Link>
           {!approver && (
             /* The approver panel is a separate window, like a separate person's device. */
-            <a
-              href="/approver"
-              target="_blank"
-              rel="noopener"
-              aria-label="Open Approver panel"
-            >
+            <a href="/approver" target="_blank" rel="noopener" aria-label="Open Approver panel">
               Approve <ExternalLink size={12} aria-hidden />
             </a>
           )}
-          <Link
-            to="/log"
-            aria-current={pathname.startsWith('/log') ? 'page' : undefined}
-          >
+          <Link to="/log" aria-current={pathname.startsWith('/log') ? 'page' : undefined}>
             Log
           </Link>
           <Link
@@ -111,12 +105,17 @@ export default function App() {
           />
         </Routes>
       </main>
-      <footer className="app-footer">
-        <span>Simulated orders only — mock environment.</span>
-        <span>
-          Prototype for the Valio Aimo Junction 2026 challenge · not an official Valio service
-        </span>
-      </footer>
+      {!pathname.startsWith('/approve/') && (
+        <footer className="app-footer">
+          <span>
+            Private session ·{' '}
+            <button type="button" onClick={resetSession} disabled={resetting}>
+              {resetting ? 'Resetting…' : 'Reset'}
+            </button>
+            {resetError && <span role="alert"> {resetError}</span>}
+          </span>
+        </footer>
+      )}
     </div>
   )
 }

@@ -9,7 +9,8 @@ async function runScenario(page: Page, id: 'A' | 'B' | 'C') {
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByText('Synthetic mock data')).toBeVisible()
+  // The synthetic UI mocks are loaded (dev/test only; production never uses them).
+  await expect(page.getByText(/Synthetic Harbour Hotels/).first()).toBeVisible()
 })
 
 test('shows one main view with four steps and a read-only mandate', async ({ page }) => {
@@ -17,19 +18,19 @@ test('shows one main view with four steps and a read-only mandate', async ({ pag
     await expect(step(page, name)).toContainText('Not started')
   }
   const mandate = page.getByRole('region', { name: 'Buyer mandate' })
-  await expect(mandate).toContainText('Read-only')
+  await expect(page.getByRole('heading', { name: 'Mandate v1 · read-only' })).toBeVisible()
   await expect(mandate).toContainText('€1,500.00 excl. VAT')
   await mandate.getByText('Synthetic School Kitchen (demo mock)').click()
   await expect(mandate).toContainText('€500.00 excl. VAT')
   await expect(mandate).toContainText('€3,000.00 excl. VAT')
   await expect(mandate).toContainText('Strict')
-  await expect(mandate).toContainText('Head Chef (demo)')
+  await expect(mandate).toContainText('Head Chef')
   // T46: the buyer page has no mandate write controls.
   await expect(page.getByRole('button', { name: 'Apply policy change' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Reset to default mandate' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Reset to default' })).toHaveCount(0)
   await expect(page.getByLabel('Auto-approve limit (€, excl. VAT)')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Mandate v1 · read-only' })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'Buyer admin (demo, no login)' })).toHaveAttribute(
+  await expect(page.getByRole('link', { name: 'Buyer admin', exact: true })).toHaveAttribute(
     'href',
     '/admin',
   )
@@ -40,7 +41,7 @@ test('scenario A: agent decided → confirmed (simulated)', async ({ page }, inf
   await expect(step(page, 'Request')).toContainText('Lactose-free')
   await expect(step(page, 'Request')).toContainText('Mon 16 Nov')
   await expect(step(page, 'Order')).toContainText(
-    'Proposal at fixed price · offer v1 · €1,010.00 excl. VAT',
+    'Offer v1 · €1,010.00 excl. VAT',
   )
   const altsA = step(page, 'Order').getByRole('region', {
     name: 'Good / Better / Best alternatives',
@@ -57,7 +58,8 @@ test('scenario A: agent decided → confirmed (simulated)', async ({ page }, inf
   const approval = step(page, 'Approval')
   await expect(approval).toContainText('Agent decided → Confirmed (simulated)')
   await expect(approval).toContainText('Simulated order — mock environment')
-  await expect(page.getByText(/Recorded · captured Fri 13 Nov 21:50/)).toBeVisible()
+  // No data-source badge in the UI (team decision 14 Nov).
+  await expect(page.getByText(/Recorded · captured/)).toHaveCount(0)
   await page.screenshot({
     path: `test-results/scenario-a-${info.project.name}.png`,
     fullPage: true,
@@ -69,7 +71,7 @@ test('scenario B: waiting for approver, exactly one reason, no approve button', 
 }, info) => {
   await runScenario(page, 'B')
   await expect(page.getByRole('radio', { name: /School Kitchen/ })).toBeChecked()
-  await expect(step(page, 'Order')).toContainText('offer v1 · €506.16 excl. VAT')
+  await expect(step(page, 'Order')).toContainText('Offer v1 · €506.16 excl. VAT')
   const altsB = step(page, 'Order').getByRole('region', {
     name: 'Good / Better / Best alternatives',
   })
@@ -81,7 +83,10 @@ test('scenario B: waiting for approver, exactly one reason, no approve button', 
   await expect(altsB).not.toContainText('MOCK-REJECTED')
   const approval = step(page, 'Approval')
   await expect(approval).toContainText('Waiting for approver')
-  await expect(approval).toContainText('Waiting for Head Chef (demo)')
+  await expect(approval).toContainText('Waiting for Head Chef')
+  await expect(page.getByTestId('result-why')).toHaveText(
+    'Not auto-approved because the order total exceeds your €500.00 auto-approve limit.',
+  )
   await expect(approval.getByRole('list', { name: 'Reasons' }).getByRole('listitem')).toHaveCount(1)
   await expect(approval).toContainText(
     '€506.16 excl. VAT is above your €500.00 auto-approve limit.',
@@ -182,32 +187,32 @@ test('Valio Aimo readiness view shows supplier data gaps, AUTO/ASK/BLOCK statist
   await page.getByRole('link', { name: 'Valio Aimo readiness' }).click()
   await expect(
     page.getByRole('heading', {
-      name: /Valio Aimo Agent-Readiness View · Data quality = autonomous sales/,
+      name: /Agent readiness: data quality = autonomous sales/,
     }),
   ).toBeVisible()
 
-  const summary = page.getByRole('region', { name: /Valio Aimo Agent-Readiness View/ })
-  await expect(summary).toContainText('AUTO-Ready Products')
+  const summary = page.getByRole('region', { name: /Agent readiness/ })
+  await expect(summary).toContainText('AUTO-ready')
   await expect(summary).toContainText('Blocked from AUTO')
 
   const liveStats = page.getByRole('region', {
-    name: 'Live AUTO / ASK / BLOCK Decision Statistics',
+    name: 'Decisions',
   })
-  await expect(liveStats).toContainText('AUTO · Autonomous Order')
-  await expect(liveStats).toContainText('ASK · Human Sign-Off')
-  await expect(liveStats).toContainText('BLOCK · Mandate Refusal')
+  await expect(liveStats).toContainText('AUTO · agent')
+  await expect(liveStats).toContainText('ASK · human')
+  await expect(liveStats).toContainText('BLOCK · mandate')
   await expect(liveStats).toContainText('€1,010.00')
   await expect(liveStats).toContainText('€506.16')
   await expect(liveStats).toContainText('€20,200.00')
 
-  const suppliersSection = page.getByRole('region', { name: 'Data Gaps by Supplier' })
+  const suppliersSection = page.getByRole('region', { name: 'Suppliers' })
   await expect(suppliersSection).toContainText('SYNTHETIC DAIRY OY')
   await expect(suppliersSection).toContainText('SYNTHETIC NORDIC PASTA')
   await suppliersSection.getByLabel('Filter suppliers by name').fill('NORDIC PASTA')
   await expect(suppliersSection).toContainText('SYNTHETIC NORDIC PASTA')
   await expect(suppliersSection).not.toContainText('SYNTHETIC NONFOOD SUPPLIES')
 
-  const fixList = page.getByRole('region', { name: 'Prioritised Master-Data Fix List' })
+  const fixList = page.getByRole('region', { name: 'Fix list' })
   await expect(fixList).toContainText('SUBSTITUTE_REJECTED')
   await expect(fixList).toContainText('DATA_CONFLICT')
   await expect(fixList).toContainText('ALLERGEN_UNKNOWN')
@@ -219,7 +224,7 @@ test('T46: /admin holds buyer-admin controls and reset; buyer page shows mandate
   const defaultM2 = {
     customerId: 'northbay-school-kitchen',
     version: 1,
-    organisationName: 'Northbay School Kitchen (demo)',
+    organisationName: 'Northbay School Kitchen',
     segment: 'school kitchen',
     allergenMode: 'STRICT' as const,
     autoApproveLimitEur: '500.00',
@@ -230,7 +235,7 @@ test('T46: /admin holds buyer-admin controls and reset; buyer page shows mandate
     minReliability: '0.80',
     enforceCutoff: true,
     forbiddenAllergens: [] as string[],
-    approver: { name: 'Head Chef (demo)', role: 'Head Chef (demo)' },
+    approver: { name: 'Head Chef', role: 'Head Chef' },
   }
   let currentM2 = { ...defaultM2 }
   const json = (body: unknown, status = 200) => ({
@@ -286,7 +291,7 @@ test('T46: /admin holds buyer-admin controls and reset; buyer page shows mandate
             customerId: currentM2.customerId,
             mandateVersion: currentM2.version,
             timestamp: '2026-11-13T21:55:00+02:00',
-            actor: 'human:Buyer admin (demo)',
+            actor: 'human:Buyer admin',
             event: 'MANDATE_CHANGED',
             rule: '§6.1',
             summary: 'Policy changed by buyer admin',
@@ -312,7 +317,7 @@ test('T46: /admin holds buyer-admin controls and reset; buyer page shows mandate
             customerId: currentM2.customerId,
             mandateVersion: currentM2.version,
             timestamp: '2026-11-13T21:56:00+02:00',
-            actor: 'human:Buyer admin (demo)',
+            actor: 'human:Buyer admin',
             event: 'MANDATE_RESET',
             rule: '§6.1',
             summary: 'Policy reset to default by buyer admin',
@@ -327,9 +332,9 @@ test('T46: /admin holds buyer-admin controls and reset; buyer page shows mandate
 
   await page.goto('/')
   await expect(page.getByRole('button', { name: 'Apply policy change' })).toHaveCount(0)
-  await page.getByRole('link', { name: 'Buyer admin (demo, no login)' }).click()
+  await page.getByRole('link', { name: 'Buyer admin', exact: true }).click()
   await expect(page).toHaveURL(/\/admin$/)
-  await expect(page.getByRole('heading', { name: 'Buyer admin (demo, no login)' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Buyer admin', exact: true })).toBeVisible()
 
   const limitInput = page.getByLabel('Auto-approve limit (€, excl. VAT)')
   await expect(limitInput).toBeEnabled()
@@ -342,23 +347,157 @@ test('T46: /admin holds buyer-admin controls and reset; buyer page shows mandate
   await expect(page.getByRole('note')).toContainText(
     'Changed from default: auto-approve €510.00 (default €500.00)',
   )
-  await expect(page.getByRole('button', { name: 'Reset to default mandate' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Reset to default' })).toBeVisible()
 
   // Navigate back to the buyer view: read-only, shows v2 and "Changed from default", no write controls.
-  await page.getByRole('link', { name: 'Back to the buyer view' }).click()
+  await page.getByRole('link', { name: 'Buyer view' }).click()
   await expect(page).toHaveURL(/\/$/)
   await expect(page.getByRole('heading', { name: 'Mandate v2 · read-only' })).toBeVisible()
   await expect(page.getByRole('note')).toContainText(
     'Changed from default: auto-approve €510.00 (default €500.00)',
   )
   await expect(page.getByRole('button', { name: 'Apply policy change' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Reset to default mandate' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Reset to default' })).toHaveCount(0)
   await expect(page.getByLabel('Auto-approve limit (€, excl. VAT)')).toHaveCount(0)
 
   // Return to /admin and reset to the shipped default (v3).
-  await page.getByRole('link', { name: 'Buyer admin (demo, no login)' }).click()
-  await page.getByRole('button', { name: 'Reset to default mandate' }).click()
+  await page.getByRole('link', { name: 'Buyer admin', exact: true }).click()
+  await page.getByRole('button', { name: 'Reset to default' }).click()
   await expect(page.getByRole('status')).toContainText(
     'Policy reset to default by buyer admin · mandate v3 · auto-approve limit €500.00',
   )
+})
+
+test('T86: ASK proposal without hard requirements explains why it was not auto-approved and never says "No hard requirements were stated"', async ({
+  page,
+}) => {
+  const defaultM2 = {
+    customerId: 'northbay-school-kitchen',
+    version: 1,
+    organisationName: 'Northbay School Kitchen (demo)',
+    segment: 'school kitchen',
+    allergenMode: 'STRICT' as const,
+    autoApproveLimitEur: '500.00',
+    hardLimitEur: '3000.00',
+    autoAcceptValioSubstitutes: false,
+    autoAcceptAgentSubstitutes: false,
+    autoAcceptSupplierStock: false,
+    minReliability: '0.95',
+    enforceCutoff: true,
+    forbiddenAllergens: [] as string[],
+    approver: { name: 'Head Chef', role: 'Head Chef' },
+  }
+  const askNoReqProposal = {
+    proposalId: 'PR-T86-v1',
+    customerId: 'northbay-school-kitchen',
+    mandateVersion: 1,
+    offerId: 'OF-T86',
+    offerVersion: 1,
+    offerHash: 'hash-t86',
+    decision: 'ASK',
+    reasons: ['DATE_LATER', 'PARTIAL_AVAILABILITY', 'LOW_RELIABILITY'],
+    approverRole: 'Head Chef',
+    state: 'PENDING_APPROVAL',
+    requestedDate: '2026-11-15',
+    createdAt: '2026-11-14T10:00:00+02:00',
+    validUntil: '2026-11-14T10:15:00+02:00',
+    mode: 'RECORDED',
+    recordedAt: '2026-11-13T21:50:00+02:00',
+    request: {
+      requestText: '60 kg of macaroni by Sunday.',
+      requestedDate: '2026-11-15',
+      assumptions: [],
+      items: [
+        {
+          itemId: 'I1',
+          what: 'macaroni',
+          quantity: '60',
+          unit: 'kg',
+          requirements: [],
+          preferences: [],
+        },
+      ],
+    },
+    lines: [
+      {
+        lineId: 'L1',
+        itemId: 'I1',
+        productId: 'MOCK-PASTA',
+        name: 'Synthetic macaroni 5 kg',
+        salesUnit: 'ST',
+        salesUnitLabel: 'bag',
+        contentPerSalesUnit: { value: '5', unit: 'kg', level: 'DECLARED', method: 'unitConversions' },
+        quantitySalesUnits: '8',
+        deliveredQuantity: { value: '40', unit: 'kg' },
+        unitPriceExclVat: '20.00',
+        lineTotalExclVat: '160.00',
+        vatRate: '0.14',
+        deliveryDate: '2026-11-16',
+        closingTime: '2026-11-15T17:00:00+02:00',
+        facts: [
+          {
+            fact: 'reliability',
+            value: 0.91,
+            display: 'Delivered in full 91.0% historically',
+            level: 'ESTIMATE',
+            source: {
+              system: 'valio-aimo.delivery-reliability',
+              field: 'deliveryReliability',
+              retrievedAt: null,
+            },
+          },
+        ],
+        reasons: ['DATE_LATER', 'PARTIAL_AVAILABILITY', 'LOW_RELIABILITY'],
+      },
+    ],
+    excluded: [],
+    totals: { exclVat: '160.00', vat: '22.40', inclVat: '182.40', currency: 'EUR' },
+  }
+  const json = (body: unknown, status = 200) => ({
+    status,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  await page.route('**/health', (route) =>
+    route.fulfill(json({ status: 'ok', ready: true, mode: 'RECORDED', version: '0.1' })),
+  )
+  await page.route('**/v0.1/**', (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === '/v0.1/mandates') return route.fulfill(json([defaultM2]))
+    if (url.pathname === '/v0.1/agent/run') {
+      const event = {
+        type: 'result',
+        proposal: askNoReqProposal,
+        request: askNoReqProposal.request,
+        decision: 'ASK',
+        reasons: askNoReqProposal.reasons,
+        mode: 'RECORDED',
+      }
+      return route.fulfill({
+        status: 200,
+        headers: { 'Content-Type': 'application/x-ndjson' },
+        body: JSON.stringify(event) + '\n',
+      })
+    }
+    if (url.pathname.startsWith('/v0.1/proposals/')) return route.fulfill(json(askNoReqProposal))
+    return route.fulfill(json({ error: { code: 'NOT_FOUND', message: 'not faked' } }, 404))
+  })
+
+  await page.goto('/')
+  await page.getByLabel('What do you need, and by when?').fill('60 kg of macaroni by Sunday.')
+  await page.getByRole('button', { name: 'Run request' }).click()
+
+  await expect(page.getByText('No hard requirements were stated')).toHaveCount(0)
+  await expect(page.getByTestId('result-why')).toContainText(
+    'earliest delivery is Mon 16 Nov instead of requested Sun 15 Nov',
+  )
+  await expect(page.getByTestId('result-why')).toContainText(
+    'only 40 kg of the requested 60 kg of macaroni is available in stock',
+  )
+
+  const approval = step(page, 'Approval')
+  await expect(approval).toContainText('Earliest delivery Mon 16 Nov. You asked for Sun 15 Nov.')
+  await expect(approval).toContainText('Only 40 kg of macaroni in stock; 60 kg needed.')
+  await expect(approval).toContainText('Delivered in full only 91 % of the time historically.')
 })

@@ -2,14 +2,51 @@
 
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
 from typing import Literal
 
-from app.contracts import Mandate, Product, Quantity, RequestItem, TrustLabel
+from app.contracts import Mandate, Product, Quantity, RequestItem, TrustLabel, format_money
 
 from .findings import Finding, ordered_codes
 from .requirements import check_requirements, claim_conflicts, conflict_is_decisive, hard_requirements
+
+SPLIT_PRICE_GUARD_THRESHOLD_PCT = Decimal("10")
+
+
+def split_price_rise_pct(
+    primary_price_per_unit: Decimal | None,
+    top_up_price_per_unit: Decimal | None,
+) -> Decimal | None:
+    """Percentage by which a split top-up line's price per unit exceeds the primary line's (T69)."""
+    if (
+        primary_price_per_unit is None
+        or top_up_price_per_unit is None
+        or primary_price_per_unit <= 0
+    ):
+        return None
+    diff = top_up_price_per_unit - primary_price_per_unit
+    if diff <= 0:
+        return Decimal(0)
+    return ((diff / primary_price_per_unit) * Decimal(100)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+
+
+def split_price_guard_detail(
+    primary_price_per_unit: Decimal | None,
+    top_up_price_per_unit: Decimal | None,
+    unit: str,
+) -> str | None:
+    """T69 price guard: detail line when the second product's price per kg/l is > 10 % above the original's."""
+    pct = split_price_rise_pct(primary_price_per_unit, top_up_price_per_unit)
+    if pct is None or pct <= SPLIT_PRICE_GUARD_THRESHOLD_PCT:
+        return None
+    pct_str = str(int(pct)) if pct == pct.to_integral() else format(pct.normalize(), "f")
+    diff = (top_up_price_per_unit - primary_price_per_unit).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return (
+        f"Price guard: +{pct_str} % per {unit} above primary line "
+        f"({format_money(top_up_price_per_unit)}/{unit} vs {format_money(primary_price_per_unit)}/{unit}, "
+        f"+{format_money(diff)}/{unit})"
+    )
 
 
 class StockKind(StrEnum):
@@ -54,6 +91,8 @@ class LineInput:
     substitution: Literal["VALIO", "AGENT"] | None = None
     substitute_for: str | None = None
     product_type_differs: bool = False
+    split_top_up: bool = False
+    primary_price_per_unit: Decimal | None = None
     facts: tuple[TrustLabel, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
@@ -69,6 +108,12 @@ class LineInput:
         if self.stock is StockKind.EXACT and self.stock_amount < self.quantity_sales_units:
             return self.delivered_quantity.value * max(self.stock_amount, Decimal(0)) / self.quantity_sales_units
         return self.delivered_quantity.value
+
+    def price_per_delivered_unit(self) -> Decimal | None:
+        """Price excl. VAT per 1 unit of `delivered_quantity.unit` (e.g. €/kg or €/l)."""
+        if not self.price_valid or self.delivered_quantity.value <= 0:
+            return None
+        return self.line_total_excl_vat / self.delivered_quantity.value
 
 
 @dataclass(frozen=True)
@@ -117,11 +162,18 @@ def evaluate_line(
     product = line.product
     named = item.productId is not None and item.productId == product.productId
     substitution = line.substitution
-    if substitution is None and (line.product_type_differs or (item.productId is not None and not named)):
-        substitution = "AGENT"  # never swap silently (L10/O2)
+    if substitution is None and (
+        line.split_top_up or line.product_type_differs or (item.productId is not None and not named)
+    ):
+        substitution = "AGENT"  # never swap silently (L10/O2/T69)
     conflicts = _conflict_codes(line)
     requirements = hard_requirements(item.requirements, mandate)
     cutoff_passed = line.closing_time is not None and line.closing_time < now
+    guard_detail = (
+        split_price_guard_detail(line.primary_price_per_unit, line.price_per_delivered_unit(), item.unit)
+        if line.split_top_up
+        else None
+    )
 
     # L1–L3: orderable at a known, complete price.
     if line.sales_blocked:
@@ -149,7 +201,9 @@ def evaluate_line(
     if line.stock is StockKind.SUPPLIER and not mandate.autoAcceptSupplierStock:
         add("SUPPLIER_STOCK_UNKNOWN", "ASK", "L7")
 
-    # L8 is item-level (coverage across lines) and lives in decide().
+    # L8 is item-level (coverage across lines) and lives in decide(); a split top-up line also carries SPLIT (T69).
+    if line.split_top_up:
+        add("SPLIT", "INFO", "L8", guard_detail)
 
     # L9: a CONFLICT on a decisive fact. K5 (pack content) always sizes the order.
     for conflict in sorted(conflicts & {"K1", "K2", "K5"}):
@@ -158,7 +212,7 @@ def evaluate_line(
 
     # L10–L11: substitutes must prove every hard requirement.
     if substitution == "AGENT":
-        add("AGENT_SUBSTITUTE", "ASK", "L10")  # Mandate.autoAcceptAgentSubstitutes is always false
+        add("AGENT_SUBSTITUTE", "ASK", "L10", guard_detail)  # Mandate.autoAcceptAgentSubstitutes is always false
     if substitution == "VALIO":
         if requirement_findings:
             add("SUBSTITUTE_REJECTED", "EXCLUDE", "L11", requirement_findings[0].detail)

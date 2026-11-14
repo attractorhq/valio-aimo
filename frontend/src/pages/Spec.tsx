@@ -22,26 +22,23 @@ const SCHEMAS = Object.entries(SCHEMA_FILES)
 const LEVELS: { level: TrustLevel; meaning: string; examples: string }[] = [
   {
     level: 'VERIFIED',
-    meaning: "From Valio Aimo's own live systems or Valio Aimo-defined rules.",
-    examples:
-      'Price API, availability API (warehouse stock), sales block, Valio substitution list.',
+    meaning: "From Valio Aimo's live systems or rules.",
+    examples: 'Price, availability, sales block, substitution list.',
   },
   {
     level: 'DECLARED',
-    meaning: 'Declared by the manufacturer or supplier in the product data (GS1 Synkka).',
-    examples:
-      'Allergens, free-from declarations, nutritional claims, labels, origin, pack content, ingredients.',
+    meaning: 'Declared by the supplier in product data (GS1 Synkka).',
+    examples: 'Allergens, free-from claims, labels, origin, pack content.',
   },
   {
     level: 'ESTIMATE',
     meaning: 'Statistical or derived.',
-    examples:
-      'Historical delivery reliability, product-group CO₂ average, pack content from a price ratio or the name, agent-proposed substitutes.',
+    examples: 'Delivery reliability, CO₂ average, pack size from the name, agent substitutes.',
   },
   {
     level: 'UNKNOWN',
-    meaning: 'Missing, undeclared or explicitly invisible. Always shown as "Unknown", never blank.',
-    examples: 'No allergen declaration; supplier-warehouse stock whose quantity Valio cannot see.',
+    meaning: 'Missing or not visible. Shown as "Unknown", never blank.',
+    examples: 'No allergen declaration; supplier stock Valio cannot see.',
   },
 ]
 
@@ -87,7 +84,7 @@ const LABEL_FIELDS = [
 
 const OPERATIONS: { channel: string; rows: [string, string, string][] }[] = [
   {
-    channel: 'Agent channel: any purchasing agent may call these',
+    channel: 'Agent channel',
     rows: [
       [
         'searchProducts',
@@ -110,12 +107,12 @@ const OPERATIONS: { channel: string; rows: [string, string, string][] }[] = [
     ],
   },
   {
-    channel: 'Approver channel: the named human only, never an agent tool',
+    channel: 'Approver channel (human only)',
     rows: [
       [
         'approver view',
         'GET /v0.1/approver/proposals/{proposalId}',
-        'The exact version to approve, with a single-use demo approval link.',
+        'The exact version to approve, with a single-use approval link.',
       ],
       [
         'decideApproval',
@@ -125,7 +122,7 @@ const OPERATIONS: { channel: string; rows: [string, string, string][] }[] = [
     ],
   },
   {
-    channel: 'Buyer admin: a human changes the policy',
+    channel: 'Buyer admin (human only)',
     rows: [
       [
         'changeMandate',
@@ -200,9 +197,7 @@ export function Spec() {
           Agent Trust Labels v0.1 · open specification
         </h1>
         <p className="muted small mt-1">
-          An agent acts alone only when every decisive fact is verified or declared without conflict
-          and the order is within mandate; everything else goes to a named human for one proposal
-          version.
+          The agent acts alone only on proven facts within mandate; everything else goes to a named human.
         </p>
         <nav aria-label="On this page" className="mt-2.5">
           <ul className="flex flex-wrap gap-1.5 text-xs">
@@ -237,22 +232,14 @@ export function Spec() {
           <li className="grid gap-1">
             <span className="flex flex-wrap items-center gap-2">
               <TrustBadge level="DECLARED" conflict={{ code: 'K1', message: 'example' }} />
-              <span className="font-semibold">
-                CONFLICT is a flag that combines with any level: two sources disagree, or a value is
-                internally inconsistent.
-              </span>
+              <span className="font-semibold">CONFLICT flags any level: sources disagree.</span>
             </span>
           </li>
         </ul>
         <h3 className="mt-4 font-semibold">Display rules</h3>
         <ul className="ml-5 list-disc text-sm">
-          <li>
-            Every fact shows its value, a trust badge (icon and word), its source, and the time for
-            live facts.
-          </li>
-          <li>Colour is never the only signal.</li>
-          <li>UNKNOWN is shown as "Unknown", never blank.</li>
-          <li>A conflict shows a one-line explanation.</li>
+          <li>Every fact shows value, badge, source and time.</li>
+          <li>Colour is never the only signal; Unknown is never blank.</li>
         </ul>
       </Section>
 
@@ -321,10 +308,7 @@ export function Spec() {
       </Section>
 
       <Section id="reasons" title="Reason codes">
-        <p className="muted small">
-          Humans approve trade-offs only, never missing evidence; everything else excludes the
-          product or blocks the order.
-        </p>
+        <p className="muted small">Humans approve trade-offs, never missing evidence.</p>
         {EFFECT_ORDER.map((effect) => {
           const rows = REASONS.filter((r) => r.effect === effect)
           if (rows.length === 0) return null
@@ -339,8 +323,8 @@ export function Spec() {
                     <tr>
                       <th scope="col">Code</th>
                       <th scope="col">Chip</th>
-                      <th scope="col">Human can approve</th>
-                      <th scope="col">Message template</th>
+                      <th scope="col">Approvable</th>
+                      <th scope="col">Template</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -373,10 +357,7 @@ export function Spec() {
       </Section>
 
       <Section id="operations" title="Operations">
-        <p className="muted small">
-          Deterministic gateway policy decides AUTO / ASK / BLOCK; approval links never reach the
-          agent. Every confirmation re-checks live first (Simulated order — mock environment).
-        </p>
+        <p className="muted small">The gateway decides; approval links never reach the agent.</p>
         {OPERATIONS.map(({ channel, rows }) => (
           <div key={channel} className="mt-3">
             <h3 className="font-semibold">{channel}</h3>
@@ -386,7 +367,7 @@ export function Spec() {
                   <tr>
                     <th scope="col">Operation</th>
                     <th scope="col">Route</th>
-                    <th scope="col">What it does</th>
+                    <th scope="col">Purpose</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -421,10 +402,7 @@ export function Spec() {
             </a>
           </li>
         </ul>
-        <p className="muted small mt-2.5">
-          Draft 2020-12 schemas (<code>urn:verified-or-ask:v0.1:&lt;Model&gt;</code>). Money and
-          quantities are decimal strings.
-        </p>
+        <p className="muted small mt-2.5">JSON Schema 2020-12 · amounts as decimal strings.</p>
         <ul
           className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 [&>*]:min-w-0"
           aria-label="JSON Schemas"
@@ -441,7 +419,7 @@ export function Spec() {
                   className="btn mt-2 inline-flex items-center gap-1"
                   onClick={() => downloadSchema(name, schema)}
                 >
-                  <Download size={14} aria-hidden /> Download {name}.json
+                  <Download size={14} aria-hidden /> Download JSON
                 </button>
                 <pre className="mt-2 max-h-64 max-w-full overflow-auto rounded-[12px] bg-[var(--surface)] p-2 text-xs">
                   {JSON.stringify(schema, null, 2)}

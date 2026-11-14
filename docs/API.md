@@ -85,11 +85,11 @@ Every transition emits an `AuditEntry`. `OFFERED` is the initial lifecycle marke
 
 ### Approval channel only
 
-`ApproverView` is the **only model containing an approval token, URL or QR payload**. It wraps a `Proposal`, named `Approver`, optional `approvalStatement` (plain-language summary of what approving means, e.g. `"Approving means 95 kg instead of 120 kg, on Monday instead of today."`), `approvalToken`, optional `approvalUrl`/`qrPayload`, `expiresAt`, and the exact permission notice `Demo approval link — single use`. Neither this view nor any of its capability fields may be embedded in an agent response, agent tool output, shared log, explanation, or audit entry. Runtime serializers must also keep credentials out of arbitrary fact values and free text; schema inspection alone is not a security boundary.
+`ApproverView` is the **only model containing an approval token, URL or QR payload**. It wraps a `Proposal`, named `Approver`, optional `approvalStatement` (plain-language summary of what approving means, e.g. `"Approving means 95 kg instead of 120 kg, on Monday instead of today."`), `approvalToken`, optional `approvalUrl`/`qrPayload`, `expiresAt`, and the exact permission notice `Single-use approval link`. Neither this view nor any of its capability fields may be embedded in an agent response, agent tool output, shared log, explanation, or audit entry. Runtime serializers must also keep credentials out of arbitrary fact values and free text; schema inspection alone is not a security boundary.
 
 The separate approver panel/page sends `decideApproval(proposalId, offerVersion, approvalToken, action, comment?)` **only on the approver route**, where `action` is `APPROVE | REJECT`. This credential-bearing transport is deliberately not an agent request model. The server verifies single use, expiry, named role, and binding to `proposalId + offerVersion + offerHash`. Only the exact displayed proposal can be approved; BLOCK is never approvable. Approval triggers a re-check, not immediate confirmation. There is no partial-lines approval action.
 
-Agent-facing pending responses contain only the proposal, `state: PENDING_APPROVAL`, reasons, and `approverRole`; no approval capability or approve button. The demo actor is `human:Head Chef (demo, link-based)`. Production requires authenticated named approvers (SSO/OIDC); demo links are not production authentication.
+Agent-facing pending responses contain only the proposal, `state: PENDING_APPROVAL`, reasons, and `approverRole`; no approval capability or approve button. The demo actor is `human:Head Chef (link)`. Production requires authenticated named approvers (SSO/OIDC); demo links are not production authentication.
 
 ### Mandate and audit
 

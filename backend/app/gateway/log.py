@@ -2,7 +2,7 @@
 
 Every state transition appends an `AuditEntry` recording:
 - what happened (`event`, `fromState`, `toState`, `summary`);
-- who or what decided (`actor`: `gateway:*` or `human:Head Chef (demo, link-based)`);
+- who or what decided (`actor`: `gateway:*` or `human:Head Chef (link)`);
 - which rule (`rule`, `reasons`);
 - which facts (`facts` with their `TrustLabel`s).
 

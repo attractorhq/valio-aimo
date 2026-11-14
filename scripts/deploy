@@ -33,7 +33,10 @@ printf '%s\n' "$build_sha" > data/catalog/BUILD_SHA
 deploy_log="$(mktemp)"
 trap 'rm -f "$deploy_log"' EXIT
 
-(cd frontend && npm ci && npm run build)
+# Production UI calls the gateway on its own origin: never bake a dev API base (e.g. localhost:8000 from .env)
+# into the bundle, or browsers call the visitor's own machine (Chrome asks for local-network access).
+(cd frontend && npm ci && VITE_API_BASE_URL= npm run build)
+if grep -rq "localhost:8000" frontend/dist; then fail "frontend/dist references localhost:8000; check VITE_API_BASE_URL."; fi
 (cd edge && npm ci && npm run check)
 if docker buildx version >/dev/null 2>&1; then
   (cd edge && npx wrangler deploy "$@") 2>&1 | tee "$deploy_log"

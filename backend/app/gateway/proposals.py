@@ -20,7 +20,7 @@ from collections import OrderedDict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -43,9 +43,11 @@ from app.contracts import (
     Product,
     Proposal,
     ProposalState,
+    Quantity,
     ReasonCode,
     StructuredRequest,
     TrustLabel,
+    TrustSource,
     format_date,
     format_money,
     format_time,
@@ -70,6 +72,7 @@ from app.gateway.offers import (
     Lookup,
     OfferResult,
     _line_input,
+    _partial_coverage_label,
     _reliability,
     _stock_kind,
     _totals,
@@ -92,6 +95,7 @@ from app.policy import (
     evaluate_line,
 )
 from app.policy.limits import delivery_dates, limit_sentence
+from app.policy.lines import split_price_guard_detail, split_price_rise_pct
 from app.valio.facts import SENTINEL_METHOD, is_stock_sentinel
 
 # T62: proposal states whose total counts against the same-day limits (the split-order guard).
@@ -190,16 +194,108 @@ def _inferred_proposal_partial_items(proposal: Proposal) -> frozenset[str]:
     return frozenset(partial)
 
 
+_FROZEN_WORDS: tuple[str, ...] = ("frozen", "pakaste", "pakastettu", "jäädytetty", "fryst", "iqf")
+
+
+def _line_price_per_unit(line: OfferLine) -> Decimal | None:
+    if line.contentPerSalesUnit.value > 0:
+        return line.unitPriceExclVat / line.contentPerSalesUnit.value
+    if line.deliveredQuantity.value > 0:
+        return line.lineTotalExclVat / line.deliveredQuantity.value
+    return None
+
+
+def _line_is_frozen(line: OfferLine, product: Product | None = None) -> bool:
+    names = [line.name, line.nameFi or ""]
+    if product is not None:
+        names.extend(product.names.values())
+        if (product.category or "").startswith("41"):
+            return True
+    text_lower = " ".join(n for n in names if n).lower()
+    return any(w in text_lower for w in _FROZEN_WORDS)
+
+
+def split_state_detail(
+    line_a: OfferLine,
+    line_b: OfferLine,
+    product_a: Product | None = None,
+    product_b: Product | None = None,
+) -> str | None:
+    """When two lines in a split differ in fresh vs. frozen state, name the trade-off (T69/T77)."""
+    frozen_a = _line_is_frozen(line_a, product_a)
+    frozen_b = _line_is_frozen(line_b, product_b)
+    if frozen_a == frozen_b:
+        return None
+    if frozen_b:
+        return "Line 2 is frozen; line 1 is fresh"
+    return "Line 2 is fresh; line 1 is frozen"
+
+
+def split_detail_lines(
+    proposal: Proposal,
+    *,
+    products: Mapping[str, Product] | None = None,
+) -> list[str]:
+    """Detail lines for a split top-up proposal: price guard (> 10 %) and fresh vs. frozen trade-off (T69)."""
+    details: list[str] = []
+    for item in proposal.request.items:
+        item_lines = [ln for ln in proposal.lines if ln.itemId == item.itemId]
+        deliv_total = sum((ln.deliveredQuantity.value for ln in item_lines), Decimal(0))
+        if len(item_lines) < 2 or deliv_total < item.quantity:
+            continue
+        line_a, line_b = item_lines[0], item_lines[1]
+        price_a = _line_price_per_unit(line_a)
+        price_b = _line_price_per_unit(line_b)
+        guard = split_price_guard_detail(price_a, price_b, line_b.deliveredQuantity.unit)
+        if guard is not None:
+            details.append(guard)
+        prod_a = products.get(line_a.productId) if products else None
+        prod_b = products.get(line_b.productId) if products else None
+        state_det = split_state_detail(line_a, line_b, prod_a, prod_b)
+        if state_det is not None:
+            details.append(state_det)
+    return details
+
+
+def _format_split_clauses(proposal: Proposal) -> list[str]:
+    clauses: list[str] = []
+    for item in proposal.request.items:
+        item_lines = [ln for ln in proposal.lines if ln.itemId == item.itemId]
+        deliv_total = sum((ln.deliveredQuantity.value for ln in item_lines), Decimal(0))
+        if len(item_lines) < 2 or deliv_total < item.quantity:
+            continue
+        line_a, line_b = item_lines[0], item_lines[1]
+        price_a = _line_price_per_unit(line_a)
+        price_b = _line_price_per_unit(line_b)
+        unit = line_b.deliveredQuantity.unit
+        diff_clause = ""
+        if price_a is not None and price_b is not None:
+            diff = (price_b - price_a).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if diff > Decimal(0):
+                diff_clause = f" ({format_money(diff)}/{unit} more)"
+            elif diff < Decimal(0):
+                diff_clause = f" ({format_money(abs(diff))}/{unit} less)"
+        part_a = f"{_format_qty(line_a.deliveredQuantity.value, line_a.deliveredQuantity.unit)} of {line_a.name}"
+        part_b = (
+            f"{_format_qty(line_b.deliveredQuantity.value, line_b.deliveredQuantity.unit)} "
+            f"of {line_b.name}{diff_clause}"
+        )
+        clauses.append(f"{part_a} + {part_b}")
+    return clauses
+
+
 def format_approval_statement(
     proposal: Proposal,
     *,
     mandate: Mandate | None = None,
     today: date | None = None,
 ) -> str | None:
-    """Plain-language summary of what approving this proposal version means (patch P8 B2, P10).
+    """Plain-language summary of what approving this proposal version means (patch P8 B2, P10, T69).
 
     For Scenario B2 (partial delivery + later date):
       "Approving means 95 kg instead of 120 kg, on Monday instead of today."
+    For a split top-up (T69):
+      "Approving means 70 kg of A + 50 kg of B (€0.40/kg more)."
     """
     if proposal.decision != "ASK":
         return None
@@ -237,6 +333,14 @@ def format_approval_statement(
                 else format_date(earliest_delivery)
             )
             date_clause = f"on {deliv_label} instead of {req_label}"
+
+    split_clauses = _format_split_clauses(proposal)
+    if split_clauses:
+        details = split_detail_lines(proposal)
+        detail_suffix = (" " + ". ".join(d.rstrip(".") for d in details) + ".") if details else ""
+        if date_clause:
+            return f"Approving means {', '.join(split_clauses)}, {date_clause}.{detail_suffix}"
+        return f"Approving means {', '.join(split_clauses)}.{detail_suffix}"
 
     if shortfalls and date_clause:
         return f"Approving means {', '.join(shortfalls)}, {date_clause}."
@@ -772,6 +876,14 @@ class ProposalGateway:
             if partial_items is None
             else frozenset(partial_items)
         )
+        line_inputs, effective_partial = self._prepare_split_and_partial(
+            line_inputs,
+            create_req.request,
+            mandate,
+            eval_now,
+            effective_partial,
+            explicit_partial=partial_items is not None,
+        )
         # T62: the limits apply to this order plus what is committed for delivery on the days its lines arrive.
         committed_by_day = self.committed_by_day(
             create_req.customerId,
@@ -806,26 +918,14 @@ class ProposalGateway:
             item = items_by_id.get(item_id)
             return with_requirement_facts(facts, product, item.requirements if item else [], mandate)
 
-        kept_lines = [
-            line.model_copy(
-                update={
-                    "facts": evaluated_facts(line.productId, line.itemId, line.facts),
-                    "reasons": list(
-                        dict.fromkeys([
-                            *(ReasonCode(r) for r in verdict_by_line[line.lineId].reasons),
-                            *(
-                                [ReasonCode.PARTIAL_AVAILABILITY]
-                                if line.itemId in effective_partial
-                                and ReasonCode.PARTIAL_AVAILABILITY in policy_decision.reasons
-                                else []
-                            ),
-                        ])
-                    )
-                }
-            )
-            for line in bound_offer.lines
-            if line.lineId in verdict_by_line
-        ]
+        kept_lines = self._build_kept_lines(
+            bound_offer=bound_offer,
+            verdict_by_line=verdict_by_line,
+            items_by_id=items_by_id,
+            effective_partial=effective_partial,
+            policy_reasons=policy_decision.reasons,
+            evaluated_facts=evaluated_facts,
+        )
         totals = bound_offer.totals if len(kept_lines) == len(bound_offer.lines) else _totals(kept_lines)
         sub_excluded = _rejected_valio_substitutes(
             kept_lines, create_req.request, mandate, self.products, bound_offer.excluded
@@ -944,7 +1044,9 @@ class ProposalGateway:
         approval_statement = (
             format_approval_statement(preview_proposal, mandate=mandate, today=eval_now.date())
             if outcome == "ASK" and (
-                ReasonCode.PARTIAL_AVAILABILITY in reasons or ReasonCode.DATE_LATER in reasons
+                ReasonCode.PARTIAL_AVAILABILITY in reasons
+                or ReasonCode.DATE_LATER in reasons
+                or ReasonCode.SPLIT in reasons
             )
             else None
         )
@@ -1109,6 +1211,163 @@ class ProposalGateway:
             return self.recheck_and_confirm(proposal.proposalId, now=now)
         return approved
 
+    def _prepare_split_and_partial(
+        self,
+        line_inputs: list[LineInput],
+        request: StructuredRequest,
+        mandate: Mandate,
+        eval_now: datetime,
+        effective_partial: frozenset[str],
+        *,
+        explicit_partial: bool,
+    ) -> tuple[list[LineInput], frozenset[str]]:
+        """T69: mark compliant top-up lines in a multi-line split with `split_top_up=True` and `AGENT_SUBSTITUTE`.
+
+        If a top-up line fails a hard requirement (e.g. `CLAIM_MISSING`), it is excluded by `evaluate_line` and
+        there is no split version; the primary partial-stock line falls back to `PARTIAL_AVAILABILITY`.
+        """
+        updated = list(line_inputs)
+        partial = set(effective_partial)
+        for item in request.items:
+            item_indices = [idx for idx, ln in enumerate(updated) if ln.item_id == item.itemId]
+            if len(item_indices) <= 1:
+                continue
+            ok_indices = [
+                idx
+                for idx in item_indices
+                if evaluate_line(
+                    updated[idx],
+                    item=item,
+                    mandate=mandate,
+                    requested_date=request.requestedDate,
+                    now=eval_now,
+                ).status
+                != "EXCLUDED"
+            ]
+            covered = sum((updated[idx].covered_quantity() for idx in ok_indices), Decimal(0))
+            if len(ok_indices) >= 2 and covered >= item.quantity and item.itemId not in partial:
+                primary_line = updated[ok_indices[0]]
+                primary_ppu = primary_line.price_per_delivered_unit()
+                for top_idx in ok_indices[1:]:
+                    ln = updated[top_idx]
+                    updated[top_idx] = replace(
+                        ln,
+                        split_top_up=True,
+                        substitution=ln.substitution or "AGENT",
+                        substitute_for=ln.substitute_for or primary_line.product.productId,
+                        primary_price_per_unit=primary_ppu,
+                    )
+            elif not explicit_partial and Decimal(0) < covered < item.quantity:
+                partial.add(item.itemId)
+        return updated, frozenset(partial)
+
+    def _build_kept_lines(
+        self,
+        *,
+        bound_offer: Offer,
+        verdict_by_line: Mapping[str, LineVerdict],
+        items_by_id: Mapping[str, object],
+        effective_partial: frozenset[str],
+        policy_reasons: Sequence[ReasonCode],
+        evaluated_facts,
+    ) -> list[OfferLine]:
+        kept_lines: list[OfferLine] = []
+        primary_line_by_item: dict[str, OfferLine] = {}
+        for line in bound_offer.lines:
+            if line.lineId not in verdict_by_line:
+                continue
+            verdict = verdict_by_line[line.lineId]
+            facts = list(evaluated_facts(line.productId, line.itemId, line.facts))
+            if line.itemId not in primary_line_by_item:
+                primary_line_by_item[line.itemId] = line
+                if (
+                    line.itemId in effective_partial
+                    and ReasonCode.PARTIAL_AVAILABILITY in policy_reasons
+                    and not any(f.fact == "coverage.partial" for f in facts)
+                ):
+                    req_item = items_by_id.get(line.itemId)
+                    if req_item is not None:
+                        facts.append(
+                            _partial_coverage_label(
+                                line.deliveredQuantity,
+                                Quantity(value=req_item.quantity, unit=req_item.unit),
+                                line.deliveryDate,
+                                retrieved_at=bound_offer.createdAt,
+                            )
+                        )
+            if verdict.line.split_top_up:
+                primary_offer_line = primary_line_by_item[line.itemId]
+                guard_detail = split_price_guard_detail(
+                    verdict.line.primary_price_per_unit,
+                    verdict.line.price_per_delivered_unit(),
+                    line.deliveredQuantity.unit,
+                )
+                if guard_detail is not None and not any(f.fact == "split.priceGuard" for f in facts):
+                    pct = split_price_rise_pct(
+                        verdict.line.primary_price_per_unit,
+                        verdict.line.price_per_delivered_unit(),
+                    )
+                    pct_val = str(int(pct)) if pct is not None and pct == pct.to_integral() else str(pct)
+                    facts.append(
+                        TrustLabel(
+                            fact="split.priceGuard",
+                            value=f"+{pct_val}%",
+                            display=guard_detail,
+                            level="VERIFIED",
+                            source=TrustSource(
+                                system="valio-aimo.price-api",
+                                field="catalogPrice.value",
+                                retrievedAt=bound_offer.createdAt,
+                            ),
+                            method="split-price-guard (>10%)",
+                            conflict=None,
+                        )
+                    )
+                state_det = split_state_detail(
+                    primary_offer_line,
+                    line,
+                    self.products.get(primary_offer_line.productId),
+                    self.products.get(line.productId),
+                )
+                if state_det is not None and not any(f.fact == "split.variant" for f in facts):
+                    facts.append(
+                        TrustLabel(
+                            fact="split.variant",
+                            value="fresh_vs_frozen",
+                            display=state_det,
+                            level="DECLARED",
+                            source=TrustSource(
+                                system="valio-aimo.product-data",
+                                field="synkkaData.names",
+                                retrievedAt=None,
+                            ),
+                            method="split-variant-guard",
+                            conflict=None,
+                        )
+                    )
+            reasons = list(
+                dict.fromkeys([
+                    *(ReasonCode(r) for r in verdict.reasons),
+                    *(
+                        [ReasonCode.PARTIAL_AVAILABILITY]
+                        if line.itemId in effective_partial
+                        and ReasonCode.PARTIAL_AVAILABILITY in policy_reasons
+                        else []
+                    ),
+                ])
+            )
+            kept_lines.append(
+                line.model_copy(
+                    update={
+                        "facts": facts,
+                        "reasons": reasons,
+                        "substitutionSource": verdict.line.substitution or line.substitutionSource,
+                        "substituteFor": verdict.line.substitute_for or line.substituteFor,
+                    }
+                )
+            )
+        return kept_lines
+
     def _recheck_differences(
         self,
         proposal: Proposal,
@@ -1128,6 +1387,8 @@ class ProposalGateway:
         items_by_id = {item.itemId: item for item in proposal.request.items}
         used_stock: dict[str, Decimal] = {}
         refreshed_line_inputs: list[LineInput] = []
+        primary_by_item: dict[str, tuple[str, Decimal | None]] = {}
+        partial_for_prop = self._partial_items.get(proposal.proposalId, frozenset())
 
         for line in proposal.lines:
             product = self.products.get(line.productId)
@@ -1211,6 +1472,17 @@ class ProposalGateway:
                     probe,
                     substitution=line.substitutionSource,
                     substitute_for=line.substituteFor,
+                )
+            if line.itemId not in primary_by_item:
+                primary_by_item[line.itemId] = (line.productId, probe.price_per_delivered_unit())
+            elif line.itemId not in partial_for_prop:
+                primary_pid, primary_ppu = primary_by_item[line.itemId]
+                probe = replace(
+                    probe,
+                    split_top_up=True,
+                    substitution=line.substitutionSource or "AGENT",
+                    substitute_for=line.substituteFor or primary_pid,
+                    primary_price_per_unit=primary_ppu,
                 )
             verdict = evaluate_line(
                 probe,

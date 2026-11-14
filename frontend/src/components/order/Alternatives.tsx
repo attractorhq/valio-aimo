@@ -350,7 +350,7 @@ export function Alternatives({
 
   return (
     <section
-      className="mt-1.5 min-w-0 rounded-[24px] border border-[var(--line)] bg-[var(--tint)] px-3 py-1.5 [overflow-wrap:anywhere]"
+      className="mt-1.5 min-w-0 rounded-[24px] border border-[var(--line)] bg-[var(--tint)] px-3 py-1.5 [overflow-wrap:break-word]"
       aria-label="Good / Better / Best alternatives"
     >
       <div className="flex flex-wrap items-center justify-between gap-1">

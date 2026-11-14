@@ -8,7 +8,6 @@ test('scenario A: the chain from request to confirmed (simulated) is readable', 
   page,
 }) => {
   await page.goto('/log/MOCK-P-A')
-  await expect(page.getByText('Synthetic mock data')).toBeVisible()
   await expect(page.getByRole('status', { name: 'Hash-chain verification status' })).toContainText(
     'Hash chain verified ✓',
   )
@@ -35,7 +34,7 @@ test('scenario B: one reason, the rule and the waiting approver', async ({ page 
   await expect(entries(page).filter({ hasText: 'Candidate excluded' })).toContainText(
     'SUBSTITUTE_REJECTED',
   )
-  await expect(entries(page).last()).toContainText('Waiting for Head Chef (demo)')
+  await expect(entries(page).last()).toContainText('Waiting for Head Chef')
 })
 
 test('scenario C: instruction ignored and blocked by mandate are visible', async ({ page }) => {
@@ -60,7 +59,7 @@ test('a superseded version is called out, with the human approval before it', as
 test('the main view links to the decision log of the shown proposal', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: /^Scenario B:/ }).click()
-  await page.getByRole('link', { name: 'Open the decision log for this proposal' }).click()
+  await page.getByRole('link', { name: 'Open decision log' }).click()
   await expect(page).toHaveURL(/\/log\/MOCK-P-B(-\w+)?$/)
   await expect(entries(page).first()).toContainText('Request structured')
   await page.getByRole('link', { name: 'Back to the purchasing flow' }).click()

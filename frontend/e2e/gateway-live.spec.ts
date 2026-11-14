@@ -117,13 +117,12 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     const page = await context.newPage()
 
     await page.goto(baseURL)
-    // Connected to real /v0.1 gateway: shows Recorded mode badge, NOT "Synthetic mock data"
-    await expect(page.getByText(/Recorded · captured/)).toBeVisible()
+    // Connected to the real /v0.1 gateway: no data-source badges at all
     await expect(page.getByText('Synthetic mock data')).toHaveCount(0)
 
     const mandateRegion = page.getByRole('region', { name: 'Buyer mandate' })
-    await expect(mandateRegion).toContainText('Nordic Harbour Hotels (demo)')
-    await expect(mandateRegion).toContainText('Northbay School Kitchen (demo)')
+    await expect(mandateRegion).toContainText('Nordic Harbour Hotels')
+    await expect(mandateRegion).toContainText('Northbay School Kitchen')
 
     // 1. Official example typed in free text -> AUTO confirmed (€1,010.00)
     await page
@@ -184,17 +183,17 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     await expect(altsLiveB).toContainText('Oddlygood')
     await expect(altsLiveB).toContainText('in stock (verified)')
     await expect(step(page, 'Approval')).toContainText('Waiting for approver')
-    await expect(step(page, 'Approval')).toContainText('Waiting for Head Chef (demo)')
+    await expect(step(page, 'Approval')).toContainText('Waiting for Head Chef')
     await expect(page.getByRole('button', { name: /approve/i })).toHaveCount(0)
 
     const approverPage = await context.newPage()
     await approverPage.goto(`${baseURL}/approver`)
     await expect(
-      approverPage.getByRole('heading', { name: 'Approver — Head Chef (demo)' }),
+      approverPage.getByRole('heading', { name: 'Approver — Head Chef' }),
     ).toBeVisible()
     const card = approverPage.getByRole('article')
     await expect(card.getByRole('heading')).toHaveText(
-      'You are approving version 1 of this proposal',
+      'Approving version 1',
     )
     await expect(card).toContainText('€506.16 is above your €500.00 auto-approve limit.')
     const mobileHref = await card
@@ -206,7 +205,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     const phonePage = await context.newPage()
     await phonePage.goto(`${baseURL}${mobileHref}`)
     await expect(phonePage.getByRole('article')).toContainText(
-      'You are approving version 1 of this proposal',
+      'Approving version 1',
     )
     await phonePage.close()
 
@@ -217,11 +216,11 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
 
     await page.bringToFront()
     await expect(step(page, 'Approval')).toContainText(
-      'Approved by Head Chef (demo) → Confirmed (simulated)',
+      'Approved by Head Chef → Confirmed (simulated)',
     )
 
     // Decision log via GET /v0.1/audit?proposalId=
-    await page.getByRole('link', { name: 'Open the decision log for this proposal' }).click()
+    await page.getByRole('link', { name: 'Open decision log' }).click()
     await expect(page).toHaveURL(/\/log\/PR-/)
     await expect(page.getByText('Synthetic mock data')).toHaveCount(0)
     const logEntries = page.getByRole('list', { name: 'Decision log' }).locator('> li')
@@ -246,7 +245,10 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
       .fill('Tarvitsen tuhat litraa laktoositonta maitoa maanantaiksi')
     await page.getByRole('button', { name: 'Run request' }).click()
     await expect(step(page, 'Approval')).toContainText(
-      '€1,010.00 excl. VAT plus the orders already committed for delivery on Mon 16 Nov is above your €1,500.00 auto-approve limit.',
+      '€1,010.00 excl. VAT plus the orders already committed for delivery on Mon 16 Nov exceeds your €1,500.00 auto-approve limit.',
+    )
+    await expect(page.getByTestId('result-why')).toContainText(
+      'this order plus the orders already committed for delivery on Mon 16 Nov exceeds your €1,500.00 auto-approve limit',
     )
     await expect(step(page, 'Order')).toContainText('€1,010.00 excl. VAT')
 
@@ -257,9 +259,9 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     await page.getByRole('button', { name: 'Run request' }).click()
     await expect(step(page, 'Request')).toContainText('CLARIFICATION NEEDED')
     await expect(
-      page.getByRole('button', { name: 'Answer by editing the request above' }),
+      page.getByRole('button', { name: 'Edit request' }),
     ).toBeVisible()
-    await page.getByRole('button', { name: 'Answer by editing the request above' }).click()
+    await page.getByRole('button', { name: 'Edit request' }).click()
     await page
       .getByLabel('What do you need, and by when?')
       .fill('1,000 litres of lactose-free milk by Monday.')

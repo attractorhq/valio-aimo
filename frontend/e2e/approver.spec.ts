@@ -40,16 +40,16 @@ test('B: main view ASK → Approver panel → Approve → confirmed in both view
 
   const approver = await context.newPage()
   await approver.goto('/approver')
-  await expect(approver.getByRole('heading', { name: 'Approver — Head Chef (demo)' })).toBeVisible()
+  await expect(approver.getByRole('heading', { name: 'Approver — Head Chef' })).toBeVisible()
   const card = approver.getByRole('article')
-  await expect(card.getByRole('heading')).toHaveText('You are approving version 1 of this proposal')
+  await expect(card.getByRole('heading')).toHaveText('Approving version 1')
   await expect(card).toContainText(
     '€506.16 is above your €500.00 auto-approve limit. Everything else is verified or declared.',
   )
   await expect(card).toContainText('Synthetic gluten-free macaroni 5 kg')
   await expect(card).toContainText('18 bag')
   await expect(card).toContainText('Mon 16 Nov')
-  await expect(card).toContainText('Demo approval link — single use')
+  await expect(card).toContainText('Single-use approval link')
   await approver.screenshot({
     path: `test-results/approver-pending-${info.project.name}.png`,
     fullPage: true,
@@ -76,7 +76,7 @@ test('B: main view ASK → Approver panel → Approve → confirmed in both view
 
   await page.bringToFront()
   await expect(step(page, 'Approval')).toContainText(
-    'Approved by Head Chef (demo) → Confirmed (simulated)',
+    'Approved by Head Chef → Confirmed (simulated)',
   )
   await expect(step(page, 'Approval')).toContainText('Approved')
   await page.screenshot({
@@ -93,7 +93,7 @@ test('reject is shown in both views and nothing is ordered', async ({ page, cont
   await approver.getByRole('button', { name: 'Reject' }).click()
   await expect(approver.getByRole('article')).toContainText('Rejected · nothing was ordered')
   await page.bringToFront()
-  await expect(step(page, 'Approval')).toContainText('Rejected by Head Chef (demo)')
+  await expect(step(page, 'Approval')).toContainText('Rejected by Head Chef')
 })
 
 test('a used approval link cannot be replayed', async ({ page }) => {
@@ -130,13 +130,10 @@ test('a superseded version can no longer be approved', async ({ page }) => {
 test('the approver panel is visibly not the agent and starts empty', async ({ page }) => {
   await page.goto('/approver')
   await expect(page.getByText('Human sign-off channel · not the agent')).toBeVisible()
-  await expect(
-    page.getByText('Demo approver — no authentication; production uses SSO/OIDC'),
-  ).toBeVisible()
   await expect(page.getByText('Nothing to approve.')).toBeVisible()
   await page.getByLabel('Signed in as').selectOption('mock-hotels')
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(
-    'Approver — Purchasing Manager (demo)',
+    'Approver — Purchasing Manager',
   )
 })
 
@@ -160,7 +157,7 @@ test('phone approval via QR (/approve/:token) at 390 px and across separate devi
 
   await page.goto('/approver')
   const qr = page.getByRole('img', {
-    name: 'Scan on a phone to open the single-use demo approval page',
+    name: 'Scan on a phone to open the single-use approval page',
   })
   await expect(qr).toBeVisible()
   const mobileHref = await page
@@ -209,14 +206,14 @@ test('phone approval via QR (/approve/:token) at 390 px and across separate devi
   const phone = await phoneContext.newPage()
   await phone.goto(decoded!.data)
 
-  await expect(phone.getByRole('heading', { name: 'Approver — Head Chef (demo)' })).toBeVisible()
+  await expect(phone.getByRole('heading', { name: 'Approver — Head Chef' })).toBeVisible()
   const card = phone.getByRole('article')
-  await expect(card.getByRole('heading')).toHaveText('You are approving version 1 of this proposal')
+  await expect(card.getByRole('heading')).toHaveText('Approving version 1')
   await expect(card).toContainText(
     '€506.16 is above your €500.00 auto-approve limit. Everything else is verified or declared.',
   )
   await expect(card).toContainText('Synthetic gluten-free macaroni 5 kg')
-  await expect(card).toContainText('Demo approval link — single use')
+  await expect(card).toContainText('Single-use approval link')
 
   const overflow = await phone.evaluate(
     () => document.documentElement.scrollWidth - window.innerWidth,
@@ -270,7 +267,7 @@ test('B2 partial-delivery proposal shows "Approving means 95 kg instead of 120 k
 
   await page.goto('/approver')
   const card = page.getByRole('article')
-  await expect(card.getByRole('heading')).toHaveText('You are approving version 1 of this proposal')
+  await expect(card.getByRole('heading')).toHaveText('Approving version 1')
   const statement = card.getByRole('note', { name: 'Approval statement' })
   await expect(statement).toHaveText(
     'Approving means 95 kg instead of 120 kg, on Monday instead of today.',
@@ -285,7 +282,7 @@ test('B2 partial-delivery proposal shows "Approving means 95 kg instead of 120 k
   )
 })
 
-test('a queue row shows the customer, the products, each reason once and what approving means', async ({
+test('a queue row shows the customer, the products and each reason once', async ({
   page,
 }) => {
   await runScenarioB(page)
@@ -296,7 +293,89 @@ test('a queue row shows the customer, the products, each reason once and what ap
     'Synthetic gluten-free macaroni 5 kg, Synthetic gluten-free oat drink 1 l',
   )
   await expect(row.getByText('Above auto-approve limit', { exact: true })).toHaveCount(1)
-  await expect(row.getByTestId('queue-statement')).toHaveText(
-    '€506.16 is above your €500.00 auto-approve limit. Everything else is verified or declared.',
-  )
+  await expect(row.getByTestId('queue-statement')).toHaveCount(0)
+})
+
+test('T69 split top-up proposal renders both lines, the approval sentence, and the price-guard detail line', async ({
+  page,
+}) => {
+  await runScenarioB(page)
+  await page.evaluate((key) => {
+    const store = JSON.parse(localStorage.getItem(key) ?? '{}')
+    for (const r of Object.values(store) as Array<{
+      proposal: {
+        reasons: string[]
+        request: {
+          items: Array<{ itemId: string; what: string; quantity: string; unit: string }>
+        }
+        lines: Array<{
+          lineId: string
+          itemId: string
+          productId: string
+          name: string
+          salesUnit: string
+          salesUnitLabel: string
+          contentPerSalesUnit: { value: string; unit: string; level: string; method: string }
+          quantitySalesUnits: string
+          deliveredQuantity: { value: string; unit: string }
+          unitPriceExclVat: string
+          lineTotalExclVat: string
+          vatRate: string
+          deliveryDate: string
+          closingTime: string | null
+          facts: unknown[]
+          reasons: string[]
+          substitutionSource?: string
+          substituteFor?: string
+        }>
+      }
+    }>) {
+      r.proposal.reasons = ['SPLIT', 'AGENT_SUBSTITUTE']
+      r.proposal.request.items = [
+        { itemId: 'I1', what: 'gluten-free pasta', quantity: '120', unit: 'kg' },
+      ]
+      const baseLine = r.proposal.lines[0]
+      r.proposal.lines = [
+        {
+          ...baseLine,
+          lineId: 'L1',
+          itemId: 'I1',
+          productId: 'SYN-A',
+          name: 'A',
+          contentPerSalesUnit: { value: '5', unit: 'kg', level: 'DECLARED', method: 'salesUnit' },
+          quantitySalesUnits: '14',
+          deliveredQuantity: { value: '70', unit: 'kg' },
+          unitPriceExclVat: '10.00',
+          lineTotalExclVat: '140.00',
+          reasons: [],
+        },
+        {
+          ...baseLine,
+          lineId: 'L2',
+          itemId: 'I1',
+          productId: 'SYN-B',
+          name: 'B',
+          contentPerSalesUnit: { value: '5', unit: 'kg', level: 'DECLARED', method: 'salesUnit' },
+          quantitySalesUnits: '10',
+          deliveredQuantity: { value: '50', unit: 'kg' },
+          unitPriceExclVat: '12.00',
+          lineTotalExclVat: '120.00',
+          reasons: ['SPLIT', 'AGENT_SUBSTITUTE'],
+          substitutionSource: 'AGENT',
+          substituteFor: 'SYN-A',
+        },
+      ]
+    }
+    localStorage.setItem(key, JSON.stringify(store))
+  }, STORE)
+
+  await page.goto('/approver')
+  const card = page.getByRole('article')
+  await expect(card).toContainText('SYN-A')
+  await expect(card).toContainText('70 kg')
+  await expect(card).toContainText('SYN-B')
+  await expect(card).toContainText('50 kg')
+  const statement = card.getByRole('note', { name: 'Approval statement' })
+  await expect(statement).toContainText('Approving means 70 kg of A + 50 kg of B (€0.40/kg more).')
+  await expect(statement).toContainText('+20 % per kg')
 })

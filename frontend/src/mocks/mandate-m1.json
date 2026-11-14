@@ -12,5 +12,5 @@
   "minReliability": "0.80",
   "enforceCutoff": true,
   "forbiddenAllergens": [],
-  "approver": {"name": "Demo Purchasing Manager", "role": "Purchasing Manager (demo)"}
+  "approver": {"name": "Demo Purchasing Manager", "role": "Purchasing Manager"}
 }

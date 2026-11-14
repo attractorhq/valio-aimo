@@ -5,6 +5,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 from app.agent.explain import template_explanation
+from app.api.state import GatewayState, fresh_sandbox, reset_sandbox
 from app.contracts import GetOfferRequest, OfferItem, ReasonCode, RequestItem, StructuredRequest
 from app.gateway.proposals import ProposalGateway, create_proposal, decide_approval, get_audit_trail
 from app.policy import DEMO_MANDATES, M1, M2, MandateBook, decide
@@ -125,6 +126,21 @@ def test_another_delivery_date_does_not_count():
     assert tuesday.decision == "AUTO"
     assert gateway.committed_total(M2.customerId, TUESDAY) == Decimal("297.96")
     assert gateway.committed_total(M2.customerId, MONDAY) == Decimal("297.96")
+
+
+def test_commitments_are_scoped_to_a_sandbox_and_cleared_by_reset():
+    resources = GatewayState(_gateway(), list(PRODUCTS.values()), "RECORDED")
+    first = fresh_sandbox(resources, "first")
+    second = fresh_sandbox(resources, "second")
+
+    assert _order(first.gateway, "OF-FIRST").decision == "AUTO"
+    pending = _order(first.gateway, "OF-REPEAT")
+    assert pending.reasons == [ReasonCode.OVER_AUTO_LIMIT]
+    assert _order(second.gateway, "OF-SECOND").decision == "AUTO"
+
+    reset_sandbox(first)
+    assert _order(first.gateway, "OF-AFTER-RESET").decision == "AUTO"
+    assert _order(second.gateway, "OF-STILL-COMMITTED").reasons == [ReasonCode.OVER_AUTO_LIMIT]
 
 
 def test_a_pending_proposal_counts_until_it_is_rejected():
