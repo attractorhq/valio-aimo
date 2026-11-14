@@ -285,7 +285,11 @@ export function Main() {
         {(proposal || step4) && (
           <div className="primary-result">
             {proposal && (
-              <ResultBanner proposal={proposal} logHref={logPath(proposal.proposalId)} />
+              <ResultBanner
+                proposal={proposal}
+                mandate={mandate}
+                logHref={logPath(proposal.proposalId)}
+              />
             )}
             {!proposal && step4 && (
               <NoOrderBanner summary={step4.summary} detail={step4.explanation?.text} />

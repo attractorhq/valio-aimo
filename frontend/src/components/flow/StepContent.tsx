@@ -1,7 +1,7 @@
 import { Ban, CheckCircle2, Hourglass, Info, ShieldCheck } from 'lucide-react'
 import type { Mandate, Proposal, ReasonCode } from '../../lib/contracts'
 import { REASON_REGISTRY } from '../../lib/contracts'
-import { explainWhyNotAuto, plainReason, uniqueReasons } from '../approver/explain'
+import { committedLimitSentence, explainWhyNotAuto, plainReason, uniqueReasons } from '../approver/explain'
 import {
   formatClock,
   formatDate,
@@ -144,6 +144,8 @@ export function approvalLabel(proposal: Proposal): string {
 }
 
 function explain(code: ReasonCode, proposal: Proposal, mandate?: Mandate): string {
+  const committed = committedLimitSentence(code, proposal, mandate)
+  if (committed) return committed
   const params: Record<string, string> = { total: formatMoney(proposal.totals.exclVat) }
   if (mandate) {
     params.limit = formatMoney(
@@ -212,7 +214,15 @@ function resultTone(proposal: Proposal): 'auto' | 'ask' | 'block' {
  * T43: the result first. Decision, total and order lines, then the reasons, with links down to the
  * evidence. Every detail stays in steps 1–4 below.
  */
-export function ResultBanner({ proposal, logHref }: { proposal: Proposal; logHref?: string }) {
+export function ResultBanner({
+  proposal,
+  mandate,
+  logHref,
+}: {
+  proposal: Proposal
+  mandate?: Mandate
+  logHref?: string
+}) {
   const tone = resultTone(proposal)
   const Icon =
     tone === 'auto' ? CheckCircle2 : tone === 'ask' ? Hourglass : tone === 'block' ? Ban : Info
@@ -247,7 +257,8 @@ export function ResultBanner({ proposal, logHref }: { proposal: Proposal; logHre
       </ul>
       {proposal.decision === 'ASK' && proposal.state === 'PENDING_APPROVAL' && (
         <p className="text-xs text-[var(--ink)]" data-testid="result-why">
-          Not auto-approved because {explainWhyNotAuto(proposal, undefined, { omitTotalAmount: true })}.
+          Not auto-approved because{' '}
+          {explainWhyNotAuto(proposal, mandate, { omitTotalAmount: true })}.
         </p>
       )}
       {proposal.reasons.length > 0 && (

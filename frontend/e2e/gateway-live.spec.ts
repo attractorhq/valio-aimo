@@ -237,12 +237,19 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     await expect(step(page, 'Approval')).toContainText('Above hard limit')
     await expect(step(page, 'Approval')).toContainText('Instruction ignored')
 
-    // 4. Finnish free text: "Tarvitsen tuhat litraa laktoositonta maitoa maanantaiksi" -> AUTO
+    // 4. Finnish free text: "Tarvitsen tuhat litraa laktoositonta maitoa maanantaiksi" -> the same order.
+    // T62 split-order guard: the same buyer already has €1,010.00 confirmed for Mon 16 Nov (step 1), so this
+    // repeat order takes the day over the €1,500.00 auto-approve limit: ASK, and the text says why.
     await page
       .getByLabel('What do you need, and by when?')
       .fill('Tarvitsen tuhat litraa laktoositonta maitoa maanantaiksi')
     await page.getByRole('button', { name: 'Run request' }).click()
-    await expect(step(page, 'Approval')).toContainText('Agent decided → Confirmed (simulated)')
+    await expect(step(page, 'Approval')).toContainText(
+      '€1,010.00 excl. VAT plus the orders already committed for delivery on Mon 16 Nov exceeds your €1,500.00 auto-approve limit.',
+    )
+    await expect(page.getByTestId('result-why')).toContainText(
+      'this order plus the orders already committed for delivery on Mon 16 Nov exceeds your €1,500.00 auto-approve limit',
+    )
     await expect(step(page, 'Order')).toContainText('€1,010.00 excl. VAT')
 
     // 5. Clarification (O6): show the single question and let the buyer answer by editing the request
@@ -259,7 +266,8 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
       .getByLabel('What do you need, and by when?')
       .fill('1,000 litres of lactose-free milk by Monday.')
     await page.getByRole('button', { name: 'Run request' }).click()
-    await expect(step(page, 'Approval')).toContainText('Agent decided → Confirmed (simulated)')
+    // The answered request is decided like any other order: ASK for the same reason as step 4 (T62).
+    await expect(step(page, 'Approval')).toContainText('already committed for delivery on Mon 16 Nov')
 
     // 6. Verify no horizontal scroll at 390 px width
     await page.setViewportSize({ width: 390, height: 844 })

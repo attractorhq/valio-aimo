@@ -94,8 +94,12 @@ from app.policy import (
     decide,
     evaluate_line,
 )
+from app.policy.limits import delivery_dates, limit_sentence
 from app.policy.lines import split_price_guard_detail, split_price_rise_pct
 from app.valio.facts import SENTINEL_METHOD, is_stock_sentinel
+
+# T62: proposal states whose total counts against the same-day limits (the split-order guard).
+COMMITTED_STATES = frozenset({"PENDING_APPROVAL", "APPROVED", "AUTO_APPROVED", "RECHECKED", "CONFIRMED_SIMULATED"})
 
 
 class ProposalError(ValueError):
@@ -346,6 +350,13 @@ def format_approval_statement(
         return f"Approving means delivery {date_clause}."
 
     if list(proposal.reasons) == [ReasonCode.OVER_AUTO_LIMIT] and mandate is not None:
+        if proposal.totals.exclVat <= mandate.autoApproveLimitEur:
+            # T62: the day's committed orders, not this order alone, take it over the limit.
+            return (
+                limit_sentence(ReasonCode.OVER_AUTO_LIMIT, proposal.totals.exclVat, mandate.autoApproveLimitEur,
+                               delivery_dates(proposal.lines, proposal.requestedDate))
+                + ". Everything else is verified or declared."
+            )
         return (
             f"{format_money(proposal.totals.exclVat)} is above your "
             f"{format_money(mandate.autoApproveLimitEur)} auto-approve limit. "
@@ -750,6 +761,33 @@ class ProposalGateway:
             inputs.append(line_input_from_offer_line(offer_line, product))
         return inputs
 
+    def committed_by_day(
+        self, customer_id: str, days: date | Iterable[date], *, exclude: Sequence[str] = ()
+    ) -> dict[date, Decimal]:
+        """T62: what the customer already has committed for delivery on each of `days` (excl. VAT).
+
+        Keyed on the lines' delivery dates, never the requested date: orders requested for different days can
+        arrive on the same day. Confirmed (simulated) orders and proposals on their way to confirmation (waiting
+        for sign-off, approved, being re-checked) count; superseded, rejected, expired and blocked ones do not.
+        """
+        if self._session is not None:
+            self._hydrate_from_session(self._session)
+        wanted = {days} if isinstance(days, date) else set(days)
+        committed: dict[date, Decimal] = {}
+        for p in self._proposals.values():
+            if p.customerId != customer_id or p.state not in COMMITTED_STATES or p.proposalId in exclude:
+                continue
+            for line in p.lines:
+                if line.deliveryDate in wanted:
+                    committed[line.deliveryDate] = committed.get(line.deliveryDate, Decimal(0)) + line.lineTotalExclVat
+        return committed
+
+    def committed_total(
+        self, customer_id: str, days: date | Iterable[date], *, exclude: Sequence[str] = ()
+    ) -> Decimal:
+        """T62: the customer's committed total (excl. VAT) for delivery on any of `days`."""
+        return sum(self.committed_by_day(customer_id, days, exclude=exclude).values(), Decimal(0))
+
     def create_proposal(
         self,
         request_or_customer: CreateProposalRequest | str,
@@ -765,8 +803,11 @@ class ProposalGateway:
         clarification_needed: bool = False,
         auto_confirm: bool = True,
         allow_no_order_block: bool = False,
+        replaces: str | None = None,
     ) -> Proposal:
         """Bind `customerId + mandateVersion + request + offerId/offerVersion/offerHash + totals` and decide.
+
+        `replaces` is the proposal a new version supersedes: it no longer counts towards the committed total.
 
         Accepts either a `CreateProposalRequest` or `(customerId, offerId, offerVersion, request)`.
         Repeated calls for the same `(customerId, offerId, offerVersion, request)` are idempotent.
@@ -843,6 +884,14 @@ class ProposalGateway:
             effective_partial,
             explicit_partial=partial_items is not None,
         )
+        # T62: the limits apply to this order plus what is committed for delivery on the days its lines arrive.
+        committed_by_day = self.committed_by_day(
+            create_req.customerId,
+            delivery_dates(bound_offer.lines, create_req.request.requestedDate),
+            exclude=(replaces,) if replaces else (),
+        )
+        committed = sum(committed_by_day.values(), Decimal(0))
+        committed_days = tuple(sorted(d for d, amount in committed_by_day.items() if amount > 0))
         policy_decision = decide(
             mandate=mandate,
             request=create_req.request,
@@ -851,6 +900,8 @@ class ProposalGateway:
             partial_items=effective_partial,
             instruction_ignored=instruction_ignored,
             clarification_needed=clarification_needed,
+            committed_excl_vat=committed,
+            committed_days=committed_days,
         )
 
         if policy_decision.outcome == "NO_ORDER" and not allow_no_order_block:
@@ -986,7 +1037,10 @@ class ProposalGateway:
             excluded=excluded,
             totals=totals,
         )
-        base_summary = decision_summary(outcome, reasons, total_excl_vat=totals.exclVat, mandate=mandate)
+        base_summary = decision_summary(
+            outcome, reasons, total_excl_vat=totals.exclVat, mandate=mandate,
+            committed_excl_vat=committed, committed_days=committed_days,
+        )
         approval_statement = (
             format_approval_statement(preview_proposal, mandate=mandate, today=eval_now.date())
             if outcome == "ASK" and (
@@ -1675,6 +1729,7 @@ class ProposalGateway:
             partial_items=partial,
             auto_confirm=False,
             allow_no_order_block=True,
+            replaces=proposal.proposalId,
         )
 
         changes_text = "; ".join(diffs)

@@ -38,6 +38,7 @@ from app.contracts import (
 from app.contracts.common import Contract
 from app.db.models import DecisionLogRow
 from app.policy import Finding
+from app.policy.limits import format_days
 
 GENESIS_HASH: str = "0" * 64
 
@@ -280,9 +281,19 @@ def decision_summary(
     mandate: Mandate,
     available_date: date | None = None,
     requested_date: date | None = None,
+    committed_excl_vat: Decimal = Decimal(0),
+    committed_days: Sequence[date] = (),
 ) -> str:
     """Readable summary of the gateway's policy decision for the decision log."""
     total_text = format_money(total_excl_vat)
+    # T62: when the same delivery day already has committed orders, the limits apply to their sum.
+    if committed_excl_vat > 0:
+        days = committed_days or ((requested_date,) if requested_date else ())
+        day = f" for delivery on {format_days(days)}" if days else ""
+        total_text = (
+            f"{format_money(committed_excl_vat)} already committed{day}; with this order "
+            f"{format_money(committed_excl_vat + total_excl_vat)}"
+        )
     auto_text = format_money(mandate.autoApproveLimitEur)
     hard_text = format_money(mandate.hardLimitEur)
     reason_details: list[str] = []

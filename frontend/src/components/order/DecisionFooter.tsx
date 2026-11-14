@@ -8,10 +8,12 @@ import {
   proposalRequirementChecks,
   requirementsStatement,
 } from '../../lib/requirements'
-import { plainReason, uniqueReasons } from '../approver/explain'
+import { committedLimitSentence, plainReason, uniqueReasons } from '../approver/explain'
 
 /** The reason in plain words, filled with proposal/mandate values so every ASK/INFO row has a clear explanation (T45, T86). */
 function explainReason(code: ReasonCode, proposal: Proposal, mandate?: Mandate): string | null {
+  const committed = committedLimitSentence(code, proposal, mandate)
+  if (committed) return committed
   const params: Record<string, string> = { total: formatMoney(proposal.totals.exclVat) }
   if (mandate) {
     params.limit = formatMoney(

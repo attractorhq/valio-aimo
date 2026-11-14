@@ -46,6 +46,37 @@ function parseIsoDay(iso: string): Date {
   return new Date(Date.UTC(y, m - 1, d))
 }
 
+/**
+ * The delivery days an order's lines arrive on ("Mon 16 Nov", "Mon 16 Nov and Tue 17 Nov"); the requested
+ * date only when there are no lines. The split-order guard (T62) is keyed on these, not the requested date.
+ */
+function deliveryDays(proposal: Proposal): string {
+  const days = [...new Set(proposal.lines.map((line) => line.deliveryDate.slice(0, 10)))].sort()
+  const names = (days.length ? days : [proposal.requestedDate]).map((day) => formatDate(day))
+  return names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+}
+
+/**
+ * T62: the limits apply to this order plus what is already committed for delivery on the same day. When this
+ * order alone is within the limit, the day's committed orders took it over: say that, never "€300 is above
+ * your €500 limit". Returns null when the order alone is over the limit (the usual wording applies).
+ */
+export function committedLimitSentence(
+  code: ReasonCode,
+  proposal: Proposal,
+  mandate?: Mandate,
+  omitTotalAmount = false,
+): string | null {
+  if (code !== 'OVER_AUTO_LIMIT' && code !== 'OVER_HARD_LIMIT') return null
+  const hard = code === 'OVER_HARD_LIMIT'
+  const limit = hard ? resolveHardLimitEur(proposal, mandate) : resolveAutoLimitEur(proposal, mandate)
+  if (!limit || Number(proposal.totals.exclVat) > Number(limit)) return null
+  const order = omitTotalAmount ? 'this order' : `${formatMoney(proposal.totals.exclVat)} excl. VAT`
+  const threshold = hard ? 'hard limit' : 'auto-approve limit'
+  const sentence = `${order} plus the orders already committed for delivery on ${deliveryDays(proposal)} exceeds your ${formatMoney(limit)} ${threshold}.`
+  return hard ? `${sentence} No agent or approver can override this.` : sentence
+}
+
 function resolveAutoLimitEur(proposal: Proposal, mandate?: Mandate): string | undefined {
   return (
     mandate?.autoApproveLimitEur ?? DEFAULT_MANDATE_LIMITS[proposal.customerId]?.autoApproveLimitEur
@@ -200,6 +231,8 @@ export function formatApprovalStatement(proposal: Proposal, mandate?: Mandate): 
     return `Approving means delivery ${dateClause}.`
   }
   if (proposal.reasons.length === 1 && proposal.reasons[0] === 'OVER_AUTO_LIMIT' && mandate) {
+    const committed = committedLimitSentence('OVER_AUTO_LIMIT', proposal, mandate)
+    if (committed) return `${committed} Everything else is verified or declared.`
     return `${formatMoney(proposal.totals.exclVat)} is above your ${formatMoney(mandate.autoApproveLimitEur)} auto-approve limit. Everything else is verified or declared.`
   }
   return null
@@ -258,6 +291,8 @@ export function plainReason(
   }
   if (code === 'AGENT_SUBSTITUTE') return substituteStatement(proposal)
   if (code === 'VALIO_SUBSTITUTE') return valioSubstituteStatement(proposal)
+  const committed = committedLimitSentence(code, proposal, mandate)
+  if (committed) return committed
   if (code === 'OVER_AUTO_LIMIT') {
     const autoLimit = resolveAutoLimitEur(proposal, mandate)
     if (mandate) {
@@ -323,6 +358,11 @@ export function explainWhyNotAuto(
 
   for (const code of codes) {
     if (code === 'OVER_AUTO_LIMIT') {
+      const committed = committedLimitSentence(code, proposal, mandate, options?.omitTotalAmount)
+      if (committed) {
+        clauses.push(committed.slice(0, -1))
+        continue
+      }
       const limit = resolveAutoLimitEur(proposal, mandate)
       if (options?.omitTotalAmount) {
         clauses.push(
