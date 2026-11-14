@@ -92,7 +92,10 @@ app.add_middleware(
 @app.middleware("http")
 async def demo_session_cookie(request: Request, call_next):
     cookie = request.cookies.get(SANDBOX_COOKIE, "")
-    browser = bool(request.headers.get("sec-fetch-mode")) or "text/html" in request.headers.get("accept", "")
+    # Only a real browser gets a cookie session. Browsers send Sec-Fetch-Site; Node/undici `fetch` sends only
+    # Sec-Fetch-Mode and keeps no cookies, so treating it as a browser gave every API call a fresh session and an
+    # external agent's offer was "unknown" to its next proposal call (judge 20261114-195211).
+    browser = bool(request.headers.get("sec-fetch-site")) or "text/html" in request.headers.get("accept", "")
     browser_cookie = browser and request.headers.get("x-demo-sandbox") is None
     new_cookie = browser_cookie and not SANDBOX_ID_RE.fullmatch(cookie)
     if new_cookie:

@@ -73,8 +73,8 @@ def test_two_sandboxes_have_private_mandates_proposals_approvals_logs_and_stats(
 
 @pytest.mark.parametrize("scheme", ["http", "https"])
 def test_browser_cookie_is_random_httponly_lax_secure_on_https_and_reused(sandboxes, scheme):
-    with TestClient(app, base_url=f"{scheme}://testserver", headers={"Sec-Fetch-Mode": "cors"}) as one, \
-            TestClient(app, base_url=f"{scheme}://testserver", headers={"Sec-Fetch-Mode": "cors"}) as two:
+    with TestClient(app, base_url=f"{scheme}://testserver", headers={"Sec-Fetch-Mode": "cors", "Sec-Fetch-Site": "same-origin"}) as one, \
+            TestClient(app, base_url=f"{scheme}://testserver", headers={"Sec-Fetch-Mode": "cors", "Sec-Fetch-Site": "same-origin"}) as two:
         response = one.get("/health")
         cookie = response.headers["set-cookie"]
         assert "HttpOnly" in cookie and "SameSite=lax" in cookie
@@ -91,7 +91,7 @@ def test_browser_cookie_is_random_httponly_lax_secure_on_https_and_reused(sandbo
 
 
 def test_cookie_does_not_override_explicit_api_sandbox_and_invalid_headers_fail(sandboxes):
-    with TestClient(app, headers={"Sec-Fetch-Mode": "cors"}) as browser:
+    with TestClient(app, headers={"Sec-Fetch-Mode": "cors", "Sec-Fetch-Site": "same-origin"}) as browser:
         browser.get("/health")
         lower_limit(browser)
         response = browser.get(f"/v0.1/mandates/{M1.customerId}", headers={"X-Demo-Sandbox": "explicit"})
@@ -227,3 +227,13 @@ def test_sandbox_lru_idle_expiry_bounds_and_same_id_concurrency(sandboxes):
     assert bounded.count() == 500
     with pytest.raises(HTTPException):
         bounded.get("0", create=False)
+
+
+def test_node_fetch_without_sec_fetch_site_stays_shared_so_offer_then_proposal_works(sandboxes):
+    """Node/undici fetch sends Sec-Fetch-Mode but no Sec-Fetch-Site and keeps no cookies: it must use `shared`."""
+    with TestClient(app, headers={"Sec-Fetch-Mode": "cors"}) as one, TestClient(app, headers={"Sec-Fetch-Mode": "cors"}) as two:
+        assert one.get("/health").status_code == 200
+        assert "voa_sandbox" not in one.cookies
+        lower_limit(one)
+        assert two.get(f"/v0.1/mandates/{M1.customerId}").json()["autoApproveLimitEur"] == \
+            one.get(f"/v0.1/mandates/{M1.customerId}").json()["autoApproveLimitEur"]
