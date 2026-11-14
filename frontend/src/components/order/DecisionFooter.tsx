@@ -4,7 +4,7 @@ import { formatMoney, reasonChip, reasonText } from '../../lib/format'
 import { proposalRequirementChecks, requirementsStatement } from '../../lib/requirements'
 import { plainReason, uniqueReasons } from '../approver/explain'
 
-/** The reason in plain words, or null when that would only repeat the chip (T45). */
+/** The reason in plain words, filled with proposal/mandate values so every ASK/INFO row has a clear explanation (T45, T86). */
 function explainReason(code: ReasonCode, proposal: Proposal, mandate?: Mandate): string | null {
   const params: Record<string, string> = { total: formatMoney(proposal.totals.exclVat) }
   if (mandate) {
@@ -13,12 +13,26 @@ function explainReason(code: ReasonCode, proposal: Proposal, mandate?: Mandate):
     )
   }
   const text = reasonText(code, params)
-  return /\{\w+\}/.test(text) ? plainReason(code, proposal, mandate) : text
+  if (!/\{\w+\}/.test(text)) {
+    return text
+  }
+  const explained = plainReason(code, proposal, mandate)
+  if (explained) {
+    return explained
+  }
+  if (code === 'AGENT_SUBSTITUTE') {
+    return 'A compliant substitute product was selected instead of the exact requested item.'
+  }
+  if (code === 'VALIO_SUBSTITUTE') {
+    return 'Listed by Valio Aimo as a compliant substitute for the requested product.'
+  }
+  return null
 }
 
 /**
  * The "proven" statement is derived from the same requirement facts the trust cards show (T41): it is
  * made only when every hard requirement on every line is proven by its evidence.
+ * On ASK, always states in plain language why the order was not auto-approved (T86).
  */
 function decisionSummary(
   proposal: Proposal,
@@ -30,7 +44,7 @@ function decisionSummary(
   }
   if (proposal.decision === 'AUTO') return `${statement.clause}.`
   if (proposal.decision === 'ASK' && proposal.state === 'CONFIRMED_SIMULATED') {
-    return 'Re-checked live before the simulated confirmation.'
+    return 'Re-checked live before confirmation.'
   }
   if (proposal.decision === 'ASK' && proposal.state !== 'PENDING_APPROVAL') return null
   if (proposal.decision === 'ASK') {
