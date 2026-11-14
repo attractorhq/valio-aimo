@@ -7,10 +7,19 @@ from decimal import Decimal
 from app.agent.explain import template_explanation
 from app.contracts import GetOfferRequest, OfferItem, ReasonCode, RequestItem, StructuredRequest
 from app.gateway.proposals import ProposalGateway, create_proposal, decide_approval, get_audit_trail
-from app.policy import DEMO_MANDATES, M2, MandateBook, decide
+from app.policy import DEMO_MANDATES, M1, M2, MandateBook, decide
+from app.policy.limits import delivery_dates, format_days
 from tests.synthetic.policy import NOW, line, product, request
 from tests.synthetic.policy import item as policy_item
-from tests.test_proposals_gateway import GLUTEN_FREE, MONDAY, PRODUCTS, MutableSyntheticProvider, price_row
+from tests.test_proposals_gateway import (
+    GLUTEN_FREE,
+    LACTOSE_FREE,
+    MONDAY,
+    PRODUCTS,
+    MutableSyntheticProvider,
+    price_row,
+    stock_row,
+)
 
 TUESDAY = MONDAY + timedelta(days=1)
 
@@ -42,7 +51,7 @@ def test_committed_same_day_orders_count_against_the_auto_approve_limit():
     assert decision.reasons == (ReasonCode.OVER_AUTO_LIMIT,)
     (finding,) = [f for f in decision.findings if f.code == ReasonCode.OVER_AUTO_LIMIT]
     assert finding.detail == (
-        "€300.00 already committed for Mon 16 Nov; with this order €600.00 > €500.00 auto-approve limit"
+        "€300.00 already committed for delivery on Mon 16 Nov; with this order €600.00 > €500.00 auto-approve limit"
     )
     assert decision.committed_excl_vat == Decimal("300.00")
 
@@ -53,7 +62,7 @@ def test_committed_same_day_orders_count_against_the_hard_limit():
     assert ReasonCode.OVER_HARD_LIMIT in decision.reasons
     (finding,) = [f for f in decision.findings if f.code == ReasonCode.OVER_HARD_LIMIT]
     assert finding.detail == (
-        "€2,900.00 already committed for Mon 16 Nov; with this order €3,200.00 > €3,000.00 hard limit"
+        "€2,900.00 already committed for delivery on Mon 16 Nov; with this order €3,200.00 > €3,000.00 hard limit"
     )
 
 
@@ -98,20 +107,24 @@ def test_four_small_orders_on_one_day_cannot_all_be_auto():
 
     trail = get_audit_trail(gateway, proposal_id=second.proposalId)
     (decided,) = [e for e in trail.entries if e.event == "POLICY_DECIDED"]
-    assert "€297.96 already committed for Mon 16 Nov; with this order €595.92" in decided.summary
+    assert "€297.96 already committed for delivery on Mon 16 Nov; with this order €595.92" in decided.summary
     assert "€500.00 auto-approve limit" in decided.summary
 
     # The explanation never claims the €297.96 order alone is over the limit.
     text = template_explanation(proposal=second, mandate=M2)
-    assert "plus the orders already committed for Mon 16 Nov is above your €500.00 auto-approve limit" in text
+    assert "plus the orders already committed for delivery on Mon 16 Nov is above your €500.00 auto-approve limit" in text
 
 
 def test_another_delivery_date_does_not_count():
     gateway = _gateway()
-    _order(gateway, "OF-DAY-1")
+    _order(gateway, "OF-DAY-1")  # delivered Mon 16 Nov
+    # The next order is available for Tuesday only: a different delivery day has its own limit.
+    gateway.provider.stocks["SYN-PASTA"] = stock_row("SYN-PASTA", 19, sales_unit="PSS", day=TUESDAY)
     tuesday = _order(gateway, "OF-DAY-2", day=TUESDAY)
+    assert {line.deliveryDate for line in tuesday.lines} == {TUESDAY}
     assert tuesday.decision == "AUTO"
     assert gateway.committed_total(M2.customerId, TUESDAY) == Decimal("297.96")
+    assert gateway.committed_total(M2.customerId, MONDAY) == Decimal("297.96")
 
 
 def test_a_pending_proposal_counts_until_it_is_rejected():
@@ -144,6 +157,64 @@ def test_a_new_version_does_not_count_the_version_it_replaces():
     assert v2.reasons == [ReasonCode.OVER_AUTO_LIMIT]  # €412.56 + €114.65, without the replaced €114.60
     trail = get_audit_trail(gateway, proposal_id=v2.proposalId)
     decided = [e for e in trail.entries if e.event == "POLICY_DECIDED"][-1]
-    assert "€412.56 already committed for Mon 16 Nov; with this order €527.21" in decided.summary
+    assert "€412.56 already committed for delivery on Mon 16 Nov; with this order €527.21" in decided.summary
     # The superseded version no longer counts; the new one does.
     assert gateway.committed_total(M2.customerId, MONDAY) == Decimal("412.56") + v2.totals.exclVat
+
+
+# --------------------------------------------------------------------------- keyed on the delivery date (review)
+
+
+def test_orders_requested_for_different_days_but_delivered_on_one_day_count_together():
+    """The live API delivers every order on Mon 16 Nov whatever date was requested: the guard follows the
+    lines' delivery dates, so requesting Mon, Tue and Wed cannot split one delivery day past the limit."""
+    gateway = _gateway()
+    first = _order(gateway, "OF-DD-1", day=MONDAY)
+    assert (first.decision, first.reasons) == ("AUTO", [])
+    second = _order(gateway, "OF-DD-2", day=TUESDAY)
+    assert {line.deliveryDate for line in second.lines} == {MONDAY}
+    assert (second.decision, second.reasons) == ("ASK", [ReasonCode.OVER_AUTO_LIMIT])
+    third = _order(gateway, "OF-DD-3", day=TUESDAY + timedelta(days=1))
+    assert (third.decision, third.reasons) == ("ASK", [ReasonCode.OVER_AUTO_LIMIT])
+
+    assert gateway.committed_total(M2.customerId, MONDAY) == Decimal("297.96") * 3
+    assert gateway.committed_total(M2.customerId, TUESDAY) == 0  # nothing is delivered on Tuesday
+    trail = get_audit_trail(gateway, proposal_id=second.proposalId)
+    (decided,) = [e for e in trail.entries if e.event == "POLICY_DECIDED"]
+    assert "€297.96 already committed for delivery on Mon 16 Nov; with this order €595.92" in decided.summary
+    text = template_explanation(proposal=second, mandate=M2)
+    assert "plus the orders already committed for delivery on Mon 16 Nov is above your €500.00" in text
+
+
+def test_review_repro_three_requested_dates_one_delivery_day_m1():
+    """Reviewer's repro: three €599.94 M1 orders requested for Sat 14, Sun 15 and Mon 16 Nov all deliver on
+    Mon 16 Nov. The third takes the delivery day to €1,799.82, over the €1,500.00 auto-approve limit."""
+    gateway = ProposalGateway(products=PRODUCTS, mandates=MandateBook(DEMO_MANDATES),
+                              provider=MutableSyntheticProvider())
+    proposals = []
+    for n, day in enumerate((MONDAY - timedelta(days=2), MONDAY - timedelta(days=1), MONDAY), start=1):
+        offer_req = GetOfferRequest(
+            customerId=M1.customerId, requestedDate=day,
+            items=[OfferItem(itemId="I1", productId="SYN-MILK", quantity=Decimal("594"), unit="l")],
+        )
+        struct_req = StructuredRequest(
+            requestText="594 l lactose-free milk.", requestedDate=day,
+            items=[RequestItem(itemId="I1", what="milk", quantity=Decimal("594"), unit="l",
+                               requirements=[LACTOSE_FREE])],
+        )
+        offer = gateway.get_offer(offer_req, offer_id=f"OF-REPRO-{n}").offer
+        proposals.append(create_proposal(gateway, M1.customerId, offer.offerId, offer.offerVersion, struct_req))
+
+    assert all({line.deliveryDate for line in p.lines} == {MONDAY} for p in proposals)
+    assert ReasonCode.OVER_AUTO_LIMIT not in proposals[1].reasons  # €1,199.88 for the day: within €1,500.00
+    assert ReasonCode.OVER_AUTO_LIMIT in proposals[2].reasons
+    assert proposals[2].decision == "ASK"
+    trail = get_audit_trail(gateway, proposal_id=proposals[2].proposalId)
+    decided = [e for e in trail.entries if e.event == "POLICY_DECIDED"][-1]
+    assert "€1,199.88 already committed for delivery on Mon 16 Nov; with this order €1,799.82" in decided.summary
+
+
+def test_delivery_days_and_their_wording():
+    assert delivery_dates([], MONDAY) == (MONDAY,)
+    assert format_days([TUESDAY, MONDAY, MONDAY]) == "Mon 16 Nov and Tue 17 Nov"
+    assert format_days([MONDAY, TUESDAY, TUESDAY + timedelta(days=1)]) == "Mon 16 Nov, Tue 17 Nov and Wed 18 Nov"

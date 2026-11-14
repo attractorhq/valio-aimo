@@ -17,7 +17,17 @@ function parseIsoDay(iso: string): Date {
 }
 
 /**
- * T62: the limits apply to this order plus what is already committed for the same delivery date. When this
+ * The delivery days an order's lines arrive on ("Mon 16 Nov", "Mon 16 Nov and Tue 17 Nov"); the requested
+ * date only when there are no lines. The split-order guard (T62) is keyed on these, not the requested date.
+ */
+export function deliveryDays(proposal: Proposal): string {
+  const days = [...new Set((proposal.lines ?? []).map((line) => line.deliveryDate.slice(0, 10)))].sort()
+  const names = (days.length ? days : [proposal.requestedDate]).map((day) => formatDate(day))
+  return names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+}
+
+/**
+ * T62: the limits apply to this order plus what is already committed for delivery on the same day. When this
  * order alone is within the limit, the day's committed orders took it over: say that, never "€300 is above
  * your €500 limit". Returns null when the order alone is over the limit (the usual wording applies).
  */
@@ -30,7 +40,7 @@ export function committedLimitSentence(
   const hard = code === 'OVER_HARD_LIMIT'
   const limit = hard ? mandate.hardLimitEur : mandate.autoApproveLimitEur
   if (Number(proposal.totals.exclVat) > Number(limit)) return null
-  return `${formatMoney(proposal.totals.exclVat)} excl. VAT plus the orders already committed for ${formatDate(proposal.requestedDate)} is above your ${formatMoney(limit)} ${hard ? 'hard limit' : 'auto-approve limit'}.`
+  return `${formatMoney(proposal.totals.exclVat)} excl. VAT plus the orders already committed for delivery on ${deliveryDays(proposal)} is above your ${formatMoney(limit)} ${hard ? 'hard limit' : 'auto-approve limit'}.`
 }
 
 /** Plain-language summary of what approving this proposal version means (patch P8 B2, P10). */

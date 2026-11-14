@@ -2,7 +2,7 @@
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
@@ -12,12 +12,12 @@ from app.contracts import (
     Mandate,
     ReasonCode,
     StructuredRequest,
-    format_date,
     format_money,
 )
 
 from .findings import Finding, ordered_codes
 from .instructions import detect_instruction
+from .limits import format_days
 from .lines import LineInput, LineVerdict, evaluate_line
 
 Outcome = Literal["AUTO", "ASK", "BLOCK", "NO_ORDER"]
@@ -86,6 +86,7 @@ def decide(
     instruction_ignored: bool = False,
     clarification_needed: bool = False,
     committed_excl_vat: Decimal = Decimal(0),
+    committed_days: Sequence[date] = (),
 ) -> PolicyDecision:
     """Decide one order (offer or proposal version) from scratch.
 
@@ -94,9 +95,10 @@ def decide(
     - `partial_items` are items this proposal version explicitly offers in part (P2.2/P2.5). A shortfall
       anywhere else is not something a human may sign off: it is NO_ORDER · NO_CANDIDATE.
     - `instruction_ignored` / `clarification_needed` come from the request parser; O4 is also detected here.
-    - `committed_excl_vat` (T62) is the total the customer already has committed for the same delivery date
-      (confirmed or awaiting sign-off), passed in by the gateway: the limits apply to it plus this order, so a
-      need split into several small orders can never pass the auto-approve or hard limit unnoticed.
+    - `committed_excl_vat` (T62) is the total the customer already has committed for delivery on this order's
+      delivery days (confirmed or awaiting sign-off), passed in by the gateway: the limits apply to it plus this
+      order, so a need split into several small orders can never pass the auto-approve or hard limit unnoticed.
+      `committed_days` are the delivery days that total falls on (for the wording; the requested date if empty).
     """
     items = {item.itemId: item for item in request.items}
     for line in lines:
@@ -134,13 +136,13 @@ def decide(
         elif len(item_lines) > 1:
             findings.append(Finding("SPLIT", "INFO", "L8", item_id=item.itemId))
 
-    # O1 / O3: limits on the total excl. VAT of the lines that remain, plus what is already committed for the
-    # same delivery date (T62: split-order guard).
+    # O1 / O3: limits on the total excl. VAT of the lines that remain, plus what is already committed for
+    # delivery on the same day (T62: split-order guard).
     total = sum((v.line.line_total_excl_vat for v in kept), Decimal(0))
     exposure = total + committed_excl_vat
     context = (
-        f"{format_money(committed_excl_vat)} already committed for {format_date(request.requestedDate)}; "
-        f"with this order {format_money(exposure)}"
+        f"{format_money(committed_excl_vat)} already committed for delivery on "
+        f"{format_days(committed_days or (request.requestedDate,))}; with this order {format_money(exposure)}"
         if committed_excl_vat > 0 else None
     )
     if exposure > mandate.hardLimitEur:

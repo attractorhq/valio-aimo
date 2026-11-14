@@ -34,7 +34,7 @@ from app.contracts import (
     format_time,
 )
 from app.contracts.common import Contract
-from app.policy.limits import limit_sentence
+from app.policy.limits import delivery_dates, limit_sentence
 from app.policy.requirements import hard_requirements
 from app.valio.vendor import HELSINKI
 
@@ -194,7 +194,9 @@ def render_reason_occurrence(
     if code in (ReasonCode.OVER_AUTO_LIMIT, ReasonCode.OVER_HARD_LIMIT) and proposal and mandate:
         # T62: true also when the day, not this order alone, is over the limit.
         limit = mandate.hardLimitEur if code == ReasonCode.OVER_HARD_LIMIT else mandate.autoApproveLimitEur
-        msg = limit_sentence(code, proposal.totals.exclVat, limit, proposal.requestedDate) + "."
+        msg = limit_sentence(
+            code, proposal.totals.exclVat, limit, delivery_dates(proposal.lines, proposal.requestedDate)
+        ) + "."
         if code == ReasonCode.OVER_HARD_LIMIT:
             msg += " No agent or approver can override this."
     return ReasonOccurrence(code=code, effect=defn.effect, message=msg)
@@ -312,7 +314,8 @@ def template_explanation(
     if proposal.decision == "BLOCK":
         if ReasonCode.OVER_HARD_LIMIT in active_reasons and mandate is not None:
             sentence = limit_sentence(
-                ReasonCode.OVER_HARD_LIMIT, proposal.totals.exclVat, mandate.hardLimitEur, proposal.requestedDate
+                ReasonCode.OVER_HARD_LIMIT, proposal.totals.exclVat, mandate.hardLimitEur,
+                delivery_dates(proposal.lines, proposal.requestedDate),
             )
             s1 = f"The gateway blocked this proposal because {sentence}."
         elif ReasonCode.OVER_HARD_LIMIT in active_reasons:
@@ -350,7 +353,7 @@ def template_explanation(
                 # T62: this order alone is within the limit; the day's committed orders take it over.
                 ask_parts.append(limit_sentence(
                     ReasonCode.OVER_AUTO_LIMIT, proposal.totals.exclVat, mandate.autoApproveLimitEur,
-                    proposal.requestedDate,
+                    delivery_dates(proposal.lines, proposal.requestedDate),
                 ))
         else:
             ask_parts.append(f"{total_str} excl. VAT is above the auto-approve limit")
