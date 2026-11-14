@@ -29,7 +29,7 @@
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Gateway"] }],
 
-  // Basic rate limit on the agent channel, per client IP.
+  // One per-IP limit for every route that can trigger a live Valio lookup (src/routes.ts isRateLimited).
   "ratelimits": [
     { "name": "AGENT_RATE_LIMIT", "namespace_id": "4201", "simple": { "limit": 30, "period": 60 } }
   ],

@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import { clientKey, containerEnv, isAgentPath, isGatewayPath } from '../src/routes.ts'
+import {
+  clientKey,
+  containerEnv,
+  isGatewayPath,
+  isMcpPath,
+  isRateLimited,
+  rateLimitedBody,
+} from '../src/routes.ts'
 
 test('gateway paths go to the container, everything else is the UI', () => {
   for (const path of ['/health', '/openapi.json', '/docs', '/docs/oauth2-redirect', '/mcp', '/mcp/sse',
@@ -14,10 +21,58 @@ test('gateway paths go to the container, everything else is the UI', () => {
   }
 })
 
-test('only the agent channel is rate limited', () => {
-  assert.equal(isAgentPath('/v0.1/agent/run'), true)
-  assert.equal(isAgentPath('/v0.1/approver/proposals/P1/decision'), false)
-  assert.equal(isAgentPath('/v0.1/offers'), false)
+test('every route that can trigger a live Valio lookup is rate limited', () => {
+  const limited: [string, string][] = [
+    ['POST', '/v0.1/agent/run'],
+    ['POST', '/v0.1/offers'],
+    ['POST', '/v0.1/proposals'],
+    ['POST', '/v0.1/proposals/PR-1/anything'],
+    ['PATCH', '/v0.1/admin/mandates/northbay-school-kitchen'],
+    ['POST', '/v0.1/admin/mandates/northbay-school-kitchen/reset'],
+    ['POST', '/v0.1/approver/proposals/PR-1/decision'],
+    ['POST', '/mcp'],
+    ['POST', '/mcp/messages'],
+    ['post', '/v0.1/offers'],
+  ]
+  for (const [method, path] of limited) assert.equal(isRateLimited(method, path), true, `${method} ${path}`)
+})
+
+test('reads, static search, the approver view, health and the UI are never limited', () => {
+  const free: [string, string][] = [
+    ['GET', '/health'],
+    ['GET', '/v0.1/audit'],
+    ['GET', '/v0.1/proposals/PR-1'],
+    ['GET', '/v0.1/mandates'],
+    ['GET', '/v0.1/admin/mandates/northbay-school-kitchen/default'],
+    ['GET', '/v0.1/approver/proposals'],
+    ['GET', '/v0.1/approver/proposals/PR-1'],
+    ['POST', '/v0.1/products/search'],
+    ['GET', '/mcp'],
+    ['OPTIONS', '/v0.1/offers'],
+    ['HEAD', '/v0.1/offers'],
+    ['GET', '/'],
+    ['GET', '/spec'],
+    ['GET', '/assets/index.js'],
+    ['POST', '/v0.1/offersX'],
+    ['POST', '/mcpx'],
+  ]
+  for (const [method, path] of free) assert.equal(isRateLimited(method, path), false, `${method} ${path}`)
+})
+
+test('429 bodies: the gateway error shape, or JSON-RPC for MCP', () => {
+  assert.deepEqual(rateLimitedBody(false), {
+    error: {
+      code: 'RATE_LIMITED',
+      message:
+        'Too many requests from this client: live Valio lookups are rate limited. Retry in a minute.',
+    },
+  })
+  const rpc = rateLimitedBody(true, 7) as { jsonrpc: string; id: unknown; error: { code: number } }
+  assert.equal(rpc.jsonrpc, '2.0')
+  assert.equal(rpc.id, 7)
+  assert.equal(rpc.error.code, -32029)
+  assert.equal(isMcpPath('/mcp'), true)
+  assert.equal(isMcpPath('/v0.1/offers'), false)
 })
 
 test('rate limit key is the client IP', () => {

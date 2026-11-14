@@ -2,11 +2,20 @@
 // Static assets (frontend/dist) are served by the assets binding with SPA fallback; the gateway paths
 // listed in wrangler.jsonc run this Worker first and are forwarded to one FastAPI container.
 import { Container, getContainer } from '@cloudflare/containers'
-import { clientKey, containerEnv, isAgentPath, isGatewayPath, type ContainerEnvKey } from './routes.ts'
+import {
+  clientKey,
+  containerEnv,
+  isGatewayPath,
+  isMcpPath,
+  isRateLimited,
+  rateLimitedBody,
+  type ContainerEnvKey,
+} from './routes.ts'
 
 export type Env = Partial<Record<ContainerEnvKey, string>> & {
   ASSETS: Fetcher
   GATEWAY: DurableObjectNamespace<Gateway>
+  /** Per-IP limit shared by every route that can trigger a live Valio lookup (see isRateLimited). */
   AGENT_RATE_LIMIT?: RateLimit
 }
 
@@ -19,20 +28,31 @@ export class Gateway extends Container<Env> {
   envVars = containerEnv(this.env)
 }
 
-function tooManyRequests(): Response {
-  return new Response(
-    JSON.stringify({ detail: 'Too many agent requests from this client. Retry in a minute.' }),
-    { status: 429, headers: { 'Content-Type': 'application/json', 'Retry-After': '60' } },
-  )
+async function rpcId(request: Request): Promise<string | number | null> {
+  try {
+    const body = (await request.clone().json()) as { id?: unknown }
+    return typeof body?.id === 'string' || typeof body?.id === 'number' ? body.id : null
+  } catch {
+    return null // batch, notification or not JSON: the JSON-RPC id is null
+  }
+}
+
+async function tooManyRequests(request: Request, pathname: string): Promise<Response> {
+  const mcp = isMcpPath(pathname)
+  const body = rateLimitedBody(mcp, mcp ? await rpcId(request) : null)
+  return new Response(JSON.stringify(body), {
+    status: 429,
+    headers: { 'Content-Type': 'application/json', 'Retry-After': '60' },
+  })
 }
 
 export default {
   async fetch(request, env): Promise<Response> {
     const { pathname } = new URL(request.url)
     if (!isGatewayPath(pathname)) return env.ASSETS.fetch(request)
-    if (isAgentPath(pathname) && env.AGENT_RATE_LIMIT) {
+    if (isRateLimited(request.method, pathname) && env.AGENT_RATE_LIMIT) {
       const { success } = await env.AGENT_RATE_LIMIT.limit({ key: clientKey(request) })
-      if (!success) return tooManyRequests()
+      if (!success) return tooManyRequests(request, pathname)
     }
     return getContainer(env.GATEWAY).fetch(request)
   },
