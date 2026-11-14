@@ -8,7 +8,6 @@ test('scenario A: the chain from request to confirmed (simulated) is readable', 
   page,
 }) => {
   await page.goto('/log/MOCK-P-A')
-  await expect(page.getByText('Synthetic mock data')).toBeVisible()
   await expect(page.getByRole('status', { name: 'Hash-chain verification status' })).toContainText(
     'Hash chain verified ✓',
   )

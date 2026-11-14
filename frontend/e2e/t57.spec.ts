@@ -62,7 +62,6 @@ async function fakeClarificationGateway(page: Page) {
 
 test('the buyer view shows no eval score badge', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByLabel('Data mode')).toBeVisible()
   await expect(page.getByText(/Eval \d+\/24/)).toHaveCount(0)
   // The live pre-flight is a presenter command (scripts/preflight), not a buyer-view control.
   await expect(page.getByRole('button', { name: 'Pre-flight', exact: true })).toHaveCount(0)

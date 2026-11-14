@@ -117,8 +117,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     const page = await context.newPage()
 
     await page.goto(baseURL)
-    // Connected to real /v0.1 gateway: shows Recorded mode badge, NOT "Synthetic mock data"
-    await expect(page.getByText(/Recorded · captured/)).toBeVisible()
+    // Connected to the real /v0.1 gateway: no data-source badges at all
     await expect(page.getByText('Synthetic mock data')).toHaveCount(0)
 
     const mandateRegion = page.getByRole('region', { name: 'Buyer mandate' })
