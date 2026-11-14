@@ -1,5 +1,6 @@
 """HTTP layer of the Trusted Trade Gateway v0.1: agent channel, approver channel, errors and wiring."""
 
+from . import agent_routes as _agent_routes  # noqa: F401
 from .agent_channel import router as agent_router
 from .approver_channel import router as approver_router
 from .errors import register_error_handlers
