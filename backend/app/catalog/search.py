@@ -10,7 +10,7 @@ from typing import Literal
 from pydantic import Field
 
 from app.catalog.build import CatalogArtifact, get_cached_catalog
-from app.catalog.categories import is_food_category, matching_categories_for_type
+from app.catalog.categories import is_food_category, matching_categories_for_type, product_type_match
 from app.catalog.normalise import allergen_declaration, product_fact
 from app.catalog.vocab import (
     CONCEPTS_BY_ID,
@@ -412,7 +412,9 @@ def search_products(
 
     q_lower = cleaned_query.lower()
 
-    def rank_key(entry: _IndexedProduct) -> tuple[int, int, int, int, int, float, int, str]:
+    requirement_codes = tuple(r.code for r in applied_reqs)
+
+    def rank_key(entry: _IndexedProduct) -> tuple[int, int, int, int, int, int, float, int, str]:
         prod = entry.product
         is_exact_id = 0 if (target_product_id and prod.productId == target_product_id) else 1
         is_primary_concept = (
@@ -420,6 +422,14 @@ def search_products(
             if (primary_concept is None or match_concept_in_text(primary_concept, entry.text_lower, entry.words))
             else 1
         )
+        # T34: the buyer's use-changing qualifiers (whipping vs cooking cream, dairy vs alternative) come
+        # right after the product concept, so exact types fill the shortlist before substitutes.
+        type_mismatch = 0 if product_type_match(
+            cleaned_query,
+            (prod.name, *prod.names.values()),
+            concept_id=primary_concept.concept_id if primary_concept else None,
+            requirement_codes=requirement_codes,
+        ).exact else 1
         matched_tokens = sum(1 for grp in token_groups if _token_group_matches(grp, entry))
         is_specialty = 0
         if primary_concept and primary_concept.prefer_plain_over:
@@ -437,6 +447,7 @@ def search_products(
         return (
             is_exact_id,
             is_primary_concept,
+            type_mismatch,
             -matched_tokens,
             is_specialty,
             content_rank,
