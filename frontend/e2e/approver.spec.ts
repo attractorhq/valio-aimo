@@ -130,6 +130,9 @@ test('a superseded version can no longer be approved', async ({ page }) => {
 test('the approver panel is visibly not the agent and starts empty', async ({ page }) => {
   await page.goto('/approver')
   await expect(page.getByText('Human sign-off channel · not the agent')).toBeVisible()
+  await expect(
+    page.getByText('Demo approver — no authentication; production uses SSO/OIDC'),
+  ).toBeVisible()
   await expect(page.getByText('Nothing to approve.')).toBeVisible()
   await page.getByLabel('Signed in as').selectOption('mock-hotels')
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(

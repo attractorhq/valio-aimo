@@ -1,5 +1,6 @@
 import { ExternalLink, ShieldCheck, UserRoundCheck } from 'lucide-react'
 import { Link, Route, Routes, useLocation, useParams } from 'react-router-dom'
+import { BuyerAdmin } from './components/mandate/MandateControls'
 import { Main } from './pages/Main'
 import { Approver } from './pages/Approver'
 import { ApproveMobile } from './pages/ApproveMobile'
@@ -84,6 +85,7 @@ export default function App() {
       <main id="main">
         <Routes>
           <Route path="/" element={<Main />} />
+          <Route path="/admin" element={<BuyerAdmin />} />
           <Route path="/valio" element={<ValioView />} />
           <Route path="/readiness" element={<ValioView />} />
           <Route path="/approver" element={<Approver />} />

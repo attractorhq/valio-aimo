@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { AlertCircle, HelpCircle, Info, Pencil } from 'lucide-react'
 import type { Proposal } from '../lib/contracts'
@@ -14,7 +14,7 @@ import {
 } from '../lib/gateway'
 import { formatMoney } from '../lib/format'
 import { MandatePanel } from '../components/flow/MandatePanel'
-import { MandateControls } from '../components/mandate/MandateControls'
+import { MandateStatus } from '../components/mandate/MandateControls'
 import { RequestComposer } from '../components/flow/RequestComposer'
 import { ModeBadge } from '../components/flow/ModeBadge'
 import { Step, type StepStatus } from '../components/flow/Step'
@@ -56,21 +56,6 @@ function itemCountFromItems(n: number) {
 
 const IN_FLIGHT = new Set(['PENDING_APPROVAL', 'APPROVED', 'AUTO_APPROVED', 'RECHECKED'])
 
-// Same breakpoint as the single-column layout in styles.css.
-const NARROW = '(max-width: 900px)'
-
-function useNarrow(): boolean {
-  return useSyncExternalStore(
-    (onChange) => {
-      const query = window.matchMedia(NARROW)
-      query.addEventListener('change', onChange)
-      return () => query.removeEventListener('change', onChange)
-    },
-    () => window.matchMedia(NARROW).matches,
-    () => false,
-  )
-}
-
 /** A superseded proposal points to the version decided from scratch after it; show the newest one. */
 async function latestVersion(proposalId: string): Promise<Proposal> {
   let proposal = await gateway.getProposal(proposalId)
@@ -86,7 +71,6 @@ async function latestVersion(proposalId: string): Promise<Proposal> {
 
 /** The one main view: Request → Lookup → Order → Approval, around a structured flow (not a chat). */
 export function Main() {
-  const narrow = useNarrow()
   const mandates = useQuery({ queryKey: ['mandates'], queryFn: () => gateway.listMandates() })
   const health = useQuery({
     queryKey: ['gateway-health'],
@@ -255,15 +239,9 @@ export function Main() {
           />
         )}
         {mandate && (
-          <MandateControls
-            key={narrow ? 'narrow' : 'wide'}
-            defaultOpen={!narrow}
+          <MandateStatus
             mandate={mandate}
-            live={sourceState === 'GATEWAY'}
-            onChanged={() => {
-              mandates.refetch()
-              latest.refetch()
-            }}
+            live={sourceState === 'GATEWAY' || gateway.source === 'GATEWAY'}
           />
         )}
       </aside>

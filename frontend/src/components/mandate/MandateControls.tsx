@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { RotateCcw, SlidersHorizontal } from 'lucide-react'
+import { Lock, RotateCcw, SlidersHorizontal } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import type { Mandate } from '../../lib/contracts'
 import { formatMoney } from '../../lib/format'
+import { gateway, subscribeGatewaySource, type DataSource } from '../../lib/gateway'
+import { MandatePanel } from '../flow/MandatePanel'
 import {
   changeMandate,
   getMandateDefault,
@@ -25,6 +28,60 @@ const FIELD_LABELS: Record<string, string> = {
   forbiddenAllergens: 'forbidden allergens',
 }
 
+const SHIPPED_DEFAULTS: Record<
+  string,
+  Pick<Mandate, 'autoApproveLimitEur' | 'hardLimitEur' | 'allergenMode'>
+> = {
+  'nordic-harbour-hotels': {
+    autoApproveLimitEur: '1500.00',
+    hardLimitEur: '5000.00',
+    allergenMode: 'STANDARD',
+  },
+  'mock-hotels': {
+    autoApproveLimitEur: '1500.00',
+    hardLimitEur: '5000.00',
+    allergenMode: 'STANDARD',
+  },
+  'northbay-school-kitchen': {
+    autoApproveLimitEur: '500.00',
+    hardLimitEur: '3000.00',
+    allergenMode: 'STRICT',
+  },
+  'mock-school': {
+    autoApproveLimitEur: '500.00',
+    hardLimitEur: '3000.00',
+    allergenMode: 'STRICT',
+  },
+}
+
+function fallbackDifferences(mandate: Mandate): MandateDifference[] {
+  const shipped = SHIPPED_DEFAULTS[mandate.customerId]
+  if (!shipped) return []
+  const diffs: MandateDifference[] = []
+  if (mandate.autoApproveLimitEur !== shipped.autoApproveLimitEur) {
+    diffs.push({
+      field: 'autoApproveLimitEur',
+      current: mandate.autoApproveLimitEur,
+      default: shipped.autoApproveLimitEur,
+    })
+  }
+  if (mandate.hardLimitEur !== shipped.hardLimitEur) {
+    diffs.push({
+      field: 'hardLimitEur',
+      current: mandate.hardLimitEur,
+      default: shipped.hardLimitEur,
+    })
+  }
+  if (mandate.allergenMode !== shipped.allergenMode) {
+    diffs.push({
+      field: 'allergenMode',
+      current: mandate.allergenMode,
+      default: shipped.allergenMode,
+    })
+  }
+  return diffs
+}
+
 function showValue(field: string, value: unknown): string {
   if (field.endsWith('Eur') && typeof value === 'string') return formatMoney(value)
   if (field === 'allergenMode' && typeof value === 'string') {
@@ -45,22 +102,54 @@ export function changedFromDefaultText(differences: MandateDifference[]): string
 }
 
 /**
- * D5 buyer-admin controls: change the auto-approve limit or the allergen mode, and the gateway re-decides
- * open proposals at once with its deterministic policy (no model call). Every change is audited and bumps
- * the mandate version. A one-tap reset restores the shipped default as a new version (T36), so a shared
+ * T46: Read-only mandate version and "changed from default" notice on the buyer page.
+ * The buyer page has no mandate write controls; changes happen only on `/admin`.
+ */
+export function MandateStatus({ mandate, live }: { mandate: Mandate; live: boolean }) {
+  const defaults = useQuery({
+    queryKey: ['mandate-default', mandate.customerId, mandate.version],
+    queryFn: () => getMandateDefault(mandate.customerId),
+    enabled: live,
+    retry: false,
+  })
+  const differences = defaults.data?.differences ?? fallbackDifferences(mandate)
+  const changed = (defaults.data?.changedFromDefault ?? false) || differences.length > 0
+
+  return (
+    <section className="panel mt-3" aria-labelledby="mandate-status-heading">
+      <h2 id="mandate-status-heading" className="panel-title inline-flex items-center gap-2">
+        <Lock size={14} aria-hidden /> Mandate v{mandate.version} · read-only
+      </h2>
+      {changed && differences.length > 0 ? (
+        <p className="notice small mt-1" role="note">
+          {changedFromDefaultText(differences)}
+        </p>
+      ) : (
+        <p className="muted small">Unchanged from default mandate.</p>
+      )}
+      <p className="small mt-2">
+        <Link to="/admin" className="font-semibold text-[var(--green)] underline">
+          Buyer admin (demo, no login)
+        </Link>
+      </p>
+    </section>
+  )
+}
+
+/**
+ * D5 buyer-admin controls (on `/admin`): change the auto-approve limit or the allergen mode, and the gateway
+ * re-decides open proposals at once with its deterministic policy (no model call). Every change is audited and
+ * bumps the mandate version. A one-tap reset restores the shipped default as a new version (T36), so a shared
  * demo can always return to the three-outcome story. Needs the live gateway.
  */
 export function MandateControls({
   mandate,
   live,
   onChanged,
-  defaultOpen = true,
 }: {
   mandate: Mandate
   live: boolean
   onChanged?: (result: MandateChangeResult) => void
-  /** Collapsed on phones so the request and the result come first (T43). */
-  defaultOpen?: boolean
 }) {
   const queryClient = useQueryClient()
   const [limit, setLimit] = useState(mandate.autoApproveLimitEur)
@@ -81,6 +170,7 @@ export function MandateControls({
   function done(kind: 'change' | 'reset', data: MandateChangeResult) {
     setResult({ kind, data })
     queryClient.invalidateQueries({ queryKey: ['mandate-default', mandate.customerId] })
+    queryClient.invalidateQueries({ queryKey: ['mandates'] })
     onChanged?.(data)
   }
 
@@ -103,105 +193,171 @@ export function MandateControls({
   })
   const busy = apply.isPending || reset.isPending
   const error = apply.error ?? reset.error
-  const changed = defaults.data?.changedFromDefault ?? false
+  const differences = defaults.data?.differences ?? fallbackDifferences(mandate)
+  const changed = (defaults.data?.changedFromDefault ?? false) || differences.length > 0
 
   return (
     <section className="panel" aria-labelledby="mandate-controls-heading">
-      <details className="admin-details" open={defaultOpen}>
-        <summary className="admin-summary">
-          <h2 id="mandate-controls-heading" className="panel-title inline-flex items-center gap-2">
-            <SlidersHorizontal size={16} aria-hidden /> Buyer admin controls
-          </h2>
-        </summary>
-        <p className="muted small">
-          Policy is changed by a human buyer admin, never by the agent. Open proposals are
-          re-decided immediately, and the change is logged.
-        </p>
-        {live && changed && defaults.data && (
-          <div className="notice small mt-2" role="note">
-            <p>{changedFromDefaultText(defaults.data.differences)}</p>
-            <button
-              type="button"
-              className="btn mt-1 inline-flex items-center gap-1"
-              onClick={() => reset.mutate()}
-              disabled={busy}
-            >
-              <RotateCcw size={14} aria-hidden /> Reset to default mandate
-            </button>
-          </div>
-        )}
-        <form
-          className="mt-2 grid gap-2"
-          onSubmit={(event) => {
-            event.preventDefault()
-            apply.mutate()
-          }}
-        >
-          <label className="field-label" htmlFor="admin-limit">
-            Auto-approve limit (€, excl. VAT)
-          </label>
-          <input
-            id="admin-limit"
-            inputMode="decimal"
-            value={limit}
-            onChange={(event) => setLimit(event.target.value)}
-            disabled={!live || busy}
-            className="rounded-md border border-[var(--line)] px-2 py-1"
-          />
-          <fieldset disabled={!live || busy} className="flex gap-3">
-            <legend className="field-label">Allergen mode</legend>
-            {(['STANDARD', 'STRICT'] as const).map((value) => (
-              <label key={value} className="inline-flex items-center gap-1">
-                <input
-                  type="radio"
-                  name="admin-allergen-mode"
-                  value={value}
-                  checked={mode === value}
-                  onChange={() => setMode(value)}
-                />
-                {value === 'STRICT' ? 'Strict' : 'Standard'}
-              </label>
-            ))}
-          </fieldset>
-          <button type="submit" className="btn btn-primary" disabled={!live || busy}>
-            Apply policy change
+      <h2 id="mandate-controls-heading" className="panel-title inline-flex items-center gap-2">
+        <SlidersHorizontal size={16} aria-hidden /> Buyer admin controls
+      </h2>
+      <p className="muted small">
+        Policy is changed by a human buyer admin, never by the agent. Open proposals are re-decided
+        immediately, and the change is logged.
+      </p>
+      {live && changed && differences.length > 0 && (
+        <div className="notice small mt-2" role="note">
+          <p>{changedFromDefaultText(differences)}</p>
+          <button
+            type="button"
+            className="btn mt-1 inline-flex items-center gap-1"
+            onClick={() => reset.mutate()}
+            disabled={busy}
+          >
+            <RotateCcw size={14} aria-hidden /> Reset to default mandate
           </button>
-        </form>
-        {!live && (
-          <p className="notice small mt-2">
-            Re-deciding needs the live gateway; the offline example proposals shown here are fixed.
+        </div>
+      )}
+      <form
+        className="mt-2 grid gap-2"
+        onSubmit={(event) => {
+          event.preventDefault()
+          apply.mutate()
+        }}
+      >
+        <label className="field-label" htmlFor="admin-limit">
+          Auto-approve limit (€, excl. VAT)
+        </label>
+        <input
+          id="admin-limit"
+          inputMode="decimal"
+          value={limit}
+          onChange={(event) => setLimit(event.target.value)}
+          disabled={!live || busy}
+          className="rounded-md border border-[var(--line)] px-2 py-1"
+        />
+        <fieldset disabled={!live || busy} className="flex gap-3">
+          <legend className="field-label">Allergen mode</legend>
+          {(['STANDARD', 'STRICT'] as const).map((value) => (
+            <label key={value} className="inline-flex items-center gap-1">
+              <input
+                type="radio"
+                name="admin-allergen-mode"
+                value={value}
+                checked={mode === value}
+                onChange={() => setMode(value)}
+              />
+              {value === 'STRICT' ? 'Strict' : 'Standard'}
+            </label>
+          ))}
+        </fieldset>
+        <button type="submit" className="btn btn-primary" disabled={!live || busy}>
+          Apply policy change
+        </button>
+      </form>
+      {!live && (
+        <p className="notice small mt-2">
+          Re-deciding needs the live gateway; the offline example proposals shown here are fixed.
+        </p>
+      )}
+      {error && (
+        <p className="notice notice-error small mt-2" role="alert">
+          {error.message}
+        </p>
+      )}
+      {result && (
+        <div className="notice small mt-2" role="status">
+          <p>
+            {result.kind === 'reset'
+              ? 'Policy reset to default by buyer admin'
+              : 'Policy changed by buyer admin'}{' '}
+            · mandate v{result.data.mandate.version} · auto-approve limit{' '}
+            {formatMoney(result.data.mandate.autoApproveLimitEur)}
           </p>
-        )}
-        {error && (
-          <p className="notice notice-error small mt-2" role="alert">
-            {error.message}
-          </p>
-        )}
-        {result && (
-          <div className="notice small mt-2" role="status">
-            <p>
-              {result.kind === 'reset'
-                ? 'Policy reset to default by buyer admin'
-                : 'Policy changed by buyer admin'}{' '}
-              · mandate v{result.data.mandate.version} · auto-approve limit{' '}
-              {formatMoney(result.data.mandate.autoApproveLimitEur)}
-            </p>
-            {result.data.redecided.length === 0 ? (
-              <p>No open proposals to re-decide.</p>
-            ) : (
-              <ul>
-                {result.data.redecided.map((proposal) => (
-                  <li key={proposal.proposalId}>
-                    Re-decided {proposal.proposalId} (offer v{proposal.offerVersion}):{' '}
-                    <strong>{DECISION_WORDS[proposal.decision]}</strong> ·{' '}
-                    {formatMoney(proposal.totals.exclVat)}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
-      </details>
+          {result.data.redecided.length === 0 ? (
+            <p>No open proposals to re-decide.</p>
+          ) : (
+            <ul>
+              {result.data.redecided.map((proposal) => (
+                <li key={proposal.proposalId}>
+                  Re-decided {proposal.proposalId} (offer v{proposal.offerVersion}):{' '}
+                  <strong>{DECISION_WORDS[proposal.decision]}</strong> ·{' '}
+                  {formatMoney(proposal.totals.exclVat)}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </section>
+  )
+}
+
+/**
+ * T46 `/admin` view: buyer-admin mandate controls moved off the buyer page and explicitly labelled
+ * "Buyer admin (demo, no login)".
+ */
+export function BuyerAdmin() {
+  const mandates = useQuery({ queryKey: ['mandates'], queryFn: () => gateway.listMandates() })
+  useQuery({
+    queryKey: ['gateway-health'],
+    queryFn: () => gateway.checkHealth(),
+    retry: false,
+  })
+  const [customerId, setCustomerId] = useState<string>()
+  const [sourceState, setSourceState] = useState<DataSource>(() => gateway.source)
+
+  useEffect(() => {
+    return subscribeGatewaySource((next) => setSourceState(next))
+  }, [])
+
+  useEffect(() => {
+    if (!customerId && mandates.data?.length) setCustomerId(mandates.data[0].customerId)
+  }, [customerId, mandates.data])
+
+  const mandate = mandates.data?.find((m) => m.customerId === customerId)
+  const live = sourceState === 'GATEWAY' || gateway.source === 'GATEWAY'
+
+  return (
+    <div className="approver-page">
+      <header className="panel flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold">Buyer admin (demo, no login)</h1>
+          <p className="muted small mt-1">
+            Demo buyer-admin role — no authentication; production uses SSO/OIDC. Change or reset a
+            buyer mandate here; the buyer view stays read-only.
+          </p>
+        </div>
+        <Link to="/" className="font-semibold text-[var(--green)] underline">
+          Back to the buyer view
+        </Link>
+      </header>
+      <div className="main-grid">
+        <aside className="main-side">
+          {mandates.error ? (
+            <p className="notice notice-error" role="alert">
+              Could not load mandates.
+            </p>
+          ) : (
+            <MandatePanel
+              mandates={mandates.data ?? []}
+              selected={mandate}
+              onSelect={setCustomerId}
+            />
+          )}
+        </aside>
+        <div className="main-flow">
+          {mandate && (
+            <MandateControls
+              mandate={mandate}
+              live={live}
+              onChanged={() => {
+                mandates.refetch()
+              }}
+            />
+          )}
+        </div>
+      </div>
+    </div>
   )
 }

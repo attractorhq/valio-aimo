@@ -55,6 +55,9 @@ export function Approver() {
         <div>
           <h1>Approver — {mandate?.approver.role ?? 'Head Chef (demo)'}</h1>
           <p>Separate human sign-off channel · approve trade-offs only, never missing evidence.</p>
+          <p className="mt-1 text-xs font-semibold" role="note">
+            Demo approver — no authentication; production uses SSO/OIDC
+          </p>
         </div>
         {mandates.data && mandates.data.length > 1 && (
           <label className="approver-switch">
