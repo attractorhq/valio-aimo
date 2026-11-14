@@ -6,8 +6,10 @@
   remaining need is used up to its stock, then the next candidate fills the rest. Stock of a product that
   appears under several items is one pool, never counted twice.
 - Totals in Decimal EUR excl. VAT; VAT only from the price API, rounded once per VAT rate.
-- offerHash (P1.2) covers lines, unit prices, VAT rates, quantities, delivery dates, cut-offs and trust
-  labels, so any change in those changes the hash.
+- offerHash (P1.2) covers customerId, requestedDate, mode, ordered lines (unit prices, VAT,
+  quantities, delivery dates, cut-offs and trust labels), totals, ordered excluded product/item ids,
+  and offerId when no confirmable lines remain. Read timestamps and expiry are omitted; identical
+  snapshots with the same inputs hash identically.
 - validUntil = min(createdAt + 15 min, earliest price validTo of the lines).
 
 Line eligibility reuses the policy line rules (L1–L14) with no request requirements: hard requirements and
@@ -326,6 +328,12 @@ def _hash_payload(offer_fields: dict) -> str:
         ],
         "totals": offer_fields["totals"],
     }
+    if not offer_fields["lines"]:
+        payload["offerId"] = offer_fields["offerId"]
+        payload["excluded"] = [
+            {"productId": entry["productId"], "itemId": entry["itemId"]}
+            for entry in offer_fields["excluded"]
+        ]
     if lookup_date := offer_fields.get("lookupDate"):
         payload["lookupDate"] = lookup_date
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
@@ -499,16 +507,22 @@ def build_offer(
     valid_until = min([created + OFFER_VALIDITY, *valid_tos])
     totals = _totals(lines)
     fields = {
+        "offerId": offer_id or "",
         "customerId": request.customerId,
         "requestedDate": request.requestedDate.isoformat(),
         "lookupDate": request.lookupDate.isoformat() if request.lookupDate else None,
         "mode": snapshot.mode,
         "lines": [line.model_dump(mode="json") for line in lines],
         "totals": totals.model_dump(mode="json"),
+        "excluded": [entry.model_dump(mode="json") for entry in excluded],
     }
+    if offer_id is None:
+        # Derive a repeatable identity from the snapshot first, then commit that identity into the
+        # final hash. This avoids a circular offerId/hash definition and preserves offline replay.
+        fields["offerId"] = f"OF-{created.date().isoformat()}-{_hash_payload(fields)[:12]}"
     offer_hash = _hash_payload(fields)
     offer = Offer(
-        offerId=offer_id or f"OF-{created.date().isoformat()}-{offer_hash[:12]}",
+        offerId=fields["offerId"],
         offerVersion=offer_version,
         offerHash=offer_hash,
         customerId=request.customerId,

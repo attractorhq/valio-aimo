@@ -121,9 +121,19 @@ class ProposalConflictError(ProposalError):
 class NoOrderError(ProposalError):
     """Raised when policy evaluation returns NO_ORDER (e.g. NO_CANDIDATE or CLARIFICATION_NEEDED)."""
 
-    def __init__(self, decision: PolicyDecision):
+    def __init__(
+        self,
+        decision: PolicyDecision,
+        *,
+        excluded: Sequence[ExcludedProduct] | None = None,
+    ):
         self.policy_decision = decision
-        codes = ", ".join(str(c) for c in decision.reasons)
+        self.decision = decision
+        self.excluded = list(excluded) if excluded is not None else decision.excluded_products()
+        line_codes = [str(r) for entry in self.excluded for r in entry.reasons]
+        all_codes = list(dict.fromkeys([*(str(c) for c in decision.reasons), *line_codes]))
+        self.reasons = all_codes
+        codes = ", ".join(all_codes)
         super().__init__(f"NO_ORDER ({codes}): no confirmable proposal can be created")
 
 
@@ -904,9 +914,6 @@ class ProposalGateway:
             committed_days=committed_days,
         )
 
-        if policy_decision.outcome == "NO_ORDER" and not allow_no_order_block:
-            raise NoOrderError(policy_decision)
-
         verdict_by_line = {v.line.line_id: v for v in policy_decision.lines}
         items_by_id = {item.itemId: item for item in create_req.request.items}
 
@@ -917,6 +924,13 @@ class ProposalGateway:
                 return list(facts)
             item = items_by_id.get(item_id)
             return with_requirement_facts(facts, product, item.requirements if item else [], mandate)
+
+        if policy_decision.outcome == "NO_ORDER" and not allow_no_order_block:
+            no_order_excluded = [
+                e.model_copy(update={"facts": evaluated_facts(e.productId, e.itemId, e.facts)})
+                for e in _merge_excluded(bound_offer.excluded, policy_decision.excluded_products())
+            ]
+            raise NoOrderError(policy_decision, excluded=no_order_excluded)
 
         kept_lines = self._build_kept_lines(
             bound_offer=bound_offer,

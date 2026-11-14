@@ -46,7 +46,12 @@ def search(
 
 
 @router.post("/offers", response_model=Offer, operation_id="getOffer",
-             summary="Live price + availability for the shortlist → an offer at fixed prices")
+             summary="Live price + availability for the shortlist → an offer at fixed prices",
+             description=(
+                 "Quotes the shortlist and computes `offerHash` over `customerId`, `requestedDate`, `mode`, "
+                 "confirmed `lines` (prices, VAT, quantities, dates, cut-offs, trust facts), `totals`, "
+                 "excluded `productId`/`itemId` entries, and `offerId` when every candidate is excluded."
+             ))
 def get_offer(
     body: Annotated[GetOfferRequest, Body(openapi_examples={
         "school_gluten_free": {

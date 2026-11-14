@@ -129,6 +129,45 @@ def test_hash_is_stable_across_runs():
     assert scenario_a().offer.offerHash != scenario_b().offer.offerHash
 
 
+def test_empty_offer_hash_commits_to_excluded_products_even_with_the_same_id():
+    products = {"SYN-MILK": MILK, "SYN-OAT": OAT}
+    snap = snapshot(M1.customerId, [price_row(code, 1) for code in products],
+                    [stock_row(code, 0) for code in products], products)
+    offers = [build_offer(offer_request(M1.customerId, ("I1", code, "1", "l")), products=products,
+                          snapshot=snap, mandate=M1, offer_id="SYN-SAME-OFFER").offer
+              for code in products]
+    assert all(not offer.lines and len(offer.excluded) == 1 for offer in offers)
+    assert offers[0].offerHash != offers[1].offerHash
+
+
+def test_empty_offer_hash_and_generated_id_are_stable_for_identical_inputs():
+    products = {"SYN-MILK": MILK}
+    request = offer_request(M1.customerId, ("I1", "SYN-MILK", "1", "l"))
+    snap = snapshot(M1.customerId, [price_row("SYN-MILK", 1)], [stock_row("SYN-MILK", 0)], products)
+    one = build_offer(request, products=products, snapshot=snap, mandate=M1).offer
+    two = build_offer(request, products=products, snapshot=snap, mandate=M1).offer
+    assert not one.lines
+    assert one.offerId == two.offerId
+    assert one.offerHash == two.offerHash
+
+
+def test_offer_hash_commits_to_offer_identity_customer_and_requested_date():
+    products = {"SYN-MILK": MILK}
+    request = offer_request(M1.customerId, ("I1", "SYN-MILK", "1", "l"))
+    snap = snapshot(M1.customerId, [price_row("SYN-MILK", 1)], [stock_row("SYN-MILK", 0)], products)
+    one = build_offer(request, products=products, snapshot=snap, mandate=M1, offer_id="SYN-OFFER-A").offer
+    two = build_offer(request, products=products, snapshot=snap, mandate=M1, offer_id="SYN-OFFER-B").offer
+    assert one.offerHash != two.offerHash
+    other_customer = build_offer(request.model_copy(update={"customerId": M2.customerId}), products=products,
+                                 snapshot=replace(snap, customer_id=M2.customerId), mandate=M2,
+                                 offer_id="SYN-OFFER-A").offer
+    other_date = MONDAY + timedelta(days=1)
+    another_day = build_offer(request.model_copy(update={"requestedDate": other_date}), products=products,
+                              snapshot=replace(snap, requested_date=other_date), mandate=M1,
+                              offer_id="SYN-OFFER-A").offer
+    assert len({one.offerHash, two.offerHash, other_customer.offerHash, another_day.offerHash}) == 4
+
+
 def test_hash_changes_when_a_price_changes():
     assert scenario_b(22.92).offer.offerHash != scenario_b(22.93).offer.offerHash
 
