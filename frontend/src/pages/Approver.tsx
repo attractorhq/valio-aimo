@@ -188,9 +188,10 @@ export function Approver() {
             <LoadingSection label="approval details" variant="approval" className="panel" />
           ) : selected ? (
             <ApprovalCard
-              key={`${selected.proposal.proposalId}-${selected.proposal.state}`}
+              key={selected.proposal.proposalId}
               item={selected}
               mandate={mandate}
+              onDecisionStart={() => setSelectedId(selected.proposal.proposalId)}
             />
           ) : !error ? (
             <p className="panel muted">Select a proposal.</p>

@@ -13,8 +13,10 @@ The agent never approves, confirms, or computes the AUTO / ASK / BLOCK decision.
 
 from collections import OrderedDict
 from collections.abc import Iterator, Mapping, Sequence
+from contextlib import nullcontext
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from threading import Lock
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from pydantic import Field
@@ -158,6 +160,9 @@ class AgentChannel(Protocol):
         ...
 
 
+_proposal_submission_lock = Lock()
+
+
 class GatewayAgentChannel:
     """In-process adapter that calls only the public agent-channel route handlers in `app.api.agent_channel`."""
 
@@ -216,6 +221,24 @@ class GatewayAgentChannel:
         from app.api import agent_channel
 
         return agent_channel.create_proposal(request, self.state)
+
+    def find_pending_proposal(
+        self, request: CreateProposalRequest, offer: Offer, mandate: Mandate,
+    ) -> Proposal | None:
+        request_text = " ".join(request.request.requestText.split())
+        for proposal_id in reversed(self.state.proposal_ids):
+            candidate = self.state.gateway.get_proposal(proposal_id)
+            if (
+                candidate.state == "PENDING_APPROVAL"
+                and candidate.customerId == request.customerId
+                and candidate.mandateVersion == mandate.version
+                and candidate.offerHash == offer.offerHash
+                and " ".join(candidate.request.requestText.split()) == request_text
+            ):
+                current = self.get_proposal(proposal_id)
+                if current.state == "PENDING_APPROVAL":
+                    return current
+        return None
 
     def get_proposal(self, proposal_id: str) -> Proposal:
         from app.api import agent_channel
@@ -992,7 +1015,43 @@ def _iter_agent_steps_inner(
         yield no_order(offer, offer_request)
         return
 
-    order_step = AgentStepEvent(
+    # ------------------------------------------------------------------ Step 4: APPROVAL (`createProposal` -> `getProposal`)
+    create_req = CreateProposalRequest(
+        customerId=customer_id,
+        offerId=offer.offerId,
+        offerVersion=offer.offerVersion,
+        request=planned_request,
+    )
+    local_channel = channel if isinstance(channel, GatewayAgentChannel) else None
+    # Check and create together so concurrent agent runs cannot both queue a matching proposal.
+    try:
+        with _proposal_submission_lock if local_channel else nullcontext():
+            existing = local_channel.find_pending_proposal(create_req, offer, mandate) if local_channel else None
+            if existing is not None:
+                enriched_proposal = existing
+                offer = local_channel.state.gateway.get_registered_offer(existing.offerId, existing.offerVersion)
+                planned_request = existing.request
+            else:
+                created = channel.create_proposal(create_req)
+                proposal = channel.get_proposal(created.proposalId)
+                enriched_proposal = _enrich_proposal_for_display(
+                    proposal,
+                    extra_excluded=all_lookup_excluded,
+                    sub_checks_by_product=sub_checks_by_product,
+                    extra_reasons=parse_res.reasons,
+                )
+                # Persist enriched display fields so subsequent proposal polls match.
+                if local_channel:
+                    local_channel.state.gateway._save_proposal(enriched_proposal)
+    except NoOrderError as exc:
+        decision = exc.policy_decision
+        yield no_order(offer, offer_request, decision.reasons, decision.excluded_products())
+        return
+    except HttpNoOrderError as exc:
+        yield no_order(offer, offer_request, exc.reasons, exc.excluded)
+        return
+
+    yield AgentStepEvent(
         step=3,
         name="ORDER",
         title="Order",
@@ -1005,36 +1064,6 @@ def _iter_agent_steps_inner(
         offer=offer,
         excluded=offer.excluded,
     )
-
-    # ------------------------------------------------------------------ Step 4: APPROVAL (`createProposal` -> `getProposal`)
-    create_req = CreateProposalRequest(
-        customerId=customer_id,
-        offerId=offer.offerId,
-        offerVersion=offer.offerVersion,
-        request=planned_request,
-    )
-    try:
-        created = channel.create_proposal(create_req)
-        proposal = channel.get_proposal(created.proposalId)
-    except NoOrderError as exc:
-        decision = exc.policy_decision
-        yield no_order(offer, offer_request, decision.reasons, decision.excluded_products())
-        return
-    except HttpNoOrderError as exc:
-        yield no_order(offer, offer_request, exc.reasons, exc.excluded)
-        return
-
-    yield order_step
-
-    enriched_proposal = _enrich_proposal_for_display(
-        proposal,
-        extra_excluded=all_lookup_excluded,
-        sub_checks_by_product=sub_checks_by_product,
-        extra_reasons=parse_res.reasons,
-    )
-    # Persist enriched display fields on in-process gateway so subsequent `getProposal` polls match
-    if isinstance(channel, GatewayAgentChannel):
-        channel.state.gateway._save_proposal(enriched_proposal)
 
     exp = explain_proposal(
         proposal=enriched_proposal,
