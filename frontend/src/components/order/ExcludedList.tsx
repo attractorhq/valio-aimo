@@ -177,7 +177,7 @@ export function ExcludedList({
 
       {excluded.length > 0 && (
         <section
-          className="min-w-0 rounded-[24px] border border-[var(--line)] bg-[var(--tint)] px-3.5 py-2.5 [overflow-wrap:anywhere]"
+          className="min-w-0 rounded-[24px] border border-[var(--line)] bg-[var(--tint)] px-3.5 py-2.5 [overflow-wrap:break-word]"
           aria-label="Excluded candidates"
         >
           <header className="flex flex-wrap items-center justify-between gap-2">

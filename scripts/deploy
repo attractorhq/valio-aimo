@@ -15,6 +15,13 @@ fail() { echo "deploy: $*" >&2; exit 1; }
 command -v docker >/dev/null || fail "Docker is required to build the container image."
 docker info >/dev/null 2>&1 || fail "the Docker daemon is not running."
 
+# The wrangler login can see several Cloudflare accounts; pin the team account from .env (not a secret).
+if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ] && [ -f .env ]; then
+  CLOUDFLARE_ACCOUNT_ID="$(sed -n 's/^CLOUDFLARE_ACCOUNT_ID=//p' .env | tail -1 | tr -d '"'"'"' \r')"
+  [ -n "$CLOUDFLARE_ACCOUNT_ID" ] && export CLOUDFLARE_ACCOUNT_ID
+fi
+[ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] || fail "set CLOUDFLARE_ACCOUNT_ID (in .env or the environment): wrangler sees more than one account."
+
 bash scripts/guard
 scripts/build-catalog
 [ -s data/catalog/catalog.json ] || fail "the catalogue artifact was not built (data/catalog/catalog.json)."
@@ -26,7 +33,10 @@ printf '%s\n' "$build_sha" > data/catalog/BUILD_SHA
 deploy_log="$(mktemp)"
 trap 'rm -f "$deploy_log"' EXIT
 
-(cd frontend && npm ci && npm run build)
+# Production UI calls the gateway on its own origin: never bake a dev API base (e.g. localhost:8000 from .env)
+# into the bundle, or browsers call the visitor's own machine (Chrome asks for local-network access).
+(cd frontend && npm ci && VITE_API_BASE_URL= npm run build)
+if grep -rq "localhost:8000" frontend/dist; then fail "frontend/dist references localhost:8000; check VITE_API_BASE_URL."; fi
 (cd edge && npm ci && npm run check)
 if docker buildx version >/dev/null 2>&1; then
   (cd edge && npx wrangler deploy "$@") 2>&1 | tee "$deploy_log"

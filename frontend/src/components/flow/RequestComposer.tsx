@@ -38,16 +38,8 @@ export function RequestComposer({
           value={text}
           onChange={(e) => onTextChange(e.target.value)}
           placeholder="e.g. 90 kg of gluten-free macaroni and 80 litres of gluten-free oat drink by Monday."
-          aria-describedby="request-hint"
         />
-        <p id="request-hint" className="field-hint">
-          Treated as data: instructions in it are ignored and logged.
-        </p>
         <div className="composer-actions">
-          <button type="submit" className="btn btn-primary" disabled={running || !text.trim()}>
-            <Play size={15} aria-hidden />
-            {running ? 'Running…' : 'Run request'}
-          </button>
           <div className="scenario-buttons" role="group" aria-label="Demo scenarios">
             {scenarios.map((s) => (
               <button
@@ -66,6 +58,14 @@ export function RequestComposer({
               </button>
             ))}
           </div>
+          <button
+            type="submit"
+            className="btn btn-primary composer-run"
+            disabled={running || !text.trim()}
+          >
+            <Play size={15} aria-hidden />
+            {running ? 'Running…' : 'Run request'}
+          </button>
         </div>
       </form>
       {error && (

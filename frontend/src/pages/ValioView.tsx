@@ -1290,7 +1290,7 @@ export function ValioView() {
   )
 
   return (
-    <div className="grid gap-3">
+    <div className="grid grid-cols-1 gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <a
           href="/"
@@ -1579,7 +1579,7 @@ export function ValioView() {
                     </span>
                   </td>
                   <td className="num">{gap.affectedSuppliers.toLocaleString('en-US')}</td>
-                  <td>{gap.fixAction}</td>
+                  <td className="[overflow-wrap:break-word]">{gap.fixAction}</td>
                 </tr>
               ))}
             </tbody>
@@ -1602,7 +1602,7 @@ export function ValioView() {
               {filteredSupplierTotals.blocked.toLocaleString('en-US')} blocked)
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
             <input
               type="search"
               value={supplierQuery}
@@ -1617,22 +1617,22 @@ export function ValioView() {
               aria-pressed={foodOnly}
               className={`btn text-xs font-semibold ${foodOnly ? 'btn-primary' : 'btn-scenario'}`}
             >
-              <span>{foodOnly ? 'Food suppliers only ✓' : 'Food suppliers only'}</span>
+              <span>{foodOnly ? 'Food only ✓' : 'Food only'}</span>
             </button>
             <select
               value={reasonFilter}
               onChange={(e) => setReasonFilter(e.target.value)}
               aria-label="Filter suppliers by blocking reason"
-              className="rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface)] px-3 py-1.5 text-xs font-semibold"
+              className="min-w-0 max-w-full rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface)] px-3 py-1.5 text-xs font-semibold"
             >
-              <option value="ALL">All blocking reasons</option>
-              <option value="ALLERGEN_UNKNOWN">ALLERGEN_UNKNOWN (no allergens)</option>
-              <option value="QUANTITY_BASIS_WEAK">QUANTITY_BASIS_WEAK (name-only size)</option>
-              <option value="QUANTITY_BASIS_UNKNOWN">QUANTITY_BASIS_UNKNOWN (no pack size)</option>
-              <option value="DATA_CONFLICT">DATA_CONFLICT (K1/K2/K6)</option>
-              <option value="DEPOSIT_COST_UNVERIFIED">DEPOSIT_COST_UNVERIFIED (unpriced deposit)</option>
-              <option value="SUBSTITUTE_REJECTED">SUBSTITUTE_REJECTED (unsafe substitute)</option>
-              <option value="LOW_RELIABILITY">LOW_RELIABILITY (&lt; 95%)</option>
+              <option value="ALL">All reasons</option>
+              <option value="ALLERGEN_UNKNOWN">No allergens</option>
+              <option value="QUANTITY_BASIS_WEAK">Name-only size</option>
+              <option value="QUANTITY_BASIS_UNKNOWN">No pack size</option>
+              <option value="DATA_CONFLICT">Data conflict</option>
+              <option value="DEPOSIT_COST_UNVERIFIED">Unpriced deposit</option>
+              <option value="SUBSTITUTE_REJECTED">Unsafe substitute</option>
+              <option value="LOW_RELIABILITY">Low reliability</option>
             </select>
           </div>
         </div>

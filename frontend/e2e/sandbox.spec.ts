@@ -144,7 +144,7 @@ uvicorn.run(app, host="127.0.0.1", port=${apiPort}, log_level="warning")
       await approval.getByRole('button', { name: 'Approve €1,010.00' }).click()
       await expect(approval.getByRole('article')).toContainText('Confirmed (simulated)')
 
-      await expect(buyer.getByText('Your private demo session')).toBeVisible()
+      await expect(buyer.getByText('Private session')).toBeVisible()
       await buyer.getByRole('button', { name: 'Reset', exact: true }).click()
       await expect(buyer.getByRole('listitem', { name: /Order/ })).toContainText('Not started')
       await buyer.getByRole('button', { name: /^Scenario A:/ }).click()

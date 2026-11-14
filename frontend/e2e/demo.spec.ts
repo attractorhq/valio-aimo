@@ -296,27 +296,13 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     // Must drive the real /v0.1 gateway, never synthetic mocks
     await expect(page.getByText('Synthetic mock data')).toHaveCount(0)
     if (mode === 'LIVE') {
-      await expect(page.getByText('Live · Valio Aimo API')).toBeVisible()
+      // Live data needs no badge; only recorded or synthetic data is labelled.
+      await expect(page.getByText(/Recorded · captured/)).toHaveCount(0)
     } else {
       await expect(page.getByText(/Recorded · captured/)).toBeVisible()
     }
-
-    // Verify Pre-flight panel: green for live presentation, or honest recorded fallback when cut-off passed (P5.3)
-    const preflightBtn = page.getByRole('button', { name: 'Pre-flight', exact: true })
-    await preflightBtn.click()
-    const preflightRegion = page.getByRole('region', { name: 'Evaluation and live pre-flight' })
-    await expect(preflightRegion).toBeVisible()
-    await expect(preflightRegion).toContainText('Pre-flight GREEN')
-    await page.getByRole('button', { name: 'Simulate passed cut-off (P5.3)' }).click()
-    await expect(preflightRegion).toContainText(
-      /Pre-flight RED — Live cut-offs have passed\. Switched to RECORDED mode/,
-    )
-    await expect(page.getByText(/Recorded · captured/)).toBeVisible()
-    if (mode === 'LIVE') {
-      await page.getByRole('button', { name: 'Restore open cut-offs' }).click()
-      await expect(page.getByText('Live · Valio Aimo API')).toBeVisible()
-    }
-    await preflightBtn.click()
+    // The live pre-flight is a presenter command (scripts/preflight), not a buyer-view control.
+    await expect(page.getByRole('button', { name: 'Pre-flight', exact: true })).toHaveCount(0)
 
     // 1. Scenario A (AUTO): 464306 × 1,000 = €1,010.00 excl. VAT
     await page.getByRole('button', { name: /^Scenario A:/ }).click()

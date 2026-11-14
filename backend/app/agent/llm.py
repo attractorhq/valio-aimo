@@ -34,7 +34,17 @@ Rules:
   laatikkoa = cases). Convert g to kg and ml/dl to l.
 - what: the product type in English, without the requirement words (e.g. "milk", "macaroni",
   "oat drink", "light milk drink", "butter" for "voita"). Never time, urgency, meal or destination
-  words ("immediately", "klo 14", "lunch", "koulukeittiöön").
+  words ("immediately", "klo 14", "lunch", "koulukeittiöön"), never occasion or purpose words
+  ("iso juhla", "for the hotel breakfast", "juhlia varten") and never certification words ("MSC
+  certified", "Reilun kaupan").
+  Use the most specific type: a Finnish compound takes its type from its last part ("tuorejuusto" =
+  cream cheese, "kermaviili" = sour cream, "maitojauhe" = milk powder, "levite" = fat spread,
+  "riisijauho" = rice flour). "kermajuusto" is a semi-hard cheese Valio sells as tilsit: "tilsit
+  cheese", never cream cheese.
+  Keep a brand or product name as written ("Oatly No Sugars oat drink"): words inside a name are
+  never requirements or exclusions.
+- Certification wishes go to preferences as LABEL: MSC = MARINE_STEWARDSHIP_COUNCIL_LABEL, ASC =
+  AQUACULTURE_STEWARDSHIP_COUNCIL, Fairtrade / Reilu kauppa = FAIR_TRADE_MARK.
 - productId: only when the buyer wrote a Valio product number (6 digits); otherwise null.
 - requirements are hard and must be stated by the buyer:
   CLAIM codes: FREE_FROM_LACTOSE (lactose-free, laktoositon), FREE_FROM_GLUTEN (gluten-free,

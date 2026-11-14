@@ -300,3 +300,87 @@ test('a queue row shows the customer, the products, each reason once and what ap
     '€506.16 is above your €500.00 auto-approve limit. Everything else is verified or declared.',
   )
 })
+
+test('T69 split top-up proposal renders both lines, the approval sentence, and the price-guard detail line', async ({
+  page,
+}) => {
+  await runScenarioB(page)
+  await page.evaluate((key) => {
+    const store = JSON.parse(localStorage.getItem(key) ?? '{}')
+    for (const r of Object.values(store) as Array<{
+      proposal: {
+        reasons: string[]
+        request: {
+          items: Array<{ itemId: string; what: string; quantity: string; unit: string }>
+        }
+        lines: Array<{
+          lineId: string
+          itemId: string
+          productId: string
+          name: string
+          salesUnit: string
+          salesUnitLabel: string
+          contentPerSalesUnit: { value: string; unit: string; level: string; method: string }
+          quantitySalesUnits: string
+          deliveredQuantity: { value: string; unit: string }
+          unitPriceExclVat: string
+          lineTotalExclVat: string
+          vatRate: string
+          deliveryDate: string
+          closingTime: string | null
+          facts: unknown[]
+          reasons: string[]
+          substitutionSource?: string
+          substituteFor?: string
+        }>
+      }
+    }>) {
+      r.proposal.reasons = ['SPLIT', 'AGENT_SUBSTITUTE']
+      r.proposal.request.items = [
+        { itemId: 'I1', what: 'gluten-free pasta', quantity: '120', unit: 'kg' },
+      ]
+      const baseLine = r.proposal.lines[0]
+      r.proposal.lines = [
+        {
+          ...baseLine,
+          lineId: 'L1',
+          itemId: 'I1',
+          productId: 'SYN-A',
+          name: 'A',
+          contentPerSalesUnit: { value: '5', unit: 'kg', level: 'DECLARED', method: 'salesUnit' },
+          quantitySalesUnits: '14',
+          deliveredQuantity: { value: '70', unit: 'kg' },
+          unitPriceExclVat: '10.00',
+          lineTotalExclVat: '140.00',
+          reasons: [],
+        },
+        {
+          ...baseLine,
+          lineId: 'L2',
+          itemId: 'I1',
+          productId: 'SYN-B',
+          name: 'B',
+          contentPerSalesUnit: { value: '5', unit: 'kg', level: 'DECLARED', method: 'salesUnit' },
+          quantitySalesUnits: '10',
+          deliveredQuantity: { value: '50', unit: 'kg' },
+          unitPriceExclVat: '12.00',
+          lineTotalExclVat: '120.00',
+          reasons: ['SPLIT', 'AGENT_SUBSTITUTE'],
+          substitutionSource: 'AGENT',
+          substituteFor: 'SYN-A',
+        },
+      ]
+    }
+    localStorage.setItem(key, JSON.stringify(store))
+  }, STORE)
+
+  await page.goto('/approver')
+  const card = page.getByRole('article')
+  await expect(card).toContainText('SYN-A')
+  await expect(card).toContainText('70 kg')
+  await expect(card).toContainText('SYN-B')
+  await expect(card).toContainText('50 kg')
+  const statement = card.getByRole('note', { name: 'Approval statement' })
+  await expect(statement).toContainText('Approving means 70 kg of A + 50 kg of B (€0.40/kg more).')
+  await expect(statement).toContainText('+20 % per kg')
+})

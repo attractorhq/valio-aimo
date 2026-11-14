@@ -1,4 +1,4 @@
-import { ExternalLink, ShieldCheck, UserRoundCheck } from 'lucide-react'
+import { ExternalLink } from 'lucide-react'
 import { useState } from 'react'
 import { Link, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { BuyerAdmin } from './components/mandate/MandateControls'
@@ -28,13 +28,13 @@ export default function App() {
       await gateway.checkHealth()
       if (gateway.source === 'GATEWAY') {
         const response = await fetch('/v0.1/admin/demo/reset', { method: 'POST' })
-        if (!response.ok) throw new Error('Could not reset your demo session. Please try again.')
+        if (!response.ok) throw new Error('Could not reset your session. Please try again.')
       }
       localStorage.removeItem(MOCK_STORE_KEY)
       localStorage.removeItem('verified-or-ask.token-proposal-map.v1')
       window.location.assign('/')
     } catch (error) {
-      setResetError(error instanceof Error ? error.message : 'Could not reset your demo session.')
+      setResetError(error instanceof Error ? error.message : 'Could not reset your session.')
       setResetting(false)
     }
   }
@@ -44,31 +44,9 @@ export default function App() {
         {approver ? 'Skip to proposals for approval' : 'Skip to the purchasing flow'}
       </a>
       <header className="app-header">
-        <div className="brand">
-          <span className="brand-wordmark" aria-label="Valio Aimo">
-            Valio Aimo
-          </span>
-          {approver ? (
-            <UserRoundCheck size={18} aria-hidden className="shrink-0" />
-          ) : (
-            <ShieldCheck size={18} aria-hidden className="shrink-0" />
-          )}
-          <div className="min-w-0">
-            <div className="brand-title-row">
-              <span className="brand-name">
-                {approver ? 'Approver panel' : 'Trusted Trade Gateway'}
-              </span>
-              <span className="brand-gateway">
-                {approver ? '· Trusted Trade Gateway' : '· Verified or Ask'}
-              </span>
-            </div>
-            <span className="brand-sub">
-              {approver
-                ? 'Human sign-off channel · not the agent · Prototype for the Valio Aimo Junction 2026 challenge · not an official Valio service'
-                : 'Prototype for the Valio Aimo Junction 2026 challenge · not an official Valio service'}
-            </span>
-          </div>
-        </div>
+        <Link to="/" className="brand" aria-label="Valio Aimo · Trusted Trade Gateway">
+          <img src="/brand/valio-aimo-logo-white.svg" alt="Valio Aimo" className="brand-logo" />
+        </Link>
         <nav className="app-nav" aria-label="Views">
           <Link
             to="/"
@@ -127,21 +105,17 @@ export default function App() {
           />
         </Routes>
       </main>
-      <footer className="app-footer">
-        {!pathname.startsWith('/approve/') && (
+      {!pathname.startsWith('/approve/') && (
+        <footer className="app-footer">
           <span>
-            Your private demo session ·{' '}
+            Private session ·{' '}
             <button type="button" onClick={resetSession} disabled={resetting}>
               {resetting ? 'Resetting…' : 'Reset'}
             </button>
             {resetError && <span role="alert"> {resetError}</span>}
           </span>
-        )}
-        <span>Simulated orders only — mock environment.</span>
-        <span>
-          Prototype for the Valio Aimo Junction 2026 challenge · not an official Valio service
-        </span>
-      </footer>
+        </footer>
+      )}
     </div>
   )
 }
