@@ -326,6 +326,8 @@ def _hash_payload(offer_fields: dict) -> str:
         ],
         "totals": offer_fields["totals"],
     }
+    if lookup_date := offer_fields.get("lookupDate"):
+        payload["lookupDate"] = lookup_date
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
@@ -352,7 +354,7 @@ def build_offer(
     """Size, allocate and price the shortlist from one snapshot. Deterministic for the same inputs."""
     if snapshot.customer_id != request.customerId or mandate.customerId != request.customerId:
         raise ValueError("snapshot, mandate and request must belong to the same customer")
-    if snapshot.requested_date != request.requestedDate:
+    if snapshot.requested_date != (request.lookupDate or request.requestedDate):
         raise ValueError("snapshot was fetched for a different requested date")
 
     grouped: OrderedDict[str, list[OfferItem]] = OrderedDict()
@@ -499,6 +501,7 @@ def build_offer(
     fields = {
         "customerId": request.customerId,
         "requestedDate": request.requestedDate.isoformat(),
+        "lookupDate": request.lookupDate.isoformat() if request.lookupDate else None,
         "mode": snapshot.mode,
         "lines": [line.model_dump(mode="json") for line in lines],
         "totals": totals.model_dump(mode="json"),
@@ -546,7 +549,7 @@ def get_offer(
     missing = sorted(code for code in wanted if code not in products)
     if missing:
         raise ValueError(f"unknown product ids: {', '.join(missing)}")
-    snapshot = provider.lookup(lists, request.requestedDate, request.customerId,
+    snapshot = provider.lookup(lists, request.lookupDate or request.requestedDate, request.customerId,
                                products={code: products[code] for code in wanted}, force_refresh=force_refresh)
     return build_offer(request, products=products, snapshot=snapshot, mandate=mandate,
                        offer_id=offer_id, offer_version=offer_version)

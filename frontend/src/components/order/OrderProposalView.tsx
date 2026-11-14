@@ -95,6 +95,11 @@ export function OrderProposalView({
                   <td data-label="Delivery">
                     <span>
                       {formatDate(line.deliveryDate)}
+                      {line.deliveryDate > source.requestedDate && (
+                        <span className="block text-xs">
+                          After your {formatDate(source.requestedDate)} deadline
+                        </span>
+                      )}
                       {line.closingTime && (
                         <small className="muted block">
                           order by {formatTime(line.closingTime)}

@@ -135,6 +135,12 @@ scripts/check
 
 `frontend/src/mocks/scenario-a.json` and `scenario-b.json` are hand-made **synthetic UI mocks**, with synthetic IDs/names, illustrative A/B quantities/totals, and placeholder hashes. They are not recordings or outcomes to hardcode into the gateway. B has 18 × €22.92 + 80 × €1.17 = €506.16, VAT €68.33, incl. VAT €574.49, and exactly `[OVER_AUTO_LIMIT]`; rejected substitutes stay excluded. The matching mandate mocks use M1/M2-shaped controls. Actual dataset and recorded-response evaluation stays private in ignored `data/`.
 
+## Retrying a delivery date
+
+`POST /v0.1/agent/run` can return `steps[].noOrder` with the search, outcome, and optional catalogue matches for each item. If availability supports the full request on a later day, `earliestDelivery` is an ISO date. The buyer can rerun with the original `requestText` and that date as `lookupDate`.
+
+`POST /v0.1/offers` accepts an optional `lookupDate` later than `requestedDate`. It queries availability and pricing for that later day. The offer and associated request retain `requestedDate` as the original deadline, so the gateway applies `DATE_LATER` and rechecks the later lookup when the approver signs off.
+
 ## Second client: OpenAPI + curl and `scripts/second-client`
 
 Any outside purchasing agent can discover the gateway's operations from `/openapi.json` and run Scenario B through the public Agent channel alone, receiving the exact same deterministic decision (`ASK`, `["OVER_AUTO_LIMIT"]`, `€506.16` excl. VAT, and identical `offerHash`).

@@ -105,6 +105,7 @@ export type GetOfferRequest = {
   customerId: string;
   requestedDate: string;
   items: Array<OfferItem>;
+  lookupDate?: string | null;
 };
 
 export type GetProposalRequest = {

@@ -43,6 +43,40 @@ LlmExplainer = Callable[[dict], str]
 
 EXPLAIN_DEADLINE_S = 1.5
 
+
+def no_order_item_reason(
+    *,
+    has_candidates: bool,
+    deadline_label: str,
+    delivery_label: str | None,
+    delivered: bool,
+    excluded: Sequence[ExcludedProduct],
+    requirements: Sequence[Requirement],
+) -> str:
+    if delivery_label:
+        timing = f"Available {delivery_label}, after your {deadline_label} deadline."
+    elif delivered:
+        timing = "Availability was found by the deadline."
+    else:
+        timing = ""
+    codes = list(dict.fromkeys(code for entry in excluded for code in entry.reasons))
+    if codes:
+        claim_labels = ", ".join(requirement_display_name(req) for req in requirements if req.kind == "CLAIM")
+        descriptions = {
+            ReasonCode.CLAIM_MISSING: f"required claim missing ({claim_labels})" if claim_labels else "claim missing",
+            ReasonCode.ALLERGEN_CONTAINS: "allergen present",
+            ReasonCode.ALLERGEN_MAY_CONTAIN: "possible allergen traces",
+        }
+        labels = ", ".join(dict.fromkeys(descriptions.get(code, REASON_REGISTRY[code].chipText.lower())
+                                         for code in codes))
+        return f"{timing or f'No eligible delivery by {deadline_label}.'} Exclusions include {labels}."
+    if timing:
+        return timing
+    if has_candidates:
+        return f"The requested quantity could not be offered by {deadline_label}."
+    return "No eligible products matched this catalogue search."
+
+
 # Split sentences on `.`, `!`, `?` followed by whitespace, without splitting decimals (`506.16`),
 # `excl. VAT`, `incl. VAT`, or `no. 465039`.
 _ABBREV_PLACEHOLDER = "\x00"
@@ -265,13 +299,7 @@ def template_explanation(
                     f"Instructions in the request text were ignored. {q}"
                 )
             return clamp_to_two_sentences(q)
-        ex_names = ", ".join(f"{e.productId} ({e.name})" for e in list(excluded)[:2])
-        if ex_names:
-            return clamp_to_two_sentences(
-                f"No product in the assortment meets all hard requirements and delivery terms for this request. "
-                f"Closest excluded candidates: {ex_names}."
-            )
-        return "No product in the assortment meets all hard requirements and delivery terms for this request."
+        return "The assortment could not fulfill the full request. Nothing was ordered."
 
     total_str = format_money(proposal.totals.exclVat)
     date_str = format_date(proposal.requestedDate)

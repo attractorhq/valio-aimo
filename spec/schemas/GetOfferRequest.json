@@ -65,6 +65,19 @@
       "minItems": 1,
       "title": "Items",
       "type": "array"
+    },
+    "lookupDate": {
+      "anyOf": [
+        {
+          "format": "date",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Lookupdate"
     }
   },
   "required": [

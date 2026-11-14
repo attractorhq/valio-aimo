@@ -6,9 +6,10 @@ token or QR payload (patch P3, AC15).
 
 import json
 from collections.abc import Iterator
+from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Depends, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import Field
 
@@ -17,6 +18,7 @@ from app.agent.run import (
     AgentRunResult,
     AgentStepEvent,
     GatewayAgentChannel,
+    InvalidDeliveryRetry,
     feasible_order_for,
     iter_agent_steps,
     run_agent,
@@ -38,12 +40,14 @@ class AgentRunRequest(Contract):
     customerId: Identifier
     requestText: str = Field(min_length=1, max_length=4000)
     stream: bool = False
+    lookupDate: date | None = None
 
 
 def _assemble_result_from_steps(
     customer_id: str,
     steps: list[AgentStepEvent],
     channel: GatewayAgentChannel,
+    lookup_date: date | None,
 ) -> AgentRunResult:
     from app.agent.plan import AgentPlan
 
@@ -85,6 +89,7 @@ def _assemble_result_from_steps(
                     customerId=customer_id,
                     requestedDate=req.requestedDate,
                     items=all_offer_items,
+                    lookupDate=lookup_date,
                 ),
             )
 
@@ -116,12 +121,14 @@ def _stream_sse(
     customer_id: str,
     request_text: str,
     channel: GatewayAgentChannel,
+    lookup_date: date | None,
 ) -> Iterator[str]:
     steps: list[AgentStepEvent] = []
     for step_event in iter_agent_steps(
         customer_id,
         request_text,
         channel=channel,
+        lookup_date=lookup_date,
         catch_stream_errors=True,
     ):
         if step_event.name == "ERROR":
@@ -131,7 +138,7 @@ def _stream_sse(
         steps.append(step_event)
         yield f"event: step\ndata: {step_event.model_dump_json()}\n\n"
     if steps:
-        final = _assemble_result_from_steps(customer_id, steps, channel)
+        final = _assemble_result_from_steps(customer_id, steps, channel, lookup_date)
         yield f"event: result\ndata: {final.model_dump_json()}\n\n"
 
 
@@ -139,12 +146,14 @@ def _stream_ndjson(
     customer_id: str,
     request_text: str,
     channel: GatewayAgentChannel,
+    lookup_date: date | None,
 ) -> Iterator[str]:
     steps: list[AgentStepEvent] = []
     for step_event in iter_agent_steps(
         customer_id,
         request_text,
         channel=channel,
+        lookup_date=lookup_date,
         catch_stream_errors=True,
     ):
         if step_event.name == "ERROR":
@@ -155,7 +164,7 @@ def _stream_ndjson(
         payload = {"type": "step", **step_event.model_dump(mode="json")}
         yield json.dumps(payload, ensure_ascii=False) + "\n"
     if steps:
-        final = _assemble_result_from_steps(customer_id, steps, channel)
+        final = _assemble_result_from_steps(customer_id, steps, channel, lookup_date)
         payload = {"type": "result", **final.model_dump(mode="json")}
         yield json.dumps(payload, ensure_ascii=False) + "\n"
 
@@ -197,17 +206,20 @@ def run_agent_route(
 
     if body.stream or stream or "text/event-stream" in accept:
         return StreamingResponse(
-            _stream_sse(body.customerId, body.requestText, channel),
+            _stream_sse(body.customerId, body.requestText, channel, body.lookupDate),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
     if "application/x-ndjson" in accept:
         return StreamingResponse(
-            _stream_ndjson(body.customerId, body.requestText, channel),
+            _stream_ndjson(body.customerId, body.requestText, channel, body.lookupDate),
             media_type="application/x-ndjson",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
-    return run_agent(body.customerId, body.requestText, channel=channel)
+    try:
+        return run_agent(body.customerId, body.requestText, channel=channel, lookup_date=body.lookupDate)
+    except InvalidDeliveryRetry as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 # Register on the shared agent_channel router so `app.main:app` serves `/v0.1/agent/run`.
