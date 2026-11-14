@@ -161,3 +161,38 @@ test('editable assumption chips: changing "Any fat %" to "1.5 %" in Scenario A r
   await expect(step(page, 'Lookup')).toContainText('Shortlist (1): MOCK-MILK')
   await expect(step(page, 'Lookup')).not.toContainText('MOCK-MILK-3PCT')
 })
+
+test('Valio Aimo readiness view shows supplier data gaps, AUTO/ASK/BLOCK statistics and fix list computed from data', async ({
+  page,
+}) => {
+  await page.getByRole('link', { name: 'Valio Aimo readiness' }).click()
+  await expect(
+    page.getByRole('heading', {
+      name: /Valio Aimo Agent-Readiness View · Data quality = autonomous sales/,
+    }),
+  ).toBeVisible()
+
+  const summary = page.getByRole('region', { name: /Valio Aimo Agent-Readiness View/ })
+  await expect(summary).toContainText('AUTO-Ready Products')
+  await expect(summary).toContainText('Blocked from AUTO')
+
+  const liveStats = page.getByRole('region', { name: 'Live AUTO / ASK / BLOCK Decision Statistics' })
+  await expect(liveStats).toContainText('AUTO · Autonomous Order')
+  await expect(liveStats).toContainText('ASK · Human Sign-Off')
+  await expect(liveStats).toContainText('BLOCK · Mandate Refusal')
+  await expect(liveStats).toContainText('€1,010.00')
+  await expect(liveStats).toContainText('€506.16')
+  await expect(liveStats).toContainText('€20,200.00')
+
+  const suppliersSection = page.getByRole('region', { name: 'Data Gaps by Supplier' })
+  await expect(suppliersSection).toContainText('SYNTHETIC DAIRY OY')
+  await expect(suppliersSection).toContainText('SYNTHETIC NORDIC PASTA')
+  await suppliersSection.getByLabel('Filter suppliers by name').fill('NORDIC PASTA')
+  await expect(suppliersSection).toContainText('SYNTHETIC NORDIC PASTA')
+  await expect(suppliersSection).not.toContainText('SYNTHETIC NONFOOD SUPPLIES')
+
+  const fixList = page.getByRole('region', { name: 'Prioritised Master-Data Fix List' })
+  await expect(fixList).toContainText('SUBSTITUTE_REJECTED')
+  await expect(fixList).toContainText('DATA_CONFLICT')
+  await expect(fixList).toContainText('ALLERGEN_UNKNOWN')
+})
