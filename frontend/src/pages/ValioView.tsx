@@ -1620,7 +1620,7 @@ export function ValioView() {
               value={reasonFilter}
               onChange={(e) => setReasonFilter(e.target.value)}
               aria-label="Filter suppliers by blocking reason"
-              className="rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface)] px-3 py-1.5 text-xs font-semibold"
+              className="min-w-0 max-w-full rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface)] px-3 py-1.5 text-xs font-semibold"
             >
               <option value="ALL">All blocking reasons</option>
               <option value="ALLERGEN_UNKNOWN">ALLERGEN_UNKNOWN (no allergens)</option>
