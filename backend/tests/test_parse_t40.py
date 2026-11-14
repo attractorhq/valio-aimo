@@ -100,11 +100,13 @@ def test_finnish_nut_means_peanut_and_tree_nut(text):
     assert item.requirements == [AN, AP]
 
 
-def test_finnish_peanut_and_english_nut_are_unchanged():
+def test_peanut_tree_nut_and_general_nut_codes():
     (item,) = parse_request("20 kg pastaa ilman maapähkinää huomiseksi", MORNING).request.items
     assert item.requirements == [AP]
-    (item,) = parse_request("20 kg pasta, no nuts, tomorrow", MORNING).request.items
+    (item,) = parse_request("20 kg pasta, no tree nuts, tomorrow", MORNING).request.items
     assert item.requirements == [AN]
+    (item,) = parse_request("20 kg pasta, no nuts, tomorrow", MORNING).request.items
+    assert item.requirements == [AN, AP]
 
 
 def test_the_llm_cannot_drop_the_peanut_half_of_pahkina():

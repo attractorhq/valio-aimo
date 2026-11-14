@@ -56,6 +56,8 @@ Static search narrows the shortlist first (at most 20 candidates per request ite
 
 `createProposal(customerId, offerId, offerVersion, request)` does **not** accept an outcome, reasons, mandate version, totals, hash, or approval credential from the agent. The gateway loads those authoritative values itself, validates customer/offer/request binding, and evaluates policy. It stores the resulting `Proposal` snapshot. Repeated create operations are idempotent (implemented by T07/T08).
 
+Request item IDs must be unique and describe every offered line. Quantities use the same physical unit as their lines; summed delivery must cover the requested quantity, with at most one sales unit of rounding per line. A mismatch returns **422** (`error.code: HTTP_ERROR`) with the item ID, line IDs and quantities, before creating a proposal or approval (e.g. `item I1 requests 10 l; offer line L1 is 5,000 l; exceeds sales-unit rounding`). Explicitly quoted partial deliveries retain their normal approval flow, but cannot be rebound to a different shortfall. An item represented only by excluded candidates retains normal policy/NO_ORDER handling. Named-product changes retain the existing substitution policy: a substitute must satisfy the hard requirements and any required approval; a product ID change cannot silently auto-confirm.
+
 ### StructuredRequest and Product
 
 `StructuredRequest` carries the original `requestText` (data, never instructions), a Helsinki `requestedDate`, `items[]` and visible `assumptions[]`. Each item has a stable `itemId`, `what`, positive `quantity`, unit, optional explicitly named `productId`, hard `requirements[]`, and soft `preferences[]`.
@@ -105,6 +107,13 @@ Agent-facing pending responses contain only the proposal, `state: PENDING_APPROV
 
 `Mandate.version` is a positive integer. It holds customer/organisation/segment, STANDARD or STRICT allergen mode, net auto/hard limits, substitute/supplier-stock controls, reliability threshold (0–1), cut-off enforcement, forbidden GS1 allergens and named approver. `autoAcceptAgentSubstitutes` is always false. A buyer-admin change increments version and emits an audit event; the agent can never update it.
 
+**Scope and validity (T68).** Three optional fields limit *what* and *until when*; the demo mandates M1/M2 leave them empty, so they behave as before:
+
+- `allowedCategories: string[]`: catalogue category code prefixes (e.g. `"211"`). Empty means any category. A line whose product category starts with none of them is EXCLUDED with `CATEGORY_NOT_ALLOWED` (rule L15, not approvable).
+- `validFrom` / `validTo: date | null`: first and last day (Europe/Helsinki calendar day, both inclusive). Outside the window, every order BLOCKs with `MANDATE_NOT_VALID` (rule O0, the first reason) until a buyer admin renews the mandate. `validTo` must not be before `validFrom`.
+
+The buyer admin sets them with `PATCH /v0.1/admin/mandates/{customerId}` (`allowedCategories`, `validFrom`, `validTo`; an explicit `null` clears a bound). The change is versioned and audited like any other mandate change, and open proposals are re-decided.
+
 `AuditEntry` records timestamp, actor, event/summary, customer/proposal/offer binding, mandate version, optional old/new state, rule, reason codes, facts, and optional human comment. There is no arbitrary credential-bearing metadata field. Rejection/approval comments and request text remain untrusted data. Hash chaining and audit export are later tickets.
 
 ## Reason-code registry
@@ -114,8 +123,8 @@ The canonical registry is `app.contracts.REASON_REGISTRY`; generated TypeScript 
 | Default effect | Codes | Approvable |
 |---|---|---|
 | ASK | `OVER_AUTO_LIMIT`, `DATE_LATER`, `PARTIAL_AVAILABILITY`, `SUPPLIER_STOCK_UNKNOWN`, `VALIO_SUBSTITUTE`, `AGENT_SUBSTITUTE`, `LOW_RELIABILITY`, `QUANTITY_BASIS_WEAK` | yes |
-| EXCLUDE | `CLAIM_MISSING`, `ALLERGEN_CONTAINS`, `ALLERGEN_MAY_CONTAIN`, `ALLERGEN_UNKNOWN`, `ALLERGEN_IMPLICIT`, `DATA_CONFLICT`, `CUTOFF_PASSED`, `UNIT_MISMATCH`, `NOT_AVAILABLE`, `SALES_BLOCKED`, `PRICE_UNAVAILABLE`, `SUBSTITUTE_REJECTED`, `DEPOSIT_COST_UNVERIFIED`, `QUANTITY_BASIS_UNKNOWN` | no |
-| BLOCK | `OVER_HARD_LIMIT` | no |
+| EXCLUDE | `CLAIM_MISSING`, `ALLERGEN_CONTAINS`, `ALLERGEN_MAY_CONTAIN`, `ALLERGEN_UNKNOWN`, `ALLERGEN_IMPLICIT`, `DATA_CONFLICT`, `CUTOFF_PASSED`, `UNIT_MISMATCH`, `NOT_AVAILABLE`, `SALES_BLOCKED`, `PRICE_UNAVAILABLE`, `SUBSTITUTE_REJECTED`, `DEPOSIT_COST_UNVERIFIED`, `QUANTITY_BASIS_UNKNOWN`, `CATEGORY_NOT_ALLOWED` | no |
+| BLOCK | `OVER_HARD_LIMIT`, `MANDATE_NOT_VALID` | no |
 | INFO | `SPLIT`, `INSTRUCTION_IGNORED`, `REQUOTED`, `VARIABLE_WEIGHT_UNVERIFIED` | no |
 | NO_ORDER | `NO_CANDIDATE`, `CLARIFICATION_NEEDED` | no |
 

@@ -95,6 +95,42 @@
     },
     "approver": {
       "$ref": "#/$defs/Approver"
+    },
+    "allowedCategories": {
+      "description": "Catalogue category code prefixes the agent may buy from; empty means any category.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Allowedcategories",
+      "type": "array"
+    },
+    "validFrom": {
+      "anyOf": [
+        {
+          "format": "date",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "First day (Europe/Helsinki) the mandate applies.",
+      "title": "Validfrom"
+    },
+    "validTo": {
+      "anyOf": [
+        {
+          "format": "date",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Last day (Europe/Helsinki) the mandate applies.",
+      "title": "Validto"
     }
   },
   "required": [

@@ -1,15 +1,23 @@
 import { Check } from 'lucide-react'
 import type { Mandate } from '../../lib/contracts'
-import { allergenName, formatMoney } from '../../lib/format'
+import { allergenName, formatDate, formatMoney } from '../../lib/format'
+import { mandateSummaryLines } from '../../lib/mandateSummary'
 import { LoadingSection } from '../Loading'
 
 function yesNo(value: boolean, yes: string, no: string) {
   return value ? yes : no
 }
 
+function validity(m: Mandate): string {
+  if (m.validFrom && m.validTo) return `${formatDate(m.validFrom)} – ${formatDate(m.validTo)}`
+  if (m.validTo) return `Until ${formatDate(m.validTo)}`
+  if (m.validFrom) return `From ${formatDate(m.validFrom)}`
+  return 'No expiry'
+}
+
 /**
  * Buyer picker (a segmented control: filled background + check, no side bar) and the selected buyer's
- * mandate, read-only. The key limits are always visible; every other rule is one click away in Details.
+ * mandate, read-only. The plain-language summary (T68) is always visible; every rule is one click away in Details.
  */
 export function MandatePanel({
   mandates,
@@ -64,25 +72,39 @@ export function MandatePanel({
       </fieldset>
       {selected && (
         <div className="mandate-details">
-          <dl className="key-limits">
-            <div>
-              <dt>Auto-approve up to</dt>
-              <dd>{formatMoney(selected.autoApproveLimitEur)} excl. VAT</dd>
-            </div>
-            <div>
-              <dt>Hard limit</dt>
-              <dd>{formatMoney(selected.hardLimitEur)} excl. VAT</dd>
-            </div>
-            <div>
-              <dt>Approver</dt>
-              <dd>{selected.approver.role}</dd>
-            </div>
+          <dl className="mandate-summary" aria-label="Mandate in plain words">
+            {mandateSummaryLines(selected).map(([title, text], index) => (
+              <div key={title} className={`mandate-summary-${['alone', 'ask', 'refused'][index]}`}>
+                <dt>{title}</dt>
+                <dd>{text}</dd>
+              </div>
+            ))}
           </dl>
           <details className="more">
             <summary>
               <span>Details</span>
             </summary>
             <dl className="rule-list">
+              <div>
+                <dt>Auto-approve up to</dt>
+                <dd>{formatMoney(selected.autoApproveLimitEur)} excl. VAT</dd>
+              </div>
+              <div>
+                <dt>Hard limit</dt>
+                <dd>{formatMoney(selected.hardLimitEur)} excl. VAT</dd>
+              </div>
+              <div>
+                <dt>Approver</dt>
+                <dd>{selected.approver.role}</dd>
+              </div>
+              <div>
+                <dt>Allowed categories</dt>
+                <dd>{selected.allowedCategories?.length ? selected.allowedCategories.join(', ') : 'Any'}</dd>
+              </div>
+              <div>
+                <dt>Valid</dt>
+                <dd>{validity(selected)}</dd>
+              </div>
               <div>
                 <dt>Allergen mode</dt>
                 <dd>

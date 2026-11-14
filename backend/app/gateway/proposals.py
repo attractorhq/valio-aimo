@@ -123,6 +123,10 @@ class ProposalConflictError(ProposalError):
     """Raised when an offer version is already bound to a different request or customer."""
 
 
+class ProposalRequestMismatchError(ProposalError):
+    """Raised when request items do not truthfully describe the bound offer."""
+
+
 class NoOrderError(ProposalError):
     """Raised when policy evaluation returns NO_ORDER (e.g. NO_CANDIDATE or CLARIFICATION_NEEDED)."""
 
@@ -176,6 +180,53 @@ def _inferred_offer_partial_items(offer: Offer) -> frozenset[str]:
         ):
             partial.add(line.itemId)
     return frozenset(partial)
+
+
+def _validate_request_items(stored: StoredOffer, request: StructuredRequest) -> None:
+    """Check physical coverage before policy or any proposal/approval side effects.
+
+    Product identity and declared substitutions are checked by the existing line policy (L10).
+    Explicit partial offers remain trade-offs, not malformed requests; excluded candidates remain
+    evidence for NO_ORDER. Neither may hide an additional, unrequested order line.
+    """
+    items = {item.itemId: item for item in request.items}
+    if len(items) != len(request.items):
+        raise ProposalRequestMismatchError("request itemIds must be unique")
+    by_item: dict[str, list[OfferLine]] = {}
+    for line in stored.offer.lines:
+        if line.itemId not in items:
+            raise ProposalRequestMismatchError(
+                f"offer line {line.lineId} refers to item {line.itemId}, which is missing from request items"
+            )
+        by_item.setdefault(line.itemId, []).append(line)
+
+    excluded_items = {entry.itemId for entry in stored.offer.excluded}
+    for item in request.items:
+        lines = by_item.get(item.itemId, [])
+        if not lines:
+            if item.itemId in excluded_items:
+                continue  # Let policy explain why this requested item cannot be ordered.
+            raise ProposalRequestMismatchError(f"item {item.itemId} has no matching offer line or excluded candidate")
+        offered = " + ".join(
+            f"offer line {line.lineId} is {line.deliveredQuantity.value.normalize():,f} {line.deliveredQuantity.unit}"
+            for line in lines
+        )
+        mismatch = f"item {item.itemId} requests {item.quantity.normalize():,f} {item.unit}; {offered}"
+        if any(line.deliveredQuantity.unit != item.unit for line in lines):
+            raise ProposalRequestMismatchError(mismatch + "; units do not match")
+        delivered = sum((line.deliveredQuantity.value for line in lines), Decimal(0))
+        rounding = sum((line.contentPerSalesUnit.value for line in lines), Decimal(0))
+        if delivered > item.quantity + rounding:
+            raise ProposalRequestMismatchError(mismatch + "; exceeds sales-unit rounding")
+        if delivered < item.quantity:
+            if item.itemId not in stored.partial_items:
+                raise ProposalRequestMismatchError(mismatch + "; delivered quantity is below the request")
+            # A partial offer was explicitly quoted for a particular need, not an arbitrary larger one.
+            if stored.offer_request is not None and any(
+                candidate.quantity != item.quantity or candidate.unit != item.unit
+                for candidate in stored.offer_request.items if candidate.itemId == item.itemId
+            ):
+                raise ProposalRequestMismatchError(mismatch + "; does not match the quoted partial-delivery request")
 
 
 def _inferred_proposal_partial_items(proposal: Proposal) -> frozenset[str]:
@@ -872,6 +923,7 @@ class ProposalGateway:
                 f"Offer requestedDate {bound_offer.requestedDate} does not match "
                 f"request requestedDate {create_req.request.requestedDate}"
             )
+        _validate_request_items(stored, create_req.request)
         for existing_key, existing_prop_id in self._by_offer_key.items():
             _, ex_offer_id, ex_offer_ver = existing_key
             if ex_offer_id == create_req.offerId and ex_offer_ver == create_req.offerVersion:
@@ -1379,13 +1431,18 @@ class ProposalGateway:
                     ),
                 ])
             )
+            req_item = items_by_id.get(line.itemId)
+            named_substitute_for = (
+                req_item.productId if req_item is not None
+                and req_item.productId != line.productId and verdict.line.substitution else None
+            )
             kept_lines.append(
                 line.model_copy(
                     update={
                         "facts": facts,
                         "reasons": reasons,
                         "substitutionSource": verdict.line.substitution or line.substitutionSource,
-                        "substituteFor": verdict.line.substitute_for or line.substituteFor,
+                        "substituteFor": verdict.line.substitute_for or line.substituteFor or named_substitute_for,
                     }
                 )
             )

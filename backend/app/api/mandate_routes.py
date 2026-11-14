@@ -12,6 +12,7 @@ re-decided live by the deterministic policy, with no model call.
 import hashlib
 import hmac
 import os
+from datetime import date
 from decimal import Decimal
 from typing import Annotated, Literal
 
@@ -64,6 +65,24 @@ class MandateChangeRequest(Contract):
     autoAcceptValioSubstitutes: bool | None = None
     autoAcceptSupplierStock: bool | None = None
     minReliability: Decimal | None = Field(default=None, ge=0, le=1)
+    # T68: an empty list allows any category; an explicit null clears a validity bound.
+    allowedCategories: list[str] | None = None
+    validFrom: date | None = None
+    validTo: date | None = None
+
+
+# Fields where an explicit null is a change (clear the bound), not "leave as it is".
+_CLEARABLE = frozenset({"validFrom", "validTo"})
+
+
+def _changes(body: MandateChangeRequest) -> dict:
+    changes = {
+        name: value for name, value in body.model_dump(exclude_unset=True).items()
+        if value is not None or name in _CLEARABLE
+    }
+    if "allowedCategories" in changes:
+        changes["allowedCategories"] = sorted({c.strip() for c in changes["allowedCategories"] if c.strip()})
+    return changes
 
 
 class MandateChangeResult(Contract):
@@ -101,14 +120,14 @@ def _redecide(state: GatewayState, proposal: Proposal) -> Proposal:
               dependencies=[Depends(require_admin)],
               summary="Buyer admin: change the mandate; open proposals are re-decided live")
 def change_mandate(customerId: str, body: MandateChangeRequest, state: State) -> MandateChangeResult:
-    changes = body.model_dump(exclude_none=True)
+    changes = _changes(body)
     if not changes:
         raise HTTPException(status_code=400, detail="Nothing to change.")
     gateway = state.gateway
     gateway.mandates.get(customerId)  # 404 for an unknown customer
     try:
         updated, entry = gateway.mandates.change(customerId, changes, actor=BUYER_ADMIN_ACTOR, now=state.clock())
-    except ValueError as exc:  # no change, or hard limit below the auto-approve limit
+    except ValueError as exc:  # no change, hard limit below the auto-approve limit, or validTo before validFrom
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     gateway.log.append(entry)
     return _redecide_open(state, updated, entry)
@@ -158,6 +177,8 @@ class MandateDefaultView(Contract):
 def _wire(value):
     if isinstance(value, Decimal):
         return format(value, "f")
+    if isinstance(value, date):
+        return value.isoformat()
     if hasattr(value, "model_dump"):
         return value.model_dump(mode="json")
     return value

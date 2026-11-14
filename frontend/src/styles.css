@@ -618,22 +618,20 @@ main {
     font-size: 12px;
   }
 }
-.key-limits {
+/* T68: the mandate as three plain lines (alone / needs the approver / always refused). */
+.mandate-summary {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-2);
   margin-top: var(--space-3);
 }
-.key-limits dt {
+.mandate-summary dt {
   font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.mandate-summary dd {
+  font-size: 13px;
   color: var(--muted);
-}
-.key-limits dd {
-  font-size: 14px;
-  font-weight: 600;
-}
-.key-limits > div:nth-child(3) {
-  grid-column: 1 / -1;
 }
 .more {
   margin-top: var(--space-3);
@@ -1932,11 +1930,6 @@ button.chip {
   }
   .mobile-only {
     display: block;
-  }
-}
-@media (max-width: 520px) {
-  .key-limits {
-    grid-template-columns: 1fr 1fr;
   }
 }
 @media (max-width: 640px) {

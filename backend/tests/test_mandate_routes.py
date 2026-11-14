@@ -147,3 +147,35 @@ def test_reset_of_several_fields_and_refusals(api):  # noqa: F811
 def test_the_agent_channel_cannot_reset(api):  # noqa: F811
     client, _, _ = api
     assert client.client.post(f"/v0.1/mandates/{M2.customerId}/reset").status_code in (404, 405)
+
+
+def test_t68_expired_mandate_blocks_open_proposals_until_renewed(api):  # noqa: F811
+    client, _, _ = api
+    _, created = scenario_b(client)
+    pending = created.json()
+    expired = client.client.patch(f"{ADMIN}/{M2.customerId}", json={"validTo": "2026-01-31"})
+    assert expired.status_code == 200, expired.text
+    assert expired.json()["mandate"]["validTo"] == "2026-01-31"
+    (new,) = expired.json()["redecided"]
+    # The expired mandate is the first reason; the trade-off it also carries can no longer be signed off.
+    assert (new["decision"], new["state"]) == ("BLOCK", "BLOCKED")
+    assert new["reasons"] == ["MANDATE_NOT_VALID", "OVER_AUTO_LIMIT"]
+    assert new["approverRole"] is None
+
+    renewed = client.client.patch(f"{ADMIN}/{M2.customerId}", json={"validTo": None})
+    assert renewed.status_code == 200, renewed.text
+    assert renewed.json()["mandate"]["validTo"] is None
+    assert ("MANDATE_CHANGED", "Policy changed by buyer admin: validTo Sat 31 Jan → none") in _audit_events(
+        client, customerId=M2.customerId)
+    assert pending["proposalId"] in expired.json()["superseded"]
+
+
+def test_t68_allowed_categories_change_and_bad_window(api):  # noqa: F811
+    client, _, _ = api
+    changed = client.client.patch(f"{ADMIN}/{M1.customerId}", json={"allowedCategories": [" 211 ", "", "211"]})
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["mandate"]["allowedCategories"] == ["211"]
+    bad = client.client.patch(f"{ADMIN}/{M1.customerId}", json={"validFrom": "2026-12-02", "validTo": "2026-12-01"})
+    assert bad.status_code == 400
+    default = client.client.get(f"{ADMIN}/{M1.customerId}/default").json()
+    assert default["differences"] == [{"field": "allowedCategories", "current": ["211"], "default": []}]

@@ -34,7 +34,7 @@ from app.gateway.log import (
     AuditChainVerification,
     agent_client_label,
 )
-from app.gateway.proposals import NoOrderError
+from app.gateway.proposals import NoOrderError, ProposalRequestMismatchError
 
 from .auth import AgentCustomer, agent_customer, audit_scope, bind_customer, require_admin
 from .errors import ERROR_RESPONSES, error
@@ -306,7 +306,10 @@ def create_proposal_route(
 def create_proposal(body: CreateProposalRequest, state: GatewayState, customer: str) -> Proposal:
     bind_customer(customer, body.customerId)
     offer = state.gateway.get_registered_offer(body.offerId, body.offerVersion)
-    proposal = state.gateway.create_proposal(body, now=state.now_for(offer.mode))
+    try:
+        proposal = state.gateway.create_proposal(body, now=state.now_for(offer.mode))
+    except ProposalRequestMismatchError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     state.remember(proposal.proposalId)
     return proposal
 

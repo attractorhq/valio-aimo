@@ -3,13 +3,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Lock, RotateCcw, SlidersHorizontal } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import type { Mandate } from '../../lib/contracts'
-import { formatMoney } from '../../lib/format'
+import { formatDate, formatMoney } from '../../lib/format'
 import { gateway, subscribeGatewaySource, type DataSource } from '../../lib/gateway'
 import { MandatePanel } from '../flow/MandatePanel'
 import { LoadingSection, Skeleton } from '../Loading'
 import {
   changeMandate,
   getMandateDefault,
+  parseCategories,
   resetMandate,
   toMoneyString,
   type MandateChangeResult,
@@ -27,6 +28,9 @@ const FIELD_LABELS: Record<string, string> = {
   minReliability: 'minimum reliability',
   enforceCutoff: 'enforce cut-off',
   forbiddenAllergens: 'forbidden allergens',
+  allowedCategories: 'allowed categories',
+  validFrom: 'valid from',
+  validTo: 'valid until',
 }
 
 const SHIPPED_DEFAULTS: Record<
@@ -88,8 +92,10 @@ function showValue(field: string, value: unknown): string {
   if (field === 'allergenMode' && typeof value === 'string') {
     return value === 'STRICT' ? 'Strict' : 'Standard'
   }
+  if ((field === 'validFrom' || field === 'validTo') && typeof value === 'string') return formatDate(value)
+  if (value === null || value === undefined) return 'none'
   if (typeof value === 'boolean') return value ? 'yes' : 'no'
-  if (Array.isArray(value)) return value.length ? value.join(', ') : 'none'
+  if (Array.isArray(value)) return value.length ? value.join(', ') : field === 'allowedCategories' ? 'any' : 'none'
   return String(value)
 }
 
@@ -158,11 +164,17 @@ export function MandateControls({
   const queryClient = useQueryClient()
   const [limit, setLimit] = useState(mandate.autoApproveLimitEur)
   const [mode, setMode] = useState(mandate.allergenMode)
+  const [categories, setCategories] = useState((mandate.allowedCategories ?? []).join(', '))
+  const [validFrom, setValidFrom] = useState(mandate.validFrom ?? '')
+  const [validTo, setValidTo] = useState(mandate.validTo ?? '')
   const [result, setResult] = useState<{ kind: 'change' | 'reset'; data: MandateChangeResult }>()
   useEffect(() => {
     setLimit(mandate.autoApproveLimitEur)
     setMode(mandate.allergenMode)
-  }, [mandate.customerId, mandate.version, mandate.autoApproveLimitEur, mandate.allergenMode])
+    setCategories((mandate.allowedCategories ?? []).join(', '))
+    setValidFrom(mandate.validFrom ?? '')
+    setValidTo(mandate.validTo ?? '')
+  }, [mandate])
 
   const defaults = useQuery({
     queryKey: ['mandate-default', mandate.customerId, mandate.version],
@@ -186,6 +198,12 @@ export function MandateControls({
       const change: Parameters<typeof changeMandate>[1] = {}
       if (amount !== mandate.autoApproveLimitEur) change.autoApproveLimitEur = amount
       if (mode !== mandate.allergenMode) change.allergenMode = mode
+      const allowed = parseCategories(categories)
+      if (allowed.join(',') !== (mandate.allowedCategories ?? []).join(',')) change.allowedCategories = allowed
+      if (validFrom !== (mandate.validFrom ?? '')) change.validFrom = validFrom || null
+      if (validTo !== (mandate.validTo ?? '')) change.validTo = validTo || null
+      if (validFrom && validTo && validTo < validFrom)
+        throw new Error('The last valid day must not be before the first.')
       if (Object.keys(change).length === 0) throw new Error('Nothing to change.')
       return changeMandate(mandate.customerId, change)
     },
@@ -254,6 +272,42 @@ export function MandateControls({
               {value === 'STRICT' ? 'Strict' : 'Standard'}
             </label>
           ))}
+        </fieldset>
+        <label className="field-label" htmlFor="admin-categories">
+          Allowed categories
+        </label>
+        <input
+          id="admin-categories"
+          value={categories}
+          placeholder="Any category"
+          aria-describedby="admin-categories-hint"
+          onChange={(event) => setCategories(event.target.value)}
+          disabled={!live || busy}
+          className="rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface)] px-3 py-1.5"
+        />
+        <p id="admin-categories-hint" className="muted small">
+          Catalogue category codes or their prefixes, separated by commas. Leave empty to allow any category.
+        </p>
+        <fieldset disabled={!live || busy} className="grid grid-cols-2 gap-2">
+          <legend className="field-label">Valid (leave empty for no limit)</legend>
+          <label className="grid gap-1 small">
+            From
+            <input
+              type="date"
+              value={validFrom}
+              onChange={(event) => setValidFrom(event.target.value)}
+              className="rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface)] px-3 py-1.5"
+            />
+          </label>
+          <label className="grid gap-1 small">
+            Until
+            <input
+              type="date"
+              value={validTo}
+              onChange={(event) => setValidTo(event.target.value)}
+              className="rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface)] px-3 py-1.5"
+            />
+          </label>
         </fieldset>
         <button type="submit" className="btn btn-primary" disabled={!live || busy}>
           Apply policy change

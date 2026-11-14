@@ -610,7 +610,9 @@
         "CLARIFICATION_NEEDED",
         "REQUOTED",
         "DEPOSIT_COST_UNVERIFIED",
-        "VARIABLE_WEIGHT_UNVERIFIED"
+        "VARIABLE_WEIGHT_UNVERIFIED",
+        "CATEGORY_NOT_ALLOWED",
+        "MANDATE_NOT_VALID"
       ],
       "title": "ReasonCode",
       "type": "string"

@@ -6,8 +6,9 @@ from app.contracts import REASON_REGISTRY, ReasonCode, ReasonEffect
 
 # Brief §6.4/§6.5 rule order. Order-level reasons are listed in this order (e.g. B2:
 # DATE_LATER (L5), PARTIAL_AVAILABILITY (L8), OVER_AUTO_LIMIT (O3)).
+# O0 (T68, mandate validity window) comes first: an expired mandate is the reason before any other.
 RULE_ORDER = (
-    "L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9", "L10", "L11", "L12", "L13", "L14",
+    "O0", "L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9", "L10", "L11", "L12", "L13", "L14", "L15",
     "O1", "O2", "O3", "O4", "O5", "O6",
 )
 RULE_RANK = {rule: rank for rank, rule in enumerate(RULE_ORDER)}
