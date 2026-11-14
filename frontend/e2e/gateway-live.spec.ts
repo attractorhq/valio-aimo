@@ -1,8 +1,188 @@
 import { expect, test, type Page } from '@playwright/test'
-import { spawn, type ChildProcess } from 'node:child_process'
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
+import { createServer, type AddressInfo } from 'node:net'
 import path, { delimiter } from 'node:path'
 
 const step = (page: Page, name: string) => page.getByRole('listitem', { name: new RegExp(name) })
+
+async function assertPortFree(port: number): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const server = createServer()
+    server.once('error', (error) =>
+      reject(new Error(`port ${port} busy: stale test server?`, { cause: error })),
+    )
+    server.listen({ port, host: '127.0.0.1', exclusive: true }, () => server.close(() => resolve()))
+  })
+}
+
+async function stopServer(child: ChildProcess | null): Promise<void> {
+  if (!child?.pid) return
+  const signal = (name: NodeJS.Signals) => {
+    try {
+      if (process.platform === 'win32') return child.kill(name)
+      process.kill(-child.pid!, name)
+      return true
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+      return false
+    }
+  }
+  // The launcher may already have exited while its Vite/uvicorn descendants still hold the port.
+  const closed = new Promise<void>((resolve) => child.once('close', () => resolve()))
+  if (!signal('SIGTERM')) return
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      closed,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, 1500)
+      }),
+    ])
+  } finally {
+    clearTimeout(timer)
+    signal('SIGKILL')
+  }
+}
+
+test('server lifecycle: a busy port fails explicitly without closing its owner', async () => {
+  const listener = createServer()
+  await new Promise<void>((resolve) => listener.listen(0, '127.0.0.1', resolve))
+  const port = (listener.address() as AddressInfo).port
+  try {
+    await expect(assertPortFree(port)).rejects.toThrow(`port ${port} busy: stale test server?`)
+    expect(listener.listening).toBe(true)
+  } finally {
+    await new Promise<void>((resolve) => listener.close(() => resolve()))
+  }
+  await assertPortFree(port)
+})
+
+test('server lifecycle: cleanup kills a server descendant after its launcher exits', async () => {
+  test.skip(process.platform === 'win32', 'POSIX process-group regression')
+  const reservation = createServer()
+  await new Promise<void>((resolve) => reservation.listen(0, '127.0.0.1', resolve))
+  const port = (reservation.address() as AddressInfo).port
+  await new Promise<void>((resolve) => reservation.close(() => resolve()))
+  const serverCode = `process.on('SIGTERM', () => {}); require('node:net').createServer().listen(${port}, '127.0.0.1')`
+  const launcher = spawn(
+    process.execPath,
+    [
+      '-e',
+      `
+    require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(serverCode)}], { stdio: 'ignore' }).unref()
+  `,
+    ],
+    { detached: true, stdio: 'ignore' },
+  )
+  try {
+    await expect
+      .poll(() =>
+        assertPortFree(port).then(
+          () => false,
+          () => true,
+        ),
+      )
+      .toBe(true)
+    await expect.poll(() => launcher.exitCode).toBe(0)
+    await stopServer(launcher)
+    await expect
+      .poll(() =>
+        assertPortFree(port).then(
+          () => true,
+          () => false,
+        ),
+      )
+      .toBe(true)
+  } finally {
+    await stopServer(launcher)
+  }
+})
+
+test('server lifecycle: scripts/demo checks ports and cleans partial startup and orphan descendants', () => {
+  test.skip(process.platform === 'win32', 'POSIX process-group regression')
+  const root = path.resolve(process.cwd(), '..')
+  const result = spawnSync(
+    path.join(root, '.venv/bin/python'),
+    [
+      '-c',
+      `
+import runpy, socket, subprocess, sys, time
+from unittest.mock import Mock, patch
+
+scope = runpy.run_path('scripts/demo')
+check, stop, start = (scope[name] for name in ('assert_port_free', 'stop_process_group', 'start_local_stack'))
+def reserve():
+    sock = socket.socket()
+    sock.bind(('127.0.0.1', 0))
+    sock.listen()
+    return sock, sock.getsockname()[1]
+def free_port():
+    sock, port = reserve()
+    sock.close()
+    return port
+owner, busy = reserve()
+try:
+    with patch('subprocess.Popen') as popen:
+        try:
+            start('RECORDED', free_port(), busy)
+        except RuntimeError as exc:
+            assert f'port {busy} busy: stale test server?' in str(exc)
+        else:
+            raise AssertionError('busy port was accepted')
+        popen.assert_not_called()
+finally:
+    owner.close()
+for failure_after in (1, 2):
+    backend, vite = Mock(), Mock()
+    cleanup = Mock()
+    wait = Mock(side_effect=[None] * (failure_after - 1) + [RuntimeError('startup failed')])
+    with patch('subprocess.Popen', side_effect=[backend, vite]) as popen, patch.dict(
+        start.__globals__, {'wait_for_http': wait, 'stop_process_group': cleanup}
+    ):
+        try:
+            start('RECORDED', free_port(), free_port())
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError('startup failure was swallowed')
+        cleanup.assert_any_call(backend)
+        if failure_after == 2:
+            cleanup.assert_any_call(vite)
+        assert all(call.kwargs['start_new_session'] for call in popen.call_args_list)
+port = free_port()
+server = f'import socket,time,signal; signal.signal(signal.SIGTERM, signal.SIG_IGN); s=socket.socket(); s.bind(("127.0.0.1", {port})); s.listen(); time.sleep(60)'
+wrapper = 'import subprocess,sys; subprocess.Popen([sys.executable, "-c", sys.argv[1]])'
+process = subprocess.Popen([sys.executable, '-c', wrapper, server], start_new_session=True)
+try:
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        try:
+            check(port)
+        except RuntimeError:
+            break
+        time.sleep(0.025)
+    else:
+        raise AssertionError('server descendant did not bind')
+    process.wait(timeout=2)
+    stop(process)
+    deadline = time.monotonic() + 5
+    while True:
+        try:
+            check(port)
+            break
+        except RuntimeError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.025)
+finally:
+    stop(process)
+`,
+    ],
+    { cwd: root, encoding: 'utf8', timeout: 20_000 },
+  )
+  expect(result.error, result.stderr).toBeUndefined()
+  expect(result.status, result.stderr).toBe(0)
+})
 
 test.describe('live /v0.1 gateway integration (T35)', () => {
   test.setTimeout(120_000)
@@ -14,6 +194,9 @@ test.describe('live /v0.1 gateway integration (T35)', () => {
   const baseURL = `http://127.0.0.1:${vitePort}`
 
   test.beforeAll(async () => {
+    // Check both before spawning either server: do not attach to another worktree's stack.
+    await assertPortFree(backendPort)
+    await assertPortFree(vitePort)
     const repoRoot = path.resolve(process.cwd(), '..')
 
     // Start a dedicated FastAPI server on :8018 backed by recorded synthetic/fixture state
@@ -70,12 +253,18 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
         OPENROUTER_API_KEY: '',
       },
       stdio: 'pipe',
+      detached: process.platform !== 'win32',
     })
 
-    await expect.poll(async () => {
-      const response = await fetch(`http://127.0.0.1:${backendPort}/health`).catch(() => null)
-      return response?.ok ? (await response.json()).ready : false
-    }, { timeout: 30_000, message: 'The test gateway is ready' }).toBe(true)
+    await expect
+      .poll(
+        async () => {
+          const response = await fetch(`http://127.0.0.1:${backendPort}/health`).catch(() => null)
+          return response?.ok ? (await response.json()).ready : false
+        },
+        { timeout: 30_000, message: 'The test gateway is ready' },
+      )
+      .toBe(true)
 
     viteProc = spawn(
       process.execPath,
@@ -94,18 +283,41 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
           VITE_API_BASE_URL: `http://127.0.0.1:${backendPort}`,
         },
         stdio: 'pipe',
+        detached: process.platform !== 'win32',
       },
     )
 
-    await expect.poll(async () => {
-      const response = await fetch(`${baseURL}/health`).catch(() => null)
-      return response?.ok ? (await response.json()).ready : false
-    }, { timeout: 20_000, message: 'Vite is proxying to the test gateway' }).toBe(true)
+    await expect
+      .poll(
+        async () => {
+          const response = await fetch(`${baseURL}/health`).catch(() => null)
+          return response?.ok ? (await response.json()).ready : false
+        },
+        { timeout: 20_000, message: 'Vite is proxying to the test gateway' },
+      )
+      .toBe(true)
   })
 
   test.afterAll(async () => {
-    viteProc?.kill('SIGTERM')
-    backendProc?.kill('SIGTERM')
+    await Promise.all([stopServer(viteProc), stopServer(backendProc)])
+    if (viteProc?.pid)
+      await expect
+        .poll(() =>
+          assertPortFree(vitePort).then(
+            () => true,
+            () => false,
+          ),
+        )
+        .toBe(true)
+    if (backendProc?.pid)
+      await expect
+        .poll(() =>
+          assertPortFree(backendPort).then(
+            () => true,
+            () => false,
+          ),
+        )
+        .toBe(true)
   })
 
   test('runs official example, Scenario B with Approver sign-off, Scenario C, Finnish free text, clarification and decision log against /v0.1 gateway', async ({

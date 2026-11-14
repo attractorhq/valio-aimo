@@ -1,4 +1,4 @@
-# Verified or Ask Gateway v0.1
+# Aimo Connect Gateway v0.1
 
 This is the shared **contract**, not a claim that the routes are implemented. T08 connects the contracts to FastAPI and publishes OpenAPI 3.1. Existing `/api/v1` models remain legacy until that migration. Import Python types from `app.contracts`, not `app.schemas`; frontend types come from `frontend/src/lib/contracts.ts`.
 
@@ -134,7 +134,7 @@ Two legacy findings are settled here:
 
 ## Schemas, generated types and examples
 
-JSON Schemas in `spec/schemas/*.json` use Draft 2020-12, stable `urn:verified-or-ask:v0.1:<Model>` identifiers, and `x-contract-version: "0.1"`. Each file is self-contained, including nested definitions. The files describe **serialized output**, including decimal strings. Regenerate both schemas and TypeScript from the worktree root:
+JSON Schemas in `spec/schemas/*.json` use Draft 2020-12, stable `urn:aimo-connect:v0.1:<Model>` identifiers, and `x-contract-version: "0.1"`. Each file is self-contained, including nested definitions. The files describe **serialized output**, including decimal strings. Regenerate both schemas and TypeScript from the worktree root:
 
 ```bash
 PYTHONPATH=backend .venv/bin/python -m app.contracts.export

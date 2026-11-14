@@ -1,4 +1,4 @@
-# Verified or Ask
+# Aimo Connect
 
 **Same interface, three outcomes: it orders on its own, asks a human at exactly the right point, and refuses to break a hard limit.**
 

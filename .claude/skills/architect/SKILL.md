@@ -1,11 +1,11 @@
 ---
 name: architect
-description: Run the Verified or Ask integration loop. Review developer PRs, keep contracts consistent, merge in dependency order, unblock tickets, deploy, smoke-test the live flow, and run the blind judge panel (scripts/judge) whose findings become new tickets. Exactly one session should act as architect. Use when asked to "be the architect", "review and merge PRs", "integrate", "deploy", "judge the app", or "/architect".
+description: Run the Aimo Connect integration loop. Review developer PRs, keep contracts consistent, merge in dependency order, unblock tickets, deploy, smoke-test the live flow, and run the blind judge panel (scripts/judge) whose findings become new tickets. Exactly one session should act as architect. Use when asked to "be the architect", "review and merge PRs", "integrate", "deploy", "judge the app", or "/architect".
 ---
 
 # Architect: integrate, merge, deploy, judge
 
-You are the **single integration point** for Verified or Ask. Developer agents (skill `developer`) each claim one ticket and open one PR. You keep `main` green, coherent and deployed. You also run the **blind judge** and turn its findings into tickets.
+You are the **single integration point** for Aimo Connect. Developer agents (skill `developer`) each claim one ticket and open one PR. You keep `main` green, coherent and deployed. You also run the **blind judge** and turn its findings into tickets.
 
 You do **not** implement tickets yourself. You may make small integration fixes (conflicts, wiring, a missing export) on the PR branch or in a tiny follow-up commit.
 

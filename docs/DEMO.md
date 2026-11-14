@@ -1,6 +1,6 @@
 # Live Demo Guide & Stage Script (`A → B → C`)
 
-This document is the stage playbook for **Verified or Ask**: pre-flight checks, demo-state reset, the timed 3-minute walkthrough in the official P12 sequence **A (`AUTO`) → B (`ASK`; the approver approves version 1) → C (`BLOCK`)**, the verbatim P12 pitch lines, and the honest fallback to recorded mode (P5.2, P5.3).
+This document is the stage playbook for **Aimo Connect**: pre-flight checks, demo-state reset, the timed 3-minute walkthrough in the official P12 sequence **A (`AUTO`) → B (`ASK`; the approver approves version 1) → C (`BLOCK`)**, the verbatim P12 pitch lines, and the honest fallback to recorded mode (P5.2, P5.3).
 
 ---
 
@@ -81,7 +81,7 @@ scripts/demo
 
 - **On screen:** Buyer view (`/`) with `Nordic Harbour Hotels (demo)` (`M1`) and `Northbay School Kitchen (demo)` (`M2`), and the **`Live · Valio Aimo API`** badge.
 - **Say:**
-  > "We built **Verified or Ask** — a Trusted Trade Gateway for Valio Aimo plus a demo purchasing agent.
+  > "We built **Aimo Connect** — a Trusted Trade Gateway for Valio Aimo plus a demo purchasing agent.
   > **Same interface, three outcomes: it orders on its own, asks a human at exactly the right point, and refuses to break a hard limit.**
   > The language model structures requests and writes explanations, but it never decides `AUTO`, `ASK`, or `BLOCK`. Deterministic gateway policy and buyer mandates do."
 

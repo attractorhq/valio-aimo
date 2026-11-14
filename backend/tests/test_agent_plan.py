@@ -1,6 +1,6 @@
 """T10 unit tests for `backend/app/agent/plan.py`: §7.6 ranking, Valio-substitute re-check, and agent substitutes.
 
-All committed tests use synthetic hand-made records (patch P7).
+Unit tests use synthetic hand-made records (patch P7). Catalogue checks use local data if present.
 """
 
 from datetime import UTC, date, datetime
@@ -21,9 +21,10 @@ from app.agent.plan import (
 from app.agent.run import GatewayAgentChannel, run_agent
 from app.api.state import GatewayState
 from app.catalog.build import DEFAULT_ARTIFACT_PATH, DEFAULT_RAW_DIR, load_catalog
-from app.catalog.normalise import normalise_product
+from app.catalog.normalise import STORAGE_TEMPERATURE_CODES, normalise_product
 from app.catalog.search import search_products
 from app.contracts import (
+    Conflict,
     Preference,
     Product,
     ReasonCode,
@@ -35,6 +36,7 @@ from app.contracts import (
 from app.eval.runner import ReferenceFixtureProvider
 from app.gateway.proposals import ProposalGateway
 from app.policy import DEMO_MANDATES, M1, M2, MandateBook
+from app.trust.labels import LABEL_DISPLAY_NAMES
 from tests.synthetic.catalog_records import synthetic_product_record
 
 MONDAY = date(2026, 11, 16)
@@ -647,6 +649,97 @@ def test_t22_good_better_best_alternatives_tradeoff_and_sour_milk_separation():
     assert ranked[-1].productId == "SYN-SOUR"
     assert ranked[-1].substitutionSource == "AGENT"
     assert "sour milk, not milk" in ranked[-1].tradeoff
+
+
+def test_t61_tradeoffs_show_only_two_declared_labels_and_a_group_estimate():
+    plain = _make_milk("SYN-PLAIN", co2=None, labels=["coolTemperature", "OTHER_MARK"])
+    labelled = _make_milk(
+        "SYN-LABELLED",
+        co2=0.4404,
+        labels=[
+            "AQUACULTURE_STEWARDSHIP_COUNCIL",
+            "EU_ECO_LABEL",
+            "FAIR_TRADE_MARK",
+            "FINNISH_HEART_SYMBOL",
+            "GOODS_FROM_FINLAND_BLUE_SWAN",
+            "RAINFOREST_ALLIANCE",
+        ],
+    )
+    overrides = {
+        "label.AQUACULTURE_STEWARDSHIP_COUNCIL": {"value": False},
+        "label.EU_ECO_LABEL": {"level": "UNKNOWN", "value": None},
+        "label.FAIR_TRADE_MARK": {"conflict": Conflict(code="K1", message="Conflicting label data")},
+    }
+    labelled = labelled.model_copy(update={
+        "facts": [
+            fact.model_copy(update=overrides[fact.fact]) if fact.fact in overrides else fact
+            for fact in labelled.facts
+        ],
+    })
+    item = RequestItem(
+        itemId="I1", what="milk", quantity=Decimal("100"), unit="l", requirements=[LACTOSE_FREE],
+    )
+    ranked = rank_candidates(
+        [labelled, plain],
+        item=item,
+        mandate=M1,
+        requested_date=MONDAY,
+        observations={
+            plain.productId: _obs(plain.productId, "1.01"),
+            labelled.productId: _obs(labelled.productId, "1.10"),
+        },
+    )
+    assert [row.productId for row in ranked] == [plain.productId, labelled.productId]
+    assert ranked[1].tradeoff.split(" · ")[-5:] == [
+        "100 % reliability",
+        "Finnish Heart Symbol",
+        "Hyvää Suomesta (Blue Swan)",
+        "0.44 kg CO2e/kg",
+        "product-group average (estimate)",
+    ]
+    assert ranked[0].tradeoff.endswith("100 % reliability")
+
+
+@pytest.mark.parametrize(("customer_id", "request_text"), [
+    (M1.customerId, "We need 1,000 litres of lactose-free milk by Monday."),
+    (M2.customerId, "We need 90 kg of gluten-free macaroni and 80 litres of gluten-free oat drink by Monday."),
+], ids=["A", "B"])
+def test_t61_tradeoffs_follow_real_catalogue_facts(customer_id, request_text):
+    if not DEFAULT_ARTIFACT_PATH.exists() and not (DEFAULT_RAW_DIR / "products.json").exists():
+        pytest.skip("Real catalogue data not present on this machine")
+
+    catalog = load_catalog()
+    products = catalog.by_id()
+    now = datetime(2026, 11, 13, 12, 0, tzinfo=UTC)
+    gateway = ProposalGateway(
+        products=products,
+        mandates=MandateBook(DEMO_MANDATES),
+        provider=ReferenceFixtureProvider(now=now),
+    )
+    channel = GatewayAgentChannel(GatewayState(
+        gateway=gateway, catalog=catalog.products, mode="RECORDED", clock=lambda: now,
+    ))
+    result = run_agent(customer_id, request_text, channel=channel, now=now)
+    assert result.plan is not None
+    assert any(len(item.rankedCandidates) > 1 for item in result.plan.items)
+
+    label_names = {
+        f"label.{code}": name for code, name in LABEL_DISPLAY_NAMES.items() if code not in STORAGE_TEMPERATURE_CODES
+    }
+    for item in result.plan.items:
+        for candidate in good_better_best_alternatives(item.rankedCandidates):
+            facts = products[candidate.productId].facts
+            catalogue_labels = list(dict.fromkeys(
+                label_names[fact.fact] for fact in facts
+                if fact.fact in label_names and fact.level == "DECLARED" and fact.value is True and not fact.conflict
+            ))
+            displayed_labels = [part for part in candidate.tradeoff.split(" · ") if part in label_names.values()]
+            assert displayed_labels == catalogue_labels[:2]
+            co2 = next((fact for fact in facts if fact.fact == "co2"), None)
+            if co2 is not None and co2.level == "ESTIMATE" and co2.value is not None and not co2.conflict:
+                assert f"{co2.display} (estimate)" in candidate.tradeoff
+            else:
+                assert "kg CO2e/kg" not in candidate.tradeoff
 
 
 def test_t39_split_lines_never_mix_in_a_different_product_type():

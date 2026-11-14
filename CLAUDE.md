@@ -1,4 +1,4 @@
-# Verified or Ask: agent guide
+# Aimo Connect: agent guide
 
 Junction 2026 hackathon project (Valio Aimo challenge "Trusted Trade Agents"). Deadline: **see the Junction dashboard**. The architect keeps the exact time in `docs/WORKFLOW.md`.
 

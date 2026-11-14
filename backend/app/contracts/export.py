@@ -32,7 +32,7 @@ def schemas() -> dict[str, dict]:
     return {
         model.__name__: {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "$id": f"urn:verified-or-ask:v{VERSION}:{model.__name__}",
+            "$id": f"urn:aimo-connect:v{VERSION}:{model.__name__}",
             "x-contract-version": VERSION,
             **model.model_json_schema(mode="serialization"),
         }
