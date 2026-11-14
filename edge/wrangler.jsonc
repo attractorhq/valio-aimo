@@ -29,9 +29,9 @@
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Gateway"] }],
 
-  // Basic rate limit on the agent channel, per client IP.
+  // One per-IP limit for every route that can trigger a live Valio lookup (src/routes.ts isRateLimited).
   "ratelimits": [
-    { "name": "AGENT_RATE_LIMIT", "namespace_id": "4201", "simple": { "limit": 30, "period": 60 } }
+    { "name": "AGENT_RATE_LIMIT", "namespace_id": "4201", "simple": { "limit": 60, "period": 60 } }
   ],
 
   // Non-secret settings. Secrets (VALIO_API_KEY, OPENROUTER_API_KEY, APPROVAL_SIGNING_KEY) are set
