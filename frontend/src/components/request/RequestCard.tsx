@@ -7,11 +7,13 @@ import { AssumptionChips, formatPreferenceValue } from './AssumptionChips'
 export function RequestCard({
   proposal,
   request: directRequest,
+  lookupDate,
   onEditAssumption,
   disabled = false,
 }: {
   proposal?: Proposal
   request?: Proposal['request']
+  lookupDate?: string
   onEditAssumption?: (nextRequestText: string, oldChip: string, newChip: string) => void
   disabled?: boolean
 }) {
@@ -65,7 +67,7 @@ export function RequestCard({
       <dl className="inline-facts">
         <div>
           <dt>Deliver by</dt>
-          <dd>{formatDate(request.requestedDate)}</dd>
+          <dd>{formatDate(lookupDate ?? request.requestedDate)}</dd>
         </div>
         <div>
           <dt>Assumptions</dt>

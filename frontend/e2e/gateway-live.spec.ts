@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { spawn, type ChildProcess } from 'node:child_process'
-import path from 'node:path'
+import path, { delimiter } from 'node:path'
 
 const step = (page: Page, name: string) => page.getByRole('listitem', { name: new RegExp(name) })
 
@@ -56,12 +56,15 @@ app.dependency_overrides[get_state] = lambda: state
 app.dependency_overrides[try_state] = lambda: state
 uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
 `
-    const pyBin = path.join(repoRoot, '.venv/bin/python')
+    const pyBin = path.join(
+      repoRoot,
+      process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python',
+    )
     backendProc = spawn(pyBin, ['-c', pyScript], {
       cwd: path.join(repoRoot, 'backend'),
       env: {
         ...process.env,
-        PYTHONPATH: `${path.join(repoRoot, 'backend')}:${path.join(repoRoot, 'backend/tests')}`,
+        PYTHONPATH: [path.join(repoRoot, 'backend'), path.join(repoRoot, 'backend/tests')].join(delimiter),
         OPENROUTER_API_KEY: '',
       },
       stdio: 'pipe',
@@ -82,8 +85,8 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     }
 
     viteProc = spawn(
-      'npx',
-      ['vite', '--host', '127.0.0.1', '--port', String(vitePort), '--strictPort'],
+      process.execPath,
+      ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', String(vitePort), '--strictPort'],
       {
         cwd: process.cwd(),
         env: {
@@ -186,9 +189,22 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     await expect(step(page, 'Approval')).toContainText('Waiting for Head Chef')
     await expect(page.getByRole('button', { name: /approve/i })).toHaveCount(0)
 
+    // Resubmitting the scenario through the composer must return the same immutable proposal.
+    const firstLogHref = await page.getByRole('link', { name: 'Open decision log' }).getAttribute('href')
+    const rerun = page.waitForResponse((response) =>
+      response.url().endsWith('/v0.1/agent/run') && response.request().method() === 'POST',
+    )
+    await page.getByRole('button', { name: 'Run request' }).click()
+    expect((await rerun).ok()).toBe(true)
+    await expect(step(page, 'Approval')).toContainText('Waiting for approver')
+    await expect(page.getByRole('link', { name: 'Open decision log' })).toHaveAttribute('href', firstLogHref!)
+
     const approverPage = await context.newPage()
     await approverPage.goto(`${baseURL}/approver`)
-    await expect(approverPage.getByRole('heading', { name: 'Approver — Head Chef' })).toBeVisible()
+    await expect(
+      approverPage.getByRole('heading', { name: 'Approver — Head Chef' }),
+    ).toBeVisible()
+    await expect(approverPage.getByRole('heading', { name: 'Proposals for you (1 waiting)' })).toBeVisible()
     const card = approverPage.getByRole('article')
     await expect(card.getByRole('heading')).toHaveText('Approving version 1')
     await expect(card).toContainText('€506.16 is above your €500.00 auto-approve limit.')
@@ -205,6 +221,10 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
 
     await card.getByRole('button', { name: 'Approve €506.16' }).click()
     await expect(card).toContainText(/Approved · re-checked \(recorded data\) · Confirmed/)
+
+    await expect(approverPage.getByRole('heading', { name: 'Proposals for you (0 waiting)' })).toBeVisible()
+    await expect(card.getByRole('heading')).toHaveText('Version 1')
+    await expect(card.getByRole('button', { name: /^(Approve|Reject)/ })).toHaveCount(0)
 
     await page.bringToFront()
     await expect(step(page, 'Approval')).toContainText('Approved by Head Chef → Confirmed')

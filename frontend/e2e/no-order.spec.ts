@@ -17,6 +17,7 @@ test('shows the search and retries with the original request and the suggested d
     ...scenario,
     customerId: mandate.customerId,
     requestedDate: '2026-11-13',
+    request: { ...scenario.request, requestText, requestedDate: '2026-11-13' },
     reasons: ['DATE_LATER'],
   }
   await page.route('**/v0.1/proposals/*', (route) => route.fulfill({ json: proposal }))
@@ -55,6 +56,9 @@ test('shows the search and retries with the original request and the suggested d
   await expect(result).toContainText('Earliest delivery: Mon 16 Nov')
   await result.getByRole('button', { name: 'Use Mon 16 Nov' }).click()
   await expect(result).toContainText('Waiting for approver')
+  const request = page.getByRole('listitem', { name: /Step 1: Request/ })
+  await expect(request.locator('dt').filter({ hasText: 'Deliver by' }).locator('+ dd'))
+    .toHaveText('Mon 16 Nov')
   await expect(page.getByRole('listitem', { name: /Step 3: Order/ }))
     .toContainText('After your Fri 13 Nov deadline')
   expect(inputs).toEqual([

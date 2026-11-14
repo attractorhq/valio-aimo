@@ -63,6 +63,9 @@ export function ApprovalState({ item }: { item: ApproverItem }) {
           </span>
         </p>
       )
+    case 'APPROVED':
+    case 'RECHECKED':
+      return <p role="status">Approved · confirmation in progress</p>
     default:
       return null
   }
@@ -75,29 +78,26 @@ export function ApprovalCard({
   showQr = true,
   initialToken,
   initialApprovalStatement,
+  onDecisionStart,
 }: {
   item: ApproverItem
   mandate?: Mandate
   showQr?: boolean
   initialToken?: string
   initialApprovalStatement?: string | null
+  onDecisionStart?: () => void
 }) {
   const { proposal } = item
   const queryClient = useQueryClient()
   const [comment, setComment] = useState('')
-  const pending = proposal.state === 'PENDING_APPROVAL'
   // The approval capability (demo token) is fetched on the approver channel only, for this version.
   const view = useQuery({
     queryKey: ['approver-view', proposal.proposalId],
     queryFn: () => approverChannel.view(proposal.proposalId),
-    enabled: pending,
+    enabled: proposal.state === 'PENDING_APPROVAL',
     staleTime: Infinity,
   })
   const activeToken = initialToken ?? view.data?.approvalToken
-  const approvalStatement =
-    view.data?.approvalStatement ??
-    initialApprovalStatement ??
-    formatApprovalStatement(proposal, mandate)
   const decide = useMutation({
     mutationFn: (action: 'APPROVE' | 'REJECT') =>
       approverChannel.decide({
@@ -107,11 +107,27 @@ export function ApprovalCard({
         action,
         comment: comment.trim() || undefined,
       }),
+    onMutate: onDecisionStart,
+    onSuccess: (result) => {
+      const updateList = (items: ApproverItem[] | undefined) =>
+        items?.map((entry) => entry.proposal.proposalId === proposal.proposalId ? result : entry)
+      queryClient.setQueryData<ApproverItem[]>(['approver-proposals', proposal.customerId], updateList)
+      queryClient.setQueryData<ApproverItem[]>(['approver-all-proposals'], updateList)
+    },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['approver-proposals'] })
+      void queryClient.invalidateQueries({ queryKey: ['approver-proposals', proposal.customerId] })
+      void queryClient.invalidateQueries({ queryKey: ['approver-all-proposals'] })
     },
   })
-  const decided = decide.data ?? item
+  const decided = proposal.state === 'PENDING_APPROVAL'
+    ? (decide.data ?? item)
+    : { ...item, loggedAt: item.loggedAt ?? decide.data?.loggedAt }
+  const pending = decided.proposal.state === 'PENDING_APPROVAL'
+
+  const approvalStatement =
+    view.data?.approvalStatement ??
+    initialApprovalStatement ??
+    formatApprovalStatement(proposal, mandate)
   const reasons = approvalReasons(proposal)
   const context = contextReasons(proposal)
   const onlyLimit = reasons.length === 1 && reasons[0] === 'OVER_AUTO_LIMIT'
@@ -237,7 +253,7 @@ export function ApprovalCard({
         </div>
       </dl>
 
-      {decided.proposal.state === 'PENDING_APPROVAL' ? (
+      {pending ? (
         <div className="approval-actions">
           <div className="approval-action-bar">
             <div className="approval-buttons">
@@ -320,7 +336,7 @@ export function ApprovalCard({
           {error.message}
         </p>
       )}
-      {view.error && (
+      {pending && view.error && (
         <p className="notice notice-error" role="alert">
           <AlertTriangle size={16} aria-hidden />
           {view.error.message}
@@ -330,7 +346,7 @@ export function ApprovalCard({
       <p className="permission-notice">
         <KeyRound size={14} aria-hidden />
         {view.data?.permissionNotice ?? 'Single-use approval link'}
-        {decided.proposal.state === 'PENDING_APPROVAL'
+        {pending
           ? view.data && ` · valid until ${formatClock(view.data.expiresAt)}`
           : ' · no longer valid'}
       </p>
