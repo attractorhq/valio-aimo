@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.catalog.search import SearchProductsRequest, SearchProductsResult, search_products
 from app.contracts import AuditTrail, CreateProposalRequest, GetOfferRequest, Mandate, Offer, Proposal
+from app.gateway.log import AuditChainVerification
 
 from .errors import ERROR_RESPONSES
 from .state import GatewayState, get_state
@@ -55,6 +56,18 @@ def get_audit_trail(state: State, proposalId: str | None = None, customerId: str
     if (proposalId is None) == (customerId is None):
         raise HTTPException(status_code=400, detail="Pass exactly one of proposalId or customerId.")
     return state.gateway.get_audit_trail(proposal_id=proposalId, customer_id=customerId)
+
+
+@router.get("/audit/verify", response_model=AuditChainVerification, operation_id="verifyAuditTrail",
+            summary="Verify the SHA-256 hash chain over the decision log")
+def verify_audit_trail(
+    state: State,
+    proposalId: str | None = None,
+    customerId: str | None = None,
+) -> AuditChainVerification:
+    if proposalId is not None and customerId is not None:
+        raise HTTPException(status_code=400, detail="Pass at most one of proposalId or customerId.")
+    return state.gateway.log.verify(proposal_id=proposalId, customer_id=customerId)
 
 
 @router.get("/mandates", response_model=list[Mandate], operation_id="listMandates",

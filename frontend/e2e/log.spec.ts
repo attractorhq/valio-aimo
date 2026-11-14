@@ -8,6 +8,9 @@ test('scenario A: the chain from request to confirmed (simulated) is readable', 
 }) => {
   await page.goto('/log/MOCK-P-A')
   await expect(page.getByText('Synthetic mock data')).toBeVisible()
+  await expect(page.getByRole('status', { name: 'Hash-chain verification status' })).toContainText(
+    'Hash chain verified ✓',
+  )
   await expect(entries(page)).toHaveCount(6)
   await expect(entries(page).first()).toContainText('Request structured')
   await expect(entries(page).first()).toContainText('Agent')
