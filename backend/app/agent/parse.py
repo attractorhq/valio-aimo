@@ -185,6 +185,11 @@ _REQUIREMENT_LABELS = {
     "AC": "crustacean-free", "UM": "mollusc-free", "AS": "sesame-free", "BC": "celery-free",
     "BM": "mustard-free", "NL": "lupin-free", "AU": "sulphite-free", "UW": "wheat-free",
     "VEGAN": "vegan", "VEGETARIAN": "vegetarian",
+    "MARINE_STEWARDSHIP_COUNCIL_LABEL": "MSC",
+    "AQUACULTURE_STEWARDSHIP_COUNCIL": "ASC",
+    "EU_ORGANIC_FARMING": "organic",
+    "FAIR_TRADE_MARK": "Fairtrade",
+    "FINNISH_ORIGIN": "Finnish origin",
 }
 # A negation the vocabulary does not know is never dropped silently: it becomes one clarifying question.
 _UNKNOWN_NEGATION_RE = re.compile(
@@ -209,22 +214,33 @@ _BRAND_PHRASE_RE = re.compile(
     # Mid-sentence, or first in an item fragment (" Planto No Added Sugar …"), never a sentence's first word.
     r"|(?:(?<=[^\W\d_][ \t])|(?<=^[ \t]))[A-ZÅÄÖ][\w'’®™-]+[ \t]+(?:No|Zero)[ \t]+[A-ZÅÄÖ][\w'’®™-]*"
 )
-# T74: certifications are wishes about the label, not part of the product name. Until they are checked as
-# requirements they are kept as a LABEL preference (labelled products rank first) and said in the assumptions.
+# T74 + T75: certifications and origin wishes (MSC, ASC, organic/luomu, Fairtrade/Reilu kauppa,
+# Finnish/kotimainen/suomalainen) are stripped from the product name and enforced as hard CLAIM requirements.
 _CERTIFICATIONS: tuple[tuple[re.Pattern, str, str], ...] = tuple(
     (
         re.compile(
             r"\b(?:certified\s+)?(?:" + pattern + r")(?:[\s-]+(?:certified|certification|labell?ed|label|"
-            r"sertifioi\w*|merki\w*))?(?!\w)",
+            r"sertifioi\w*|merki\w*|alkuperä\w*))?(?!\w)",
             re.IGNORECASE,
         ),
         code,
         label,
     )
     for pattern, code, label in (
-        (r"MSC", "MARINE_STEWARDSHIP_COUNCIL_LABEL", "MSC"),
-        (r"ASC", "AQUACULTURE_STEWARDSHIP_COUNCIL", "ASC"),
-        (r"fair[\s-]?trade|reilu(?:n|a)?\s+kaup\w*", "FAIR_TRADE_MARK", "Fairtrade"),
+        (r"MSC|Marine\s+Stewardship\s+Council", "MARINE_STEWARDSHIP_COUNCIL_LABEL", "MSC"),
+        (r"ASC|Aquaculture\s+Stewardship\s+Council", "AQUACULTURE_STEWARDSHIP_COUNCIL", "ASC"),
+        (
+            r"EU[\s-]+organic|organic(?:ally\s+(?:grown|produced))?|luomu\w*|luonnonmuka\w*",
+            "EU_ORGANIC_FARMING",
+            "organic",
+        ),
+        (r"fair[\s-]?trade|reilu(?:n|a)?\s+kaup\w*|reilun?\s*kaupan?", "FAIR_TRADE_MARK", "Fairtrade"),
+        (
+            r"finnish(?:\s+origin)?|(?:made\s+in|from)\s+finland|domestic|kotimai\w*|suomalai\w*|"
+            r"(?:valmistettu\s+)?suomessa|suomesta(?:\s+peräisin)?|hyvää\s+suomesta|avainlippu\w*|joutsenlippu\w*",
+            "FINNISH_ORIGIN",
+            "Finnish origin",
+        ),
     )
 )
 _CERTIFICATION_NAMES = {code: label for _pattern, code, label in _CERTIFICATIONS}
@@ -240,12 +256,7 @@ _CREAM_PURPOSE_RES: tuple[tuple[re.Pattern, str], ...] = (
     (re.compile(r"\b(?:cream\s+for\s+whipping|kerma(?:a|n)?\s+vatkaukseen)\b", re.IGNORECASE), "whipping cream"),
 )
 
-_PREFERENCES: tuple[tuple[re.Pattern, Preference], ...] = (
-    (re.compile(r"\b(?:certified\s+)?(?:organic|luomu\w*)(?:[\s-]+(?:certified|sertifioi\w*))?\b", re.IGNORECASE),
-     Preference(kind="ORGANIC", value="organic")),
-    (re.compile(r"\b(?:finnish(?:\s+origin)?|domestic|kotimai\w*)\b", re.IGNORECASE),
-     Preference(kind="ORIGIN", value="FI")),
-)
+_PREFERENCES: tuple[tuple[re.Pattern, Preference], ...] = ()
 
 _WEEKDAYS_EN = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 _WEEKDAYS_FI = ("maanantai", "tiistai", "keskiviik", "torstai", "perjantai", "lauantai", "sunnuntai")
@@ -866,7 +877,9 @@ def _extract(fragment: str) -> tuple[str, list[Requirement], list[Preference], s
             rest = pattern.sub(" ", rest)
     for pattern, code, _label in _CERTIFICATIONS:
         if pattern.search(rest):
-            preferences.append(Preference(kind="LABEL", value=code))
+            req = Requirement(kind="CLAIM", code=code)
+            if req not in requirements:
+                requirements.append(req)
             rest = pattern.sub(" ", rest)
 
     def take_fat(m: re.Match) -> str:
@@ -1085,6 +1098,8 @@ def _has_order_content(span_text: str) -> bool:
     if any(p.search(span_text) for _k, p in _DATE_RES):
         return True
     if any(p.search(span_text) for p, _r in _REQUIREMENT_RES) or any(p.search(span_text) for p, _r in _DIET_RES):
+        return True
+    if any(p.search(span_text) for p, _c, _l in _CERTIFICATIONS):
         return True
     _, excl, _ = _take_exclusions(span_text)
     return bool(excl)
@@ -1385,6 +1400,12 @@ def _fallback(
                 if pattern.search(rest_sentence):
                     extra_requirements.extend(r for r in found if r not in extra_requirements)
                     rest_sentence = pattern.sub(" ", rest_sentence)
+            for pattern, code, _label in _CERTIFICATIONS:
+                if pattern.search(rest_sentence):
+                    req = Requirement(kind="CLAIM", code=code)
+                    if req not in extra_requirements:
+                        extra_requirements.append(req)
+                    rest_sentence = pattern.sub(" ", rest_sentence)
             continue
         sentence, leading_global = _take_leading_global_clauses(sentence, finnish)
         extra_requirements.extend(r for r in leading_global if r not in extra_requirements)
@@ -1431,7 +1452,10 @@ def _fallback(
 
     for idx, tail_reqs in pending_tails:
         if idx == len(items) - 1 and len(items) > 1:
-            extra_requirements.extend(r for r in tail_reqs if r not in extra_requirements)
+            global_tail = [r for r in tail_reqs if r.code not in _CERTIFICATION_NAMES]
+            local_tail = [r for r in tail_reqs if r.code in _CERTIFICATION_NAMES]
+            extra_requirements.extend(r for r in global_tail if r not in extra_requirements)
+            items[idx].requirements.extend(r for r in local_tail if r not in items[idx].requirements)
         else:
             items[idx].requirements.extend(r for r in tail_reqs if r not in items[idx].requirements)
 
@@ -1632,7 +1656,7 @@ def _number_value(phrase: str) -> int | None:
 
 def _normalise_words(text: str) -> str:
     """Write number words before a unit as digits, and split "luomumaitoa" into "luomu maitoa"."""
-    text = re.sub(r"\b(luomu)(?=[^\W\d_]{3,})", r"\1 ", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(luomu)-?(?=[^\W\d_]{3,})", r"\1 ", text, flags=re.IGNORECASE)
 
     def as_digits(match: re.Match) -> str:
         value = _number_value(match.group(0))
@@ -1819,13 +1843,42 @@ def _from_llm(raw: dict, text: str, today: date, fallback: _Fallback) -> tuple[S
     )
     # Request-wide constraints apply even when the LLM splits/merges items differently from the fallback.
     pair_nut_with_peanut = not _TREE_NUT_MENTION_RE.search(text)
-    request = request.model_copy(update={"items": [
-        item.model_copy(update={"requirements": list(dict.fromkeys([
-            *item.requirements,
-            *([_AP] if pair_nut_with_peanut and _AN in item.requirements else []),
-            *(r for r in fallback.global_requirements if r not in item.requirements),
-        ]))}) for item in request.items
-    ]})
+
+    def _promote_llm_preferences(item: RequestItem) -> RequestItem:
+        promoted_reqs: list[Requirement] = list(item.requirements)
+        kept_prefs: list[Preference] = []
+        for pref in item.preferences:
+            val_upper = pref.value.strip().upper()
+            if pref.kind == "ORGANIC":
+                req = Requirement(kind="CLAIM", code="EU_ORGANIC_FARMING")
+                if req not in promoted_reqs:
+                    promoted_reqs.append(req)
+            elif pref.kind == "ORIGIN" and val_upper in ("FI", "FINLAND", "FINNISH", "FINNISH_ORIGIN"):
+                req = Requirement(kind="CLAIM", code="FINNISH_ORIGIN")
+                if req not in promoted_reqs:
+                    promoted_reqs.append(req)
+            elif pref.kind == "LABEL" and val_upper in _CERTIFICATION_NAMES:
+                req = Requirement(kind="CLAIM", code=val_upper)
+                if req not in promoted_reqs:
+                    promoted_reqs.append(req)
+            else:
+                kept_prefs.append(pref)
+        return item.model_copy(
+            update={
+                "requirements": list(
+                    dict.fromkeys(
+                        [
+                            *promoted_reqs,
+                            *([_AP] if pair_nut_with_peanut and _AN in promoted_reqs else []),
+                            *(r for r in fallback.global_requirements if r not in promoted_reqs),
+                        ]
+                    )
+                ),
+                "preferences": kept_prefs,
+            }
+        )
+
+    request = request.model_copy(update={"items": [_promote_llm_preferences(item) for item in request.items]})
     # A hard requirement, certification label or product form the deterministic reading found is never dropped by the LLM.
     if fallback.request is not None and len(fallback.request.items) != len(request.items) and any(
         extract_requested_base(item.what) for item in fallback.request.items
