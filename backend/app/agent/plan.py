@@ -28,7 +28,7 @@ from app.catalog.categories import (
     same_product_family,
     stated_groups,
 )
-from app.catalog.normalise import apply_price_ratio_content
+from app.catalog.normalise import STORAGE_TEMPERATURE_CODES, apply_price_ratio_content, product_fact
 from app.catalog.search import (
     SearchProductsResult,
     evaluate_product_static_requirements,
@@ -76,12 +76,17 @@ from app.gateway.offers import (
     size,
 )
 from app.policy.requirements import check_requirements, hard_requirements
-from app.trust.labels import SOURCE_SUBSTITUTION, allergen_name
+from app.trust.labels import LABEL_DISPLAY_NAMES, SOURCE_SUBSTITUTION, allergen_name
 from app.valio.facts import SENTINEL_METHOD, is_stock_sentinel
 from app.valio.record import BRIEF_PRODUCT_IDS
 
 MAX_SHORTLIST_PER_ITEM = 20
 ORGANIC_LABELS = frozenset({"EU_ORGANIC_FARMING", "KRAV_MARK", "OFFICIAL_ECO_LABEL_SUN"})
+_COMPARISON_LABELS = {
+    f"label.{code}": name
+    for code, name in LABEL_DISPLAY_NAMES.items()
+    if code not in STORAGE_TEMPERATURE_CODES
+}
 _WORD_RE = re.compile(r"[\wåäöÅÄÖ%-]+", re.UNICODE)
 _PACK_VALUE_RE = re.compile(r"^(?P<num>\d+(?:[.,]\d+)?)\s*(?P<unit>kg|g|l|ml|dl|pcs|cases)$", re.IGNORECASE)
 _FAT_IN_NAME_RE = re.compile(r"(?<![\w.,])(\d+(?:[.,]\d+)?)\s*%", re.IGNORECASE)
@@ -786,6 +791,19 @@ def _format_tradeoff(
         pct = (reliability * Decimal(100)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
         pct_str = str(int(pct)) if pct == pct.to_integral() else format(pct, "f")
         parts.append(f"{pct_str} % reliability")
+
+    labels = dict.fromkeys(
+        _COMPARISON_LABELS[fact.fact]
+        for fact in product.facts
+        if fact.fact in _COMPARISON_LABELS
+        and fact.level == "DECLARED"
+        and fact.value is True
+        and fact.conflict is None
+    )
+    parts.extend(list(labels)[:2])
+    co2 = product_fact(product, "co2")
+    if co2.level == "ESTIMATE" and co2.value is not None and co2.conflict is None:
+        parts.append(f"{co2.display} (estimate)")
 
     return " · ".join(parts) if parts else product.name
 
