@@ -87,3 +87,63 @@ def test_invalid_changes_are_refused(api):  # noqa: F811
 def test_the_agent_channel_still_cannot_change_a_mandate(api):  # noqa: F811
     client, _, _ = api
     assert client.client.patch(f"/v0.1/mandates/{M2.customerId}", json={"autoApproveLimitEur": "510"}).status_code == 405
+
+
+# --------------------------------------------------------------------------- T36: reset to the default
+
+
+def test_reset_restores_the_default_as_a_new_version_and_b_asks_again(api):  # noqa: F811
+    client, _, _ = api
+    raised = client.client.patch(f"{ADMIN}/{M2.customerId}", json={"autoApproveLimitEur": "510.00"}).json()
+    assert raised["mandate"]["version"] == 2
+
+    view = client.client.get(f"{ADMIN}/{M2.customerId}/default").json()
+    assert view["changedFromDefault"] is True
+    assert view["differences"] == [{"field": "autoApproveLimitEur", "current": "510.00", "default": "500.00"}]
+
+    reset = client.client.post(f"{ADMIN}/{M2.customerId}/reset")
+    assert reset.status_code == 200, reset.text
+    result = reset.json()
+    assert (result["mandate"]["version"], result["mandate"]["autoApproveLimitEur"]) == (3, "500.00")
+    assert result["auditEntry"]["event"] == "MANDATE_RESET"
+    assert client.client.get(f"{ADMIN}/{M2.customerId}/default").json()["changedFromDefault"] is False
+
+    _, created = scenario_b(client)
+    proposal = created.json()
+    assert (proposal["decision"], proposal["reasons"], proposal["mandateVersion"]) == (
+        "ASK", ["OVER_AUTO_LIMIT"], 3)
+
+    log = _audit_events(client, customerId=M2.customerId)
+    assert ("MANDATE_CHANGED", "Policy changed by buyer admin: autoApproveLimitEur €500.00 → €510.00") in log
+    assert ("MANDATE_RESET", "Policy reset to default by buyer admin: autoApproveLimitEur €510.00 → €500.00") in log
+
+
+def test_reset_re_decides_open_proposals(api):  # noqa: F811
+    client, _, _ = api
+    client.client.patch(f"{ADMIN}/{M2.customerId}", json={"autoApproveLimitEur": "400.00"})
+    _, created = scenario_b(client)
+    pending = created.json()
+    assert pending["state"] == "PENDING_APPROVAL"
+
+    result = client.client.post(f"{ADMIN}/{M2.customerId}/reset").json()
+    assert result["superseded"] == [pending["proposalId"]]
+    (new,) = result["redecided"]
+    assert (new["decision"], new["reasons"], new["mandateVersion"]) == ("ASK", ["OVER_AUTO_LIMIT"], 3)
+    assert client.get(f"/v0.1/proposals/{pending['proposalId']}").json()["state"] == "SUPERSEDED"
+
+
+def test_reset_of_several_fields_and_refusals(api):  # noqa: F811
+    client, _, _ = api
+    assert client.client.post(f"{ADMIN}/{M1.customerId}/reset").status_code == 400  # already at default
+    assert client.client.post(f"{ADMIN}/nobody/reset").status_code == 404
+    client.client.patch(f"{ADMIN}/{M1.customerId}", json={"allergenMode": "STRICT", "hardLimitEur": "6000.00"})
+    view = client.client.get(f"{ADMIN}/{M1.customerId}/default").json()
+    assert {d["field"] for d in view["differences"]} == {"allergenMode", "hardLimitEur"}
+    result = client.client.post(f"{ADMIN}/{M1.customerId}/reset").json()
+    assert (result["mandate"]["allergenMode"], result["mandate"]["hardLimitEur"]) == ("STANDARD", "5000.00")
+    assert result["mandate"]["version"] == 3
+
+
+def test_the_agent_channel_cannot_reset(api):  # noqa: F811
+    client, _, _ = api
+    assert client.client.post(f"/v0.1/mandates/{M2.customerId}/reset").status_code in (404, 405)

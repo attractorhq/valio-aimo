@@ -100,6 +100,34 @@ class MandateBook:
                 raise ValueError(f"duplicate mandate for {mandate.customerId}")
             self._history[mandate.customerId] = [mandate]
 
+    def default(self, customer_id: str) -> Mandate:
+        """The shipped mandate (version 1 as configured), the target of a reset."""
+        return self._history[customer_id][0]
+
+    def differences_from_default(self, customer_id: str) -> list[tuple[str, Any, Any]]:
+        """`(field, current, default)` for every buyer-admin field that differs from the shipped mandate."""
+        current, default = self.get(customer_id), self.default(customer_id)
+        return [
+            (name, getattr(current, name), getattr(default, name))
+            for name in Mandate.model_fields
+            if name not in _IMMUTABLE and getattr(current, name) != getattr(default, name)
+        ]
+
+    def reset(self, customer_id: str, *, actor: str, now: datetime) -> tuple[Mandate, AuditEntry]:
+        """Restore the shipped values as a NEW version (history is never rewritten), audited as a reset."""
+        default = self.default(customer_id)
+        changes = {name: getattr(default, name) for name, _, _ in self.differences_from_default(customer_id)}
+        if not changes:
+            raise ValueError("the mandate is already at its default")
+        updated, entry = change_mandate(self.get(customer_id), changes, actor=actor, now=now)
+        detail = entry.summary.removeprefix("Policy changed by buyer admin: ")
+        entry = entry.model_copy(update={
+            "event": "MANDATE_RESET",
+            "summary": f"Policy reset to default by buyer admin: {detail}",
+        })
+        self._history[customer_id].append(updated)
+        return updated, entry
+
     def customers(self) -> tuple[str, ...]:
         return tuple(self._history)
 
