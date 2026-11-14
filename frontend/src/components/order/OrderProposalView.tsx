@@ -123,8 +123,7 @@ export function OrderProposalView({
       </dl>
 
       <p className="muted small my-0.5">
-        Prices fixed in offer v{source.offerVersion} until {formatClock(source.validUntil)} · bound
-        to mandate v{resolvedMandateVer}
+        Prices fixed until {formatClock(source.validUntil)} · mandate v{resolvedMandateVer}
       </p>
 
       <div className="mt-0.5 grid gap-0.5" aria-label="Order line trust cards">

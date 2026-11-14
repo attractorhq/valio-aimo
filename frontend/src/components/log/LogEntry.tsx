@@ -171,7 +171,7 @@ export function recheckResult(entry: AuditEntry): { changed: boolean; text: stri
   }
   return {
     changed: false,
-    text: 'Re-checked: no change · live price, stock, cut-off and mandate verified before confirming.',
+    text: 'Re-checked: no change in price, stock, cut-off or mandate.',
   }
 }
 

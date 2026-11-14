@@ -87,9 +87,8 @@ function ExcludedEntry({ entry, item }: { entry: ExcludedProduct; item?: Request
         <p className="mt-0.5 flex items-center gap-1.5 font-bold text-[var(--block)]">
           <ShieldAlert size={13} aria-hidden />
           <span>
-            Valio Aimo lists {entry.productId} ({entry.name}) as the substitute for{' '}
-            {entry.substituteFor ?? 'this line'}. It fails &lsquo;{reqNames}&rsquo; for this buyer,
-            so the agent will never swap to it.
+            Valio&rsquo;s substitute for {entry.substituteFor ?? 'this line'}: fails &lsquo;{reqNames}&rsquo;,
+            never swapped in.
           </span>
         </p>
       )}

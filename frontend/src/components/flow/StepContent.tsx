@@ -112,8 +112,7 @@ export function OrderProposal({ proposal }: { proposal: Proposal }) {
         </div>
       </dl>
       <p className="muted small">
-        Prices fixed in offer v{proposal.offerVersion} until {formatClock(proposal.validUntil)} ·
-        bound to mandate v{proposal.mandateVersion}
+        Prices fixed until {formatClock(proposal.validUntil)} · mandate v{proposal.mandateVersion}
       </p>
     </div>
   )
@@ -138,7 +137,7 @@ export function approvalLabel(proposal: Proposal): string {
     case 'EXPIRED':
       return 'Offer expired · re-quote needed'
     case 'SUPERSEDED':
-      return 'Superseded by a new proposal version'
+      return 'Superseded by a new version'
     default:
       return 'Deciding'
   }
@@ -256,8 +255,8 @@ export function ResultBanner({ proposal, logHref }: { proposal: Proposal; logHre
         </ul>
       )}
       <p className="result-links">
-        <a href="#step-3">Order lines and evidence</a>
-        <a href="#step-4">Decision and reasons</a>
+        <a href="#step-3">Order lines</a>
+        <a href="#step-4">Reasons</a>
         {logHref && <a href={logHref}>Decision log</a>}
       </p>
     </section>
@@ -281,7 +280,7 @@ export function NoOrderBanner({ summary, detail }: { summary: string; detail?: s
       </p>
       {detail && <p className="mt-1 text-sm text-[var(--ink)]">{detail}</p>}
       <p className="result-links">
-        <a href="#step-2">Why: excluded candidates</a>
+        <a href="#step-2">Excluded candidates</a>
       </p>
     </section>
   )

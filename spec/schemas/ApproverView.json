@@ -936,8 +936,8 @@
       "type": "string"
     },
     "permissionNotice": {
-      "const": "Demo approval link — single use",
-      "default": "Demo approval link — single use",
+      "const": "Single-use approval link",
+      "default": "Single-use approval link",
       "title": "Permissionnotice",
       "type": "string"
     }

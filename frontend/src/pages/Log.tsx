@@ -167,7 +167,7 @@ export function Log({ proposalId }: { proposalId?: string }) {
               )}
             </h2>
             <p className="muted small mt-0.5">
-              Append-only audit trail. Click any row for rules, bindings and trust-labelled facts.
+              Append-only audit trail. Open a row for its facts.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">

@@ -19,10 +19,9 @@ export function RequestCard({
   if (!request) return null
   return (
     <div className="request-card">
-      <figure className="request-text">
+      <figure className="request-text" aria-label="Original request">
         <Quote size={14} aria-hidden />
         <blockquote>{request.requestText}</blockquote>
-        <figcaption>Original request</figcaption>
       </figure>
       <table className="data-table">
         <caption className="visually-hidden">Structured request items</caption>

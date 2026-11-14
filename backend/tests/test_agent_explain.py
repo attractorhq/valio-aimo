@@ -88,7 +88,7 @@ def test_llm_explainer_is_used_and_clamped_to_two_sentences(proposals):
     def verbose_llm(_payload: dict) -> str:
         return (
             "Everything is proven for Monday at €506.16 excl. VAT, which is €6.16 above the €500.00 auto-approve limit. "
-            "Proposal v1 waits for Head Chef (demo), while substitute SYN-REJECTED-SUB was rejected. "
+            "Proposal v1 waits for Head Chef, while substitute SYN-REJECTED-SUB was rejected. "
             "This third sentence must be stripped by the two-sentence clamp."
         )
 
@@ -140,7 +140,7 @@ def test_slow_or_failing_llm_explainer_falls_back_quickly(proposals):
 def test_clamp_to_two_sentences_preserves_decimals_and_abbreviations():
     raw = (
         "Order total is €506.16 excl. VAT for product no. 474235. "
-        "Version 1 waits for Head Chef (demo) incl. VAT €574.49. "
+        "Version 1 waits for Head Chef incl. VAT €574.49. "
         "Extra sentence."
     )
     clamped = clamp_to_two_sentences(raw)

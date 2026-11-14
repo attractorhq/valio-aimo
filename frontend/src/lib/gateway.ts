@@ -486,7 +486,7 @@ export const mockApproverChannel: ApproverChannel = {
       approvalUrl,
       qrPayload: approvalUrl,
       expiresAt: record.proposal.validUntil,
-      permissionNotice: 'Demo approval link — single use',
+      permissionNotice: 'Single-use approval link',
       loggedAt: record.loggedAt,
     }
   },
@@ -533,7 +533,7 @@ export const mockApproverChannel: ApproverChannel = {
       approvalUrl,
       qrPayload: approvalUrl,
       expiresAt: record.proposal.validUntil,
-      permissionNotice: 'Demo approval link — single use',
+      permissionNotice: 'Single-use approval link',
       loggedAt: record.loggedAt,
     }
   },
@@ -548,7 +548,7 @@ export const mockApproverChannel: ApproverChannel = {
     if (record.tokenUsed) {
       throw new GatewayError(
         'TOKEN_USED',
-        'This approval link was already used. Each demo link works once.',
+        'This approval link was already used. Each link works once.',
       )
     }
     if (proposal.state === 'SUPERSEDED') {
@@ -634,7 +634,7 @@ function mapBackendError(code: string | undefined, message: string, status: numb
     case 'TOKEN_ALREADY_USED':
       return new GatewayError(
         'TOKEN_USED',
-        'This approval link was already used. Each demo link works once.',
+        'This approval link was already used. Each link works once.',
       )
     case 'APPROVAL_TOKEN_INVALID':
       return new GatewayError('TOKEN_INVALID', 'This approval link is not valid for this proposal.')
@@ -1055,12 +1055,12 @@ export const approverChannel: ApproverChannel = {
           return {
             proposal: prop,
             approver: {
-              name: prop.approverRole ?? 'Head Chef (demo)',
-              role: prop.approverRole ?? 'Head Chef (demo)',
+              name: prop.approverRole ?? 'Head Chef',
+              role: prop.approverRole ?? 'Head Chef',
             },
             approvalToken,
             expiresAt: prop.validUntil,
-            permissionNotice: 'Demo approval link — single use',
+            permissionNotice: 'Single-use approval link',
           }
         }
       }

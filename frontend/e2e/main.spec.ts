@@ -18,19 +18,19 @@ test('shows one main view with four steps and a read-only mandate', async ({ pag
     await expect(step(page, name)).toContainText('Not started')
   }
   const mandate = page.getByRole('region', { name: 'Buyer mandate' })
-  await expect(mandate).toContainText('Read-only')
+  await expect(page.getByRole('heading', { name: 'Mandate v1 · read-only' })).toBeVisible()
   await expect(mandate).toContainText('€1,500.00 excl. VAT')
   await mandate.getByText('Synthetic School Kitchen (demo mock)').click()
   await expect(mandate).toContainText('€500.00 excl. VAT')
   await expect(mandate).toContainText('€3,000.00 excl. VAT')
   await expect(mandate).toContainText('Strict')
-  await expect(mandate).toContainText('Head Chef (demo)')
+  await expect(mandate).toContainText('Head Chef')
   // T46: the buyer page has no mandate write controls.
   await expect(page.getByRole('button', { name: 'Apply policy change' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Reset to default mandate' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Reset to default' })).toHaveCount(0)
   await expect(page.getByLabel('Auto-approve limit (€, excl. VAT)')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Mandate v1 · read-only' })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'Buyer admin (demo, no login)' })).toHaveAttribute(
+  await expect(page.getByRole('link', { name: 'Buyer admin', exact: true })).toHaveAttribute(
     'href',
     '/admin',
   )
@@ -41,7 +41,7 @@ test('scenario A: agent decided → confirmed (simulated)', async ({ page }, inf
   await expect(step(page, 'Request')).toContainText('Lactose-free')
   await expect(step(page, 'Request')).toContainText('Mon 16 Nov')
   await expect(step(page, 'Order')).toContainText(
-    'Proposal at fixed price · offer v1 · €1,010.00 excl. VAT',
+    'Offer v1 · €1,010.00 excl. VAT',
   )
   const altsA = step(page, 'Order').getByRole('region', {
     name: 'Good / Better / Best alternatives',
@@ -71,7 +71,7 @@ test('scenario B: waiting for approver, exactly one reason, no approve button', 
 }, info) => {
   await runScenario(page, 'B')
   await expect(page.getByRole('radio', { name: /School Kitchen/ })).toBeChecked()
-  await expect(step(page, 'Order')).toContainText('offer v1 · €506.16 excl. VAT')
+  await expect(step(page, 'Order')).toContainText('Offer v1 · €506.16 excl. VAT')
   const altsB = step(page, 'Order').getByRole('region', {
     name: 'Good / Better / Best alternatives',
   })
@@ -83,7 +83,7 @@ test('scenario B: waiting for approver, exactly one reason, no approve button', 
   await expect(altsB).not.toContainText('MOCK-REJECTED')
   const approval = step(page, 'Approval')
   await expect(approval).toContainText('Waiting for approver')
-  await expect(approval).toContainText('Waiting for Head Chef (demo)')
+  await expect(approval).toContainText('Waiting for Head Chef')
   await expect(approval.getByRole('list', { name: 'Reasons' }).getByRole('listitem')).toHaveCount(1)
   await expect(approval).toContainText(
     '€506.16 excl. VAT is above your €500.00 auto-approve limit.',
@@ -184,32 +184,32 @@ test('Valio Aimo readiness view shows supplier data gaps, AUTO/ASK/BLOCK statist
   await page.getByRole('link', { name: 'Valio Aimo readiness' }).click()
   await expect(
     page.getByRole('heading', {
-      name: /Valio Aimo Agent-Readiness View · Data quality = autonomous sales/,
+      name: /Agent readiness: data quality = autonomous sales/,
     }),
   ).toBeVisible()
 
-  const summary = page.getByRole('region', { name: /Valio Aimo Agent-Readiness View/ })
-  await expect(summary).toContainText('AUTO-Ready Products')
+  const summary = page.getByRole('region', { name: /Agent readiness/ })
+  await expect(summary).toContainText('AUTO-ready')
   await expect(summary).toContainText('Blocked from AUTO')
 
   const liveStats = page.getByRole('region', {
-    name: 'Live AUTO / ASK / BLOCK Decision Statistics',
+    name: 'Decisions',
   })
-  await expect(liveStats).toContainText('AUTO · Autonomous Order')
-  await expect(liveStats).toContainText('ASK · Human Sign-Off')
-  await expect(liveStats).toContainText('BLOCK · Mandate Refusal')
+  await expect(liveStats).toContainText('AUTO · agent')
+  await expect(liveStats).toContainText('ASK · human')
+  await expect(liveStats).toContainText('BLOCK · mandate')
   await expect(liveStats).toContainText('€1,010.00')
   await expect(liveStats).toContainText('€506.16')
   await expect(liveStats).toContainText('€20,200.00')
 
-  const suppliersSection = page.getByRole('region', { name: 'Data Gaps by Supplier' })
+  const suppliersSection = page.getByRole('region', { name: 'Suppliers' })
   await expect(suppliersSection).toContainText('SYNTHETIC DAIRY OY')
   await expect(suppliersSection).toContainText('SYNTHETIC NORDIC PASTA')
   await suppliersSection.getByLabel('Filter suppliers by name').fill('NORDIC PASTA')
   await expect(suppliersSection).toContainText('SYNTHETIC NORDIC PASTA')
   await expect(suppliersSection).not.toContainText('SYNTHETIC NONFOOD SUPPLIES')
 
-  const fixList = page.getByRole('region', { name: 'Prioritised Master-Data Fix List' })
+  const fixList = page.getByRole('region', { name: 'Fix list' })
   await expect(fixList).toContainText('SUBSTITUTE_REJECTED')
   await expect(fixList).toContainText('DATA_CONFLICT')
   await expect(fixList).toContainText('ALLERGEN_UNKNOWN')
@@ -221,7 +221,7 @@ test('T46: /admin holds buyer-admin controls and reset; buyer page shows mandate
   const defaultM2 = {
     customerId: 'northbay-school-kitchen',
     version: 1,
-    organisationName: 'Northbay School Kitchen (demo)',
+    organisationName: 'Northbay School Kitchen',
     segment: 'school kitchen',
     allergenMode: 'STRICT' as const,
     autoApproveLimitEur: '500.00',
@@ -232,7 +232,7 @@ test('T46: /admin holds buyer-admin controls and reset; buyer page shows mandate
     minReliability: '0.80',
     enforceCutoff: true,
     forbiddenAllergens: [] as string[],
-    approver: { name: 'Head Chef (demo)', role: 'Head Chef (demo)' },
+    approver: { name: 'Head Chef', role: 'Head Chef' },
   }
   let currentM2 = { ...defaultM2 }
   const json = (body: unknown, status = 200) => ({
@@ -288,7 +288,7 @@ test('T46: /admin holds buyer-admin controls and reset; buyer page shows mandate
             customerId: currentM2.customerId,
             mandateVersion: currentM2.version,
             timestamp: '2026-11-13T21:55:00+02:00',
-            actor: 'human:Buyer admin (demo)',
+            actor: 'human:Buyer admin',
             event: 'MANDATE_CHANGED',
             rule: '§6.1',
             summary: 'Policy changed by buyer admin',
@@ -314,7 +314,7 @@ test('T46: /admin holds buyer-admin controls and reset; buyer page shows mandate
             customerId: currentM2.customerId,
             mandateVersion: currentM2.version,
             timestamp: '2026-11-13T21:56:00+02:00',
-            actor: 'human:Buyer admin (demo)',
+            actor: 'human:Buyer admin',
             event: 'MANDATE_RESET',
             rule: '§6.1',
             summary: 'Policy reset to default by buyer admin',
@@ -329,9 +329,9 @@ test('T46: /admin holds buyer-admin controls and reset; buyer page shows mandate
 
   await page.goto('/')
   await expect(page.getByRole('button', { name: 'Apply policy change' })).toHaveCount(0)
-  await page.getByRole('link', { name: 'Buyer admin (demo, no login)' }).click()
+  await page.getByRole('link', { name: 'Buyer admin', exact: true }).click()
   await expect(page).toHaveURL(/\/admin$/)
-  await expect(page.getByRole('heading', { name: 'Buyer admin (demo, no login)' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Buyer admin', exact: true })).toBeVisible()
 
   const limitInput = page.getByLabel('Auto-approve limit (€, excl. VAT)')
   await expect(limitInput).toBeEnabled()
@@ -344,22 +344,22 @@ test('T46: /admin holds buyer-admin controls and reset; buyer page shows mandate
   await expect(page.getByRole('note')).toContainText(
     'Changed from default: auto-approve €510.00 (default €500.00)',
   )
-  await expect(page.getByRole('button', { name: 'Reset to default mandate' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Reset to default' })).toBeVisible()
 
   // Navigate back to the buyer view: read-only, shows v2 and "Changed from default", no write controls.
-  await page.getByRole('link', { name: 'Back to the buyer view' }).click()
+  await page.getByRole('link', { name: 'Buyer view' }).click()
   await expect(page).toHaveURL(/\/$/)
   await expect(page.getByRole('heading', { name: 'Mandate v2 · read-only' })).toBeVisible()
   await expect(page.getByRole('note')).toContainText(
     'Changed from default: auto-approve €510.00 (default €500.00)',
   )
   await expect(page.getByRole('button', { name: 'Apply policy change' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Reset to default mandate' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Reset to default' })).toHaveCount(0)
   await expect(page.getByLabel('Auto-approve limit (€, excl. VAT)')).toHaveCount(0)
 
   // Return to /admin and reset to the shipped default (v3).
-  await page.getByRole('link', { name: 'Buyer admin (demo, no login)' }).click()
-  await page.getByRole('button', { name: 'Reset to default mandate' }).click()
+  await page.getByRole('link', { name: 'Buyer admin', exact: true }).click()
+  await page.getByRole('button', { name: 'Reset to default' }).click()
   await expect(page.getByRole('status')).toContainText(
     'Policy reset to default by buyer admin · mandate v3 · auto-approve limit €500.00',
   )

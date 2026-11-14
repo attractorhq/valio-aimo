@@ -29,7 +29,7 @@ from .state import GatewayState, get_state, reset_sandbox, sandbox_registry
 router = APIRouter(prefix="/v0.1/admin", tags=["Buyer admin"], responses=ERROR_RESPONSES)
 State = Annotated[GatewayState, Depends(get_state)]
 
-BUYER_ADMIN_ACTOR = "human:Buyer admin (demo)"
+BUYER_ADMIN_ACTOR = "human:Buyer admin"
 OPEN_STATES = frozenset({"PENDING_APPROVAL", "APPROVED", "AUTO_APPROVED", "PROPOSED"})
 
 

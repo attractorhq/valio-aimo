@@ -315,7 +315,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     await expect(step(page, 'Request')).toContainText('Lactose-free')
     await expect(step(page, 'Request')).toContainText('Mon 16 Nov')
     await expect(step(page, 'Order')).toContainText(
-      'Proposal at fixed price · offer v1 · €1,010.00 excl. VAT',
+      /offer v1 · €1,010\.00 excl\. VAT/i,
     )
     await expect(step(page, 'Order')).toContainText('464306')
     await expect(step(page, 'Approval')).toContainText('Agent decided → Confirmed (simulated)')
@@ -331,7 +331,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     // 2. Scenario B (ASK; the approver approves v1): €506.16 > €500.00 for M2 (STRICT)
     await page.getByRole('button', { name: /^Scenario B:/ }).click()
     await expect(step(page, 'Order')).toContainText(
-      'Proposal at fixed price · offer v1 · €506.16 excl. VAT',
+      /offer v1 · €506\.16 excl\. VAT/i,
     )
     await expect(step(page, 'Order')).toContainText('474235')
     await expect(step(page, 'Order')).toContainText('468465')
@@ -341,7 +341,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
 
     const approvalStepB = step(page, 'Approval')
     await expect(approvalStepB).toContainText('Waiting for approver')
-    await expect(approvalStepB).toContainText('Waiting for Head Chef (demo)')
+    await expect(approvalStepB).toContainText('Waiting for Head Chef')
     await expect(
       approvalStepB.getByRole('list', { name: 'Reasons' }).getByRole('listitem'),
     ).toHaveCount(1)
@@ -356,7 +356,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     const approverPage = await context.newPage()
     await approverPage.goto(`${baseURL}/approver`)
     await expect(
-      approverPage.getByRole('heading', { name: 'Approver — Head Chef (demo)' }),
+      approverPage.getByRole('heading', { name: 'Approver — Head Chef' }),
     ).toBeVisible()
     await expect(
       approverPage.getByRole('heading', { name: /Proposals for you \(1 waiting\)/ }),
@@ -364,12 +364,12 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
 
     const card = approverPage.getByRole('article')
     await expect(card.getByRole('heading')).toHaveText(
-      'You are approving version 1 of this proposal',
+      'Approving version 1',
     )
     await expect(card).toContainText(
       '€506.16 is above your €500.00 auto-approve limit. Everything else is verified or declared.',
     )
-    await expect(card).toContainText('Demo approval link — single use')
+    await expect(card).toContainText('Single-use approval link')
 
     await card.getByRole('button', { name: 'Approve €506.16' }).click()
     await expect(card).toContainText(
@@ -380,7 +380,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     await page.bringToFront()
     await page.evaluate(() => window.dispatchEvent(new Event('focus')))
     await expect(step(page, 'Approval')).toContainText(
-      'Approved by Head Chef (demo) → Confirmed (simulated)',
+      'Approved by Head Chef → Confirmed (simulated)',
     )
 
     // 3. Scenario C (BLOCK): 464306 × 20,000 = €20,200.00 > €5,000.00 hard limit + INSTRUCTION_IGNORED

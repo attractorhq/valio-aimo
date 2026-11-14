@@ -633,7 +633,7 @@ def test_scenario_b_ask_over_auto_limit_and_valio_substitute_rejected(synthetic_
     assert result.proposal.decision == "ASK"
     assert result.proposal.state == "PENDING_APPROVAL"
     assert result.proposal.reasons == [ReasonCode.OVER_AUTO_LIMIT]
-    assert result.proposal.approverRole == "Head Chef (demo)"
+    assert result.proposal.approverRole == "Head Chef"
     assert (
         result.proposal.totals.exclVat,
         result.proposal.totals.vat,

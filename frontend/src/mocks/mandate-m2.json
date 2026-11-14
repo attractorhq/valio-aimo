@@ -12,5 +12,5 @@
   "minReliability": "0.80",
   "enforceCutoff": true,
   "forbiddenAllergens": [],
-  "approver": {"name": "Demo Head Chef", "role": "Head Chef (demo)"}
+  "approver": {"name": "Demo Head Chef", "role": "Head Chef"}
 }
