@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+"""Run the 24-row evaluation suite on data/fixtures (or reference fixtures) and report N/24."""
+
+import argparse
+from dataclasses import asdict
+import json
+import os
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+VENV_PY = ROOT / ".venv/bin/python"
+if VENV_PY.exists() and Path(sys.prefix).resolve() != (ROOT / ".venv").resolve():
+    os.execv(str(VENV_PY), [str(VENV_PY), *sys.argv])
+
+sys.path.insert(0, str(ROOT / "backend"))
+
+from app.eval.runner import DEFAULT_FIXTURES_DIR, format_eval_table, run_eval_suite  # noqa: E402
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--fixtures-dir", type=Path, default=DEFAULT_FIXTURES_DIR)
+    parser.add_argument("--json", action="store_true", help="Print JSON output instead of table")
+    args = parser.parse_args()
+
+    report = run_eval_suite(fixtures_dir=args.fixtures_dir)
+    if args.json:
+        payload = asdict(report)
+        for r in payload["results"]:
+            if r["proposal"] is not None:
+                r["proposal"] = r["proposal"].model_dump(mode="json")
+        print(json.dumps(payload, indent=2))
+    else:
+        print(format_eval_table(report))
+
+    if report.failed_rows > 0:
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
