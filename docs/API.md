@@ -135,6 +135,51 @@ scripts/check
 
 `frontend/src/mocks/scenario-a.json` and `scenario-b.json` are hand-made **synthetic UI mocks**, with synthetic IDs/names, illustrative A/B quantities/totals, and placeholder hashes. They are not recordings or outcomes to hardcode into the gateway. B has 18 × €22.92 + 80 × €1.17 = €506.16, VAT €68.33, incl. VAT €574.49, and exactly `[OVER_AUTO_LIMIT]`; rejected substitutes stay excluded. The matching mandate mocks use M1/M2-shaped controls. Actual dataset and recorded-response evaluation stays private in ignored `data/`.
 
+## Purchasing agent run: full or compact JSON
+
+`POST /v0.1/agent/run` accepts `{customerId, requestText, stream?: boolean, lookupDate?: date}`.
+The default `?view=full` returns the existing `AgentRunResult`, including steps, request, plan,
+offer, proposal, explanation and reasons. Existing SSE/NDJSON streams are unchanged.
+
+For external clients, `?view=compact` runs the same agent and deterministic gateway, then returns
+only a decision summary (`CompactAgentRunResult`, also described in OpenAPI):
+
+```json
+{
+  "customerId": "northbay-school-kitchen",
+  "mode": "RECORDED",
+  "recordedAt": "2026-11-13T21:52:02+02:00",
+  "proposalId": "PR-EXAMPLE-v1",
+  "decision": "ASK",
+  "state": "PENDING_APPROVAL",
+  "reasons": ["OVER_AUTO_LIMIT"],
+  "totals": {"exclVat": "506.16", "vat": "68.33", "inclVat": "574.49", "currency": "EUR"},
+  "lines": [
+    {"productId": "MOCK-PASTA", "name": "Synthetic gluten-free macaroni", "quantitySalesUnits": "18", "salesUnit": "ST", "unitPriceExclVat": "22.92", "lineTotalExclVat": "412.56"},
+    {"productId": "MOCK-OAT", "name": "Synthetic gluten-free oat drink", "quantitySalesUnits": "80", "salesUnit": "ST", "unitPriceExclVat": "1.17", "lineTotalExclVat": "93.60"}
+  ],
+  "approverRole": "Head Chef",
+  "clarificationQuestion": null,
+  "links": {"proposal": "/v0.1/proposals/PR-EXAMPLE-v1", "audit": "/v0.1/audit?proposalId=PR-EXAMPLE-v1"}
+}
+```
+
+The example is synthetic. Quantities count **sales units**, with unit prices excl. VAT; decimals
+remain strings. `decision`, `state`, `reasons`, totals and lines come from the final proposal, not
+from a model-generated summary. `mode` and the snapshot's `recordedAt` preserve data provenance
+(`recordedAt` is null when no offer/proposal snapshot exists). Relative links point only to public
+agent-channel reads; follow them in the same session to retrieve the full proposal and audit.
+No facts, candidate lists, approval tokens, approval links or QR payloads are included.
+
+If no proposal is created (clarification or no candidate), `proposalId`, `decision`, `state`,
+`totals`, `approverRole` and `links` are null, and `lines` is empty. `reasons` and any
+`clarificationQuestion` explain what is missing; no policy outcome or zero-priced order is invented.
+
+Compact view is non-streaming JSON only. Combining it with `stream=true` (query or body),
+`Accept: text/event-stream` or `Accept: application/x-ndjson` returns HTTP 422 before any agent
+work. An unsupported `view` value also returns 422. Other validation and upstream errors retain
+the existing status codes and error shape.
+
 ## Retrying a delivery date
 
 `POST /v0.1/agent/run` can return `steps[].noOrder` with the search, outcome, and optional catalogue matches for each item. If availability supports the full request on a later day, `earliestDelivery` is an ISO date. The buyer can rerun with the original `requestText` and that date as `lookupDate`.
@@ -229,4 +274,3 @@ claude mcp add --transport http valio-aimo https://valio-aimo.<account>.workers.
 ```
 
 Asking Claude Code to run Scenario B for `northbay-school-kitchen` ("We need 90 kg of gluten-free macaroni and 80 litres of gluten-free oat drink by Monday, 2026-11-16") invokes `getMandate` → `searchProducts` → `getOffer` → `createProposal` and reaches `state: "PENDING_APPROVAL"` (`decision: "ASK"`, `reasons: ["OVER_AUTO_LIMIT"]`, `totals.exclVat: "506.16"`).
-
