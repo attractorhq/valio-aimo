@@ -4,20 +4,218 @@ Agent responses never carry an approval token, URL or QR payload (P3, AC15): tho
 approver channel. The server alone decides AUTO / ASK / BLOCK and confirms after a live re-check.
 """
 
+from dataclasses import dataclass
+from inspect import isawaitable
+from time import perf_counter
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Depends, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import StreamingResponse
+from fastapi.routing import APIRoute
+from pydantic import Field
 
 from app.catalog.search import SearchProductsRequest, SearchProductsResult, search_products
-from app.contracts import AuditTrail, CreateProposalRequest, GetOfferRequest, Mandate, Offer, Proposal
-from app.gateway.log import AuditChainVerification
+from app.contracts import (
+    AuditTrail,
+    CreateProposalRequest,
+    GetOfferRequest,
+    Mandate,
+    Offer,
+    Proposal,
+    ReasonCode,
+)
+from app.contracts.common import Contract
+from app.gateway.log import (
+    AgentAccess,
+    AgentActivity,
+    AgentActivitySnapshot,
+    AgentOutcome,
+    AuditChainVerification,
+    agent_client_label,
+)
+from app.gateway.proposals import NoOrderError
 
-from .auth import AgentCustomer, audit_scope, bind_customer
-from .errors import ERROR_RESPONSES
-from .state import GatewayState, get_state
+from .auth import AgentCustomer, agent_customer, audit_scope, bind_customer, require_admin
+from .errors import ERROR_RESPONSES, error
+from .state import GatewayState, GatewayUnavailable, get_state, utc_now
 
-router = APIRouter(prefix="/v0.1", tags=["Agent channel"], responses=ERROR_RESPONSES)
 State = Annotated[GatewayState, Depends(get_state)]
+FORBIDDEN_CAPABILITY_KEYS = frozenset({"approvalToken", "approvalUrl", "qrPayload"})
+_AGENT_WRITES = frozenset({"getOffer", "createProposal", "runAgent"})
+
+
+def has_approval_field_error(errors: list[dict]) -> bool:
+    return any(
+        issue.get("type") == "extra_forbidden" and issue.get("loc")
+        and issue["loc"][-1] in FORBIDDEN_CAPABILITY_KEYS
+        for issue in errors
+    )
+
+
+@dataclass
+class AgentCall:
+    operation: str
+    access: AgentAccess
+    client: str
+    customer: str | None
+    started: float
+    activity: AgentActivity | None = None
+    stream_failed: bool = False
+    instruction_refused: bool = False
+
+    def record(self, outcome: AgentOutcome, reason: str | None = None, *, count_refusal: bool = False) -> None:
+        if self.activity is not None:
+            self.activity.record(
+                customer=self.customer, client=self.client, operation=self.operation, access=self.access,
+                outcome=outcome, reason=reason, count_refusal=count_refusal, timestamp=utc_now(),
+                duration_ms=round((perf_counter() - self.started) * 1000),
+            )
+
+    def record_success(self) -> None:
+        if self.instruction_refused:
+            self.record("REFUSED", "A policy instruction in the request was ignored.", count_refusal=True)
+        else:
+            self.record("OK")
+
+
+class AgentControlError(Exception):
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
+async def _attach_activity(request: Request, state: State) -> None:
+    call: AgentCall | None = getattr(request.state, "agent_call", None)
+    if call is None:
+        return
+    call.activity = state.gateway.log.agent_activity
+    if call.customer and (block := call.activity.block(call.customer, call.client, call.access)):
+        raise AgentControlError(*block)
+
+
+class AgentRoute(APIRoute):
+    """Observe the result of agent REST calls, including validation and streaming failures."""
+
+    def __init__(self, path: str, endpoint, **options):
+        if path.startswith("/v0.1/admin/"):
+            options["tags"] = ["Buyer admin"]
+            options["dependencies"] = [
+                dependency for dependency in (options.get("dependencies") or ())
+                if dependency.dependency is not _attach_activity
+            ]
+        super().__init__(path, endpoint, **options)
+
+    def get_route_handler(self):
+        handler = super().get_route_handler()
+        if "/admin/" in self.path:
+            return handler
+        operation = self.operation_id or self.name
+
+        async def observe(request: Request):
+            try:
+                customer = agent_customer(request)
+            except HTTPException:
+                customer = None
+            call = AgentCall(
+                operation=operation, access="WRITE" if operation in _AGENT_WRITES else "READ",
+                client=agent_client_label(request.headers.get("user-agent")),
+                customer=customer, started=perf_counter(),
+            )
+            request.state.agent_call = call
+            try:
+                response = await handler(request)
+            except AgentControlError as exc:
+                call.record("REFUSED", str(exc))
+                return error(403, exc.code, str(exc))
+            except RequestValidationError as exc:
+                if call.activity is None:
+                    # Invalid JSON fails before dependency resolution. Try the same sandbox for the record.
+                    overrides = getattr(self.dependency_overrides_provider, "dependency_overrides", {})
+                    loader = overrides.get(get_state, get_state)
+                    try:
+                        state = loader(request) if loader is get_state else loader()
+                        if isawaitable(state):
+                            state = await state
+                        call.activity = state.gateway.log.agent_activity
+                    except (GatewayUnavailable, HTTPException):
+                        pass
+                if has_approval_field_error(exc.errors()):
+                    call.record("REFUSED", "Approval fields are forbidden in agent requests.", count_refusal=True)
+                else:
+                    call.record("ERROR", "Request validation failed.")
+                raise
+            except HTTPException as exc:
+                if exc.status_code in (401, 403):
+                    call.record("REFUSED", "Agent authorization failed.")
+                else:
+                    call.record("ERROR", f"HTTP {exc.status_code}.")
+                raise
+            except NoOrderError:
+                call.record("REFUSED", "No order could be confirmed.")
+                raise
+            except Exception:
+                call.record("ERROR", "Gateway could not complete the call.")
+                raise
+            if isinstance(response, StreamingResponse):
+                iterator = response.body_iterator
+
+                async def observed_stream():
+                    complete = False
+                    try:
+                        async for chunk in iterator:
+                            yield chunk
+                        complete = True
+                    finally:
+                        if complete and not call.stream_failed:
+                            call.record_success()
+                        else:
+                            call.record("ERROR", "Agent stream did not complete successfully.")
+
+                response.body_iterator = observed_stream()
+            elif response.status_code < 400:
+                call.record_success()
+            else:
+                call.record("ERROR")
+            return response
+
+        return observe
+
+
+router = APIRouter(prefix="/v0.1", tags=["Agent channel"], responses=ERROR_RESPONSES,
+                   route_class=AgentRoute, dependencies=[Depends(_attach_activity)])
+
+
+class AgentPauseRequest(Contract):
+    paused: bool
+
+
+class ResumeAgentRequest(Contract):
+    clientId: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+@router.get("/admin/agent-activity", response_model=AgentActivitySnapshot,
+            tags=["Buyer admin"], dependencies=[Depends(require_admin)],
+            openapi_extra={"security": [{"demoAdmin": []}]})
+def get_agent_activity(state: State) -> AgentActivitySnapshot:
+    return state.gateway.log.agent_activity.snapshot()
+
+
+@router.patch("/admin/agent-activity", response_model=AgentActivitySnapshot,
+              tags=["Buyer admin"], dependencies=[Depends(require_admin)])
+def pause_agent_activity(body: AgentPauseRequest, state: State) -> AgentActivitySnapshot:
+    activity = state.gateway.log.agent_activity
+    activity.set_paused(body.paused, utc_now())
+    return activity.snapshot()
+
+
+@router.post("/admin/agent-activity/resume", response_model=AgentActivitySnapshot,
+             tags=["Buyer admin"], dependencies=[Depends(require_admin)])
+def resume_agent_activity(body: ResumeAgentRequest, state: State) -> AgentActivitySnapshot:
+    activity = state.gateway.log.agent_activity
+    if not activity.resume(body.clientId, utc_now()):
+        raise HTTPException(404, "No suspended agent with that ID in this session.")
+    return activity.snapshot()
 
 SCHOOL_DELIVERY = "2026-11-16"
 SCHOOL_CUSTOMER = "northbay-school-kitchen"
@@ -71,7 +269,7 @@ def get_offer(
 
 @router.post("/proposals", response_model=Proposal, status_code=201, operation_id="createProposal",
              summary="Bind the request to an offer version; the gateway decides AUTO / ASK / BLOCK")
-def create_proposal(
+def create_proposal_route(
     body: Annotated[CreateProposalRequest, Body(openapi_examples={
         "school_gluten_free": {
             "summary": "Create a proposal from the school kitchen's offer",
@@ -94,9 +292,18 @@ def create_proposal(
             },
         },
     })],
+    request: Request,
     state: State,
     customer: AgentCustomer,
 ) -> Proposal:
+    proposal = create_proposal(body, state, customer)
+    call: AgentCall | None = getattr(request.state, "agent_call", None)
+    if call is not None:
+        call.instruction_refused = ReasonCode.INSTRUCTION_IGNORED in proposal.reasons
+    return proposal
+
+
+def create_proposal(body: CreateProposalRequest, state: GatewayState, customer: str) -> Proposal:
     bind_customer(customer, body.customerId)
     offer = state.gateway.get_registered_offer(body.offerId, body.offerVersion)
     proposal = state.gateway.create_proposal(body, now=state.now_for(offer.mode))
