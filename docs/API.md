@@ -56,6 +56,8 @@ Static search narrows the shortlist first (at most 20 candidates per request ite
 
 `createProposal(customerId, offerId, offerVersion, request)` does **not** accept an outcome, reasons, mandate version, totals, hash, or approval credential from the agent. The gateway loads those authoritative values itself, validates customer/offer/request binding, and evaluates policy. It stores the resulting `Proposal` snapshot. Repeated create operations are idempotent (implemented by T07/T08).
 
+Request item IDs must be unique and describe every offered line. Quantities use the same physical unit as their lines; summed delivery must cover the requested quantity, with at most one sales unit of rounding per line. A mismatch returns **422** (`error.code: HTTP_ERROR`) with the item ID, line IDs and quantities, before creating a proposal or approval (e.g. `item I1 requests 10 l; offer line L1 is 5,000 l; exceeds sales-unit rounding`). Explicitly quoted partial deliveries retain their normal approval flow, but cannot be rebound to a different shortfall. An item represented only by excluded candidates retains normal policy/NO_ORDER handling. Named-product changes retain the existing substitution policy: a substitute must satisfy the hard requirements and any required approval; a product ID change cannot silently auto-confirm.
+
 ### StructuredRequest and Product
 
 `StructuredRequest` carries the original `requestText` (data, never instructions), a Helsinki `requestedDate`, `items[]` and visible `assumptions[]`. Each item has a stable `itemId`, `what`, positive `quantity`, unit, optional explicitly named `productId`, hard `requirements[]`, and soft `preferences[]`.
