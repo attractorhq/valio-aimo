@@ -1,5 +1,8 @@
 """One error model for both channels: `{"error": {"code", "message", "details"?}}` with a fitting status."""
 
+import logging
+from uuid import uuid4
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -29,6 +32,8 @@ from app.valio.errors import ValioRateLimited
 
 from .state import GatewayUnavailable
 
+logger = logging.getLogger(__name__)
+
 
 class ErrorDetail(BaseModel):
     code: str
@@ -45,6 +50,7 @@ ERROR_RESPONSES = {
     404: {"model": ErrorResponse, "description": "Unknown proposal, offer or customer"},
     409: {"model": ErrorResponse, "description": "Conflict with the current proposal state"},
     422: {"model": ErrorResponse, "description": "Validation failed, or no confirmable order"},
+    500: {"model": ErrorResponse, "description": "Unexpected gateway error; details include a requestId"},
     502: {"model": ErrorResponse, "description": "Valio Aimo API error"},
     503: {"model": ErrorResponse, "description": "Gateway not configured or Valio rate limited"},
 }
@@ -107,9 +113,11 @@ def register_error_handlers(app: FastAPI) -> None:
     async def no_order(_: Request, exc: NoOrderError):
         # O5/O6: nothing to confirm or approve. The reasons say why; no proposal is created.
         decision = exc.policy_decision
+        excluded = getattr(exc, "excluded", None) or decision.excluded_products()
+        reasons = getattr(exc, "reasons", None) or [str(code) for code in decision.reasons]
         return error(422, "NO_ORDER", _message(exc), {
-            "reasons": [str(code) for code in decision.reasons],
-            "excluded": [e.model_dump(mode="json") for e in decision.excluded_products()],
+            "reasons": list(reasons),
+            "excluded": [e.model_dump(mode="json") for e in excluded],
         })
 
     for exc_type, status, code in _MAPPING:
@@ -121,3 +129,14 @@ def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(KeyError)
     async def unknown_key(_: Request, exc: KeyError):
         return error(404, "NOT_FOUND", f"Unknown customer or resource: {_message(exc)}")
+
+    @app.exception_handler(Exception)
+    async def unexpected_error(_: Request, exc: Exception):
+        request_id = uuid4().hex
+        # Exceptions can contain upstream credentials or approval capabilities. Do not echo their
+        # text, request bodies, URLs or tracebacks to the caller or ordinary application logs.
+        logger.error("Unhandled gateway error: type=%s requestId=%s", type(exc).__name__, request_id)
+        response = error(500, "INTERNAL_ERROR", "An unexpected gateway error occurred.", {"requestId": request_id})
+        response.headers["X-Request-ID"] = request_id
+        response.headers["Cache-Control"] = "no-store"
+        return response
