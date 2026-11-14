@@ -1,7 +1,13 @@
 import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
 import type { Proposal } from '../src/lib/contracts'
-import { proposalRequirementChecks, requirementsStatement } from '../src/lib/requirements'
+import {
+  decisiveEvidence,
+  evidenceCountsText,
+  evidenceHeadline,
+  proposalRequirementChecks,
+  requirementsStatement,
+} from '../src/lib/requirements'
 
 // T41: the trust card's requirement rows and the decision footer's "proven" statement come from the
 // same requirement facts on the proposal lines, so they can never contradict each other.
@@ -42,7 +48,7 @@ test('the card rows and the footer statement read the same requirement facts', a
   expect(statement.allProven).toBe(true)
   await expect(page.getByTestId('decision-summary')).toContainText(statement.clause)
   await expect(page.getByTestId('decision-summary')).toContainText(
-    'Every hard requirement (gluten-free) is proven',
+    'Every hard requirement (gluten-free) is declared by the supplier',
   )
 })
 
@@ -93,6 +99,44 @@ test('declared free-from allergen evidence is proven', () => {
   const checks = proposalRequirementChecks(withEgg, ['AE'])
   expect(checks.filter((c) => c.fromMandate).every((c) => c.proven)).toBe(true)
   expect(requirementsStatement(checks).clause).toBe(
-    'Every hard requirement (gluten-free, no egg) is proven',
+    'Every hard requirement (gluten-free, no egg) is declared by the supplier',
   )
+})
+
+// T78: the AUTO headline follows the weakest decisive level; a supplier's claim is never "proven".
+const proposalA = JSON.parse(
+  readFileSync(new URL('../src/mocks/scenario-a.json', import.meta.url), 'utf-8'),
+) as Proposal
+
+test('the AUTO banner names supplier-declared evidence and counts it', async ({ page }) => {
+  const counts = decisiveEvidence(proposalA)
+  expect(counts.supplierDeclared).toBeGreaterThan(0)
+  expect(evidenceHeadline(counts)).toBe('Every required fact verified or declared by the supplier.')
+
+  await page.goto('/')
+  await page.getByRole('button', { name: /^Scenario A:/ }).click()
+  const approval = step(page, 'Approval')
+  await expect(approval).toContainText('Every required fact verified or declared by the supplier.')
+  await expect(approval.getByTestId('evidence-counts')).toHaveText(evidenceCountsText(counts))
+  await expect(approval.getByTestId('evidence-counts')).toContainText('supplier-declared')
+  await expect(page.getByText('Every fact is proven')).toHaveCount(0)
+})
+
+test('all-verified evidence says verified; Valio-declared stock says declared', () => {
+  const verifiedOnly = {
+    ...proposalA,
+    lines: proposalA.lines.map((line) => ({
+      ...line,
+      facts: line.facts.map((f) => ({ ...f, level: 'VERIFIED' as const })),
+    })),
+  }
+  expect(evidenceHeadline(decisiveEvidence(verifiedOnly))).toBe('Every required fact verified.')
+  const sentinel = withFact(proposalA, 'stock.quantity', {
+    level: 'DECLARED',
+    display: 'Stock not tracked · Valio accepts any quantity',
+  })
+  const counts = decisiveEvidence(sentinel)
+  expect(counts.valioDeclared).toBe(1)
+  expect(evidenceHeadline(counts)).toBe('Every required fact verified or declared.')
+  expect(evidenceCountsText(counts)).toContain('1 declared by Valio')
 })

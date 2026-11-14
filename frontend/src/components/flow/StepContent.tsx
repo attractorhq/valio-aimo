@@ -165,7 +165,7 @@ export function ApprovalOutcome({ proposal, mandate }: { proposal: Proposal; man
         <Icon size={22} aria-hidden />
         <span>
           <span className="outcome-word">{decision}</span>
-          {decision === 'AUTO' && 'Every fact is proven and the order is inside the mandate.'}
+          {decision === 'AUTO' && 'Every required fact is verified or declared, inside the mandate.'}
           {decision === 'ASK' && `Waiting for ${approver ?? 'the approver'}`}
           {decision === 'BLOCK' && 'This order breaks the mandate.'}
         </span>

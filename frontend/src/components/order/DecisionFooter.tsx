@@ -1,7 +1,13 @@
 import { Ban, CheckCircle2, Hourglass, Info, ShieldCheck } from 'lucide-react'
 import { REASON_REGISTRY, type Mandate, type Proposal, type ReasonCode } from '../../lib/contracts'
 import { formatMoney, reasonChip, reasonText } from '../../lib/format'
-import { proposalRequirementChecks, requirementsStatement } from '../../lib/requirements'
+import {
+  decisiveEvidence,
+  evidenceCountsText,
+  evidenceHeadline,
+  proposalRequirementChecks,
+  requirementsStatement,
+} from '../../lib/requirements'
 import { plainReason, uniqueReasons } from '../approver/explain'
 
 /** The reason in plain words, or null when that would only repeat the chip (T45). */
@@ -72,6 +78,8 @@ export function DecisionFooter({ proposal, mandate }: { proposal: Proposal; mand
     proposalRequirementChecks(proposal, mandate?.forbiddenAllergens),
   )
   const summary = decisionSummary(proposal, statement, approver)
+  // T78: the AUTO headline follows the weakest decisive level and shows the counts.
+  const evidence = decisiveEvidence(proposal, mandate?.forbiddenAllergens)
 
   return (
     <div className={`outcome outcome-${tone}`}>
@@ -80,9 +88,7 @@ export function DecisionFooter({ proposal, mandate }: { proposal: Proposal; mand
         <span>
           <span className="outcome-word">{decision}</span>
           {decision === 'AUTO' &&
-            (statement.allProven
-              ? 'Every fact is proven and the order is inside the mandate.'
-              : 'A hard requirement is not proven.')}
+            (statement.allProven ? evidenceHeadline(evidence) : 'A hard requirement is not proven.')}
           {decision === 'ASK' &&
             (proposal.state === 'PENDING_APPROVAL'
               ? `Waiting for ${approver}`
@@ -90,6 +96,12 @@ export function DecisionFooter({ proposal, mandate }: { proposal: Proposal; mand
           {decision === 'BLOCK' && 'This order breaks the mandate.'}
         </span>
       </p>
+
+      {decision === 'AUTO' && (
+        <p className="mt-1 text-xs font-semibold" data-testid="evidence-counts">
+          {evidenceCountsText(evidence)}
+        </p>
+      )}
 
       {summary && (
         <p className="mt-2 text-sm" data-testid="decision-summary">
