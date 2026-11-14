@@ -288,6 +288,15 @@ def build_catalog(
         stats_path = output_path.with_name("stats.json")
         stats_path.write_text(artifact.stats.model_dump_json(indent=2) + "\n", encoding="utf-8")
 
+        # productId -> vendorName for the readiness view (T27). The container image excludes data/raw/, so the
+        # supplier names must travel with the catalogue artifact (data/catalog/, gitignored like the rest).
+        vendors = {
+            str(rec.get("id")).strip(): str(rec.get("vendorName")).strip()
+            for rec in records
+            if isinstance(rec, dict) and not rec.get("deleted") and rec.get("id") and rec.get("vendorName")
+        }
+        output_path.with_name("vendors.json").write_text(json.dumps(vendors, ensure_ascii=False) + "\n", encoding="utf-8")
+
     return artifact
 
 
