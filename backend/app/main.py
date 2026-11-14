@@ -1,4 +1,4 @@
-"""Verified or Ask · Trusted Trade Gateway v0.1 (FastAPI, OpenAPI 3.1).
+"""Aimo Connect · Trusted Trade Gateway v0.1 (FastAPI, OpenAPI 3.1).
 
 Two channels on one origin:
 - Agent channel `/v0.1/*`: searchProducts, getOffer, createProposal, getProposal, getAuditTrail, getMandate.
@@ -36,7 +36,7 @@ TAGS = [
 ]
 
 app = FastAPI(
-    title="Verified or Ask · Trusted Trade Gateway",
+    title="Aimo Connect · Trusted Trade Gateway",
     version=VERSION,
     openapi_tags=TAGS,
     description=(

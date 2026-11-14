@@ -1,4 +1,4 @@
-# Verified or Ask — three-minute pitch
+# Aimo Connect — three-minute pitch
 
 **Status:** the flow is verified locally; a public deployment has not yet been verified. Present from the local stack until the architect supplies a verified URL. The amounts below are reference expectations, not outputs to hardcode or assert when current data differs.
 
@@ -56,7 +56,7 @@ The comparison is the policy decision for the same terms, not a promise that ind
 
 > Same interface, three outcomes: it orders on its own, asks a human at exactly the right point, and refuses to break a hard limit.
 >
-> Verified or Ask. Simulated orders today; an explicit trust and authority boundary for production.
+> Aimo Connect. Simulated orders today; an explicit trust and authority boundary for production.
 
 ## Coverage of the five official judging criteria
 

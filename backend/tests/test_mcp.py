@@ -157,7 +157,7 @@ def test_mcp_initialize_and_tools_list_keep_decide_approval_off_agent_channel(mc
     result = init["result"]
     assert result["protocolVersion"] == "2025-03-26"
     assert result["capabilities"] == {"tools": {"listChanged": False}}
-    assert result["serverInfo"]["name"] == "verified-or-ask-gateway"
+    assert result["serverInfo"]["name"] == "aimo-connect-gateway"
     assert "PENDING_APPROVAL" in result["instructions"]
     assert mcp.session_id and mcp.session_id.startswith("mcp-")
 

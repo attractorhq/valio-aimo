@@ -1,4 +1,4 @@
-# Verified or Ask · Trusted Trade Gateway
+# Aimo Connect · Trusted Trade Gateway
 
 A Valio Aimo-side gateway plus a demo purchasing agent for the Valio Aimo Junction 2026 challenge. Together they run the flow **Request → Lookup → Order → Approval** against the challenge's mock Valio Aimo API.
 

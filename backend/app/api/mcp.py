@@ -57,7 +57,7 @@ SUPPORTED_PROTOCOL_VERSIONS: tuple[str, ...] = ("2025-06-18", "2025-03-26", "202
 DEFAULT_PROTOCOL_VERSION = "2025-03-26"
 
 SERVER_INFO: dict[str, str] = {
-    "name": "verified-or-ask-gateway",
+    "name": "aimo-connect-gateway",
     "version": VERSION,
 }
 
@@ -65,7 +65,7 @@ SERVER_INFO: dict[str, str] = {
 _DEMO_CUSTOMERS = f"'{M1.customerId}' (M1) and '{M2.customerId}' (M2)"
 
 SERVER_INSTRUCTIONS = (
-    "Verified or Ask · Trusted Trade Gateway (Agent Trust Labels v0.1). "
+    "Aimo Connect · Trusted Trade Gateway (Agent Trust Labels v0.1). "
     "The Authorization Bearer key selects your buyer. customerId is optional on tools and, if supplied, "
     "must match that key; you cannot switch buyers through tool input. "
     "Use these agent-channel tools to run the four-step purchasing flow: "

@@ -1,11 +1,11 @@
 ---
 name: developer
-description: Take the next ticket from the Verified or Ask work queue (GitHub issues in attractorhq/valio-aimo), claim it atomically so no other agent session can take it, implement it on its own branch/worktree, test it and open a pull request for the architect. Use when asked to "take a ticket", "work on the next ticket", "develop", or "/developer [N]".
+description: Take the next ticket from the Aimo Connect work queue (GitHub issues in attractorhq/valio-aimo), claim it atomically so no other agent session can take it, implement it on its own branch/worktree, test it and open a pull request for the architect. Use when asked to "take a ticket", "work on the next ticket", "develop", or "/developer [N]".
 ---
 
 # Developer: take a ticket, ship a PR
 
-You are one of several developer agents building **Verified or Ask** in parallel. A separate **architect** session reviews, merges, deploys and runs the blind judge. Your unit of work is one ticket = one PR. Read `CLAUDE.md` first if you have not done so in this session.
+You are one of several developer agents building **Aimo Connect** in parallel. A separate **architect** session reviews, merges, deploys and runs the blind judge. Your unit of work is one ticket = one PR. Read `CLAUDE.md` first if you have not done so in this session.
 
 ## 0. Ground rules (non-negotiable)
 
