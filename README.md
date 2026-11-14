@@ -92,6 +92,17 @@ curl -s $API/v0.1/approver/proposals/<proposalId>/decision -H 'Content-Type: app
 curl -s "$API/v0.1/audit?proposalId=<proposalId>"           # the decision log
 ```
 
+### Second client (`scripts/second-client`)
+
+`scripts/second-client` is a standalone Python script (stdlib + `urllib` only, no repo imports). It reads `/openapi.json` to discover the public Agent channel operations and runs Scenario B end-to-end through the Agent channel, printing the identical `decision`, `reasons`, `totals` and `offerHash`:
+
+```bash
+scripts/second-client http://localhost:8000
+scripts/second-client https://valio-aimo.<account>.workers.dev
+```
+
+A copy-pasteable `curl` + `jq` equivalent is in `docs/API.md` → *Second client*.
+
 ## Tests
 
 ```bash
