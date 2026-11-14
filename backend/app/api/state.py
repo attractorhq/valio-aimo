@@ -207,7 +207,8 @@ async def try_state(request: Request) -> GatewayState | GatewayUnavailable:
 
 
 async def get_state(request: Request) -> GatewayState:
-    """FastAPI dependency; plain cookieless REST stays shared, negotiated MCP sessions do not."""
+    """FastAPI dependency. Cookieless REST and MCP clients share the `shared` session, so an agent can mix both
+    channels (an offer over REST, a proposal over MCP). Browsers get a cookie session; X-Demo-Sandbox picks one."""
     sandbox_id = request_sandbox_id(request)
     if sandbox_id is None and request.url.path.rstrip("/") == "/mcp":
         session_id = request.headers.get("mcp-session-id")
@@ -220,8 +221,6 @@ async def get_state(request: Request) -> GatewayState:
             if any(isinstance(message, dict) and message.get("method") == "initialize" for message in messages):
                 session_id = "mcp-" + secrets.token_hex(16)
                 request.state.mcp_session_id = session_id
-        if session_id is not None:
-            if not SANDBOX_ID_RE.fullmatch(session_id) or len(session_id) > 90:
-                raise HTTPException(400, "Invalid MCP session id.")
-            sandbox_id = "mcp-" + session_id
+        if session_id is not None and (not SANDBOX_ID_RE.fullmatch(session_id) or len(session_id) > 90):
+            raise HTTPException(400, "Invalid MCP session id.")
     return sandbox_registry().get(sandbox_id or "shared")

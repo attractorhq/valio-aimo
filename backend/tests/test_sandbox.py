@@ -114,23 +114,21 @@ def test_cookieless_plain_rest_stays_shared_and_legacy_mcp_calls_work(sandboxes)
         assert registry.get("shared").gateway.mandates.get(M1.customerId).autoApproveLimitEur == Decimal("100")
 
 
-def test_negotiated_cookieless_mcp_sessions_have_separate_state(sandboxes):
-    registry, _ = sandboxes
+def test_cookieless_mcp_sessions_share_state_with_rest_so_channels_can_mix(sandboxes):
+    """An external agent may create an offer over REST and the proposal over MCP: both use `shared`."""
     with TestClient(app) as client:
         initialize = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
         first = client.post("/mcp", json=initialize)
         second = client.post("/mcp", json=initialize)
         assert "set-cookie" not in first.headers
         first_id, second_id = first.headers["mcp-session-id"], second.headers["mcp-session-id"]
-        assert first_id != second_id
-        lower_limit(TestClient(app, headers={"X-Demo-Sandbox": "mcp-" + first_id}))
+        lower_limit(client)  # plain REST, shared session
         query = {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
             "name": "getMandate", "arguments": {"customerId": M1.customerId},
         }}
-        for session_id, expected in ((first_id, "100.00"), (second_id, "1500.00")):
+        for session_id in (first_id, second_id):
             response = client.post("/mcp", json=query, headers={"Mcp-Session-Id": session_id})
-            assert response.json()["result"]["structuredContent"]["autoApproveLimitEur"] == expected
-        assert registry.count() == 2
+            assert response.json()["result"]["structuredContent"]["autoApproveLimitEur"] == "100.00"
 
 
 def test_signed_approval_routes_without_cookie_and_tampered_sandbox_is_rejected(sandboxes):
