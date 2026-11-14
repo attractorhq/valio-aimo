@@ -184,36 +184,37 @@ function Section({
 /** S7: the human-readable open specification of Agent Trust Labels v0.1 and the gateway interface. */
 export function Spec() {
   return (
-    <div className="grid min-w-0 grid-cols-1 gap-4 [&>*]:min-w-0">
-      <a
-        href="/"
-        className="inline-flex items-center gap-1 font-semibold text-[var(--green)] underline"
-      >
-        <ArrowLeft size={16} aria-hidden /> Back to the purchasing flow
-      </a>
+    <div className="grid min-w-0 grid-cols-1 gap-3 [&>*]:min-w-0">
+      <div>
+        <a
+          href="/"
+          aria-label="Back to the purchasing flow"
+          className="inline-flex items-center gap-1 text-sm font-semibold text-[var(--green)] underline"
+        >
+          <ArrowLeft size={15} aria-hidden /> Buy
+        </a>
+      </div>
 
       <section className="panel" aria-labelledby="spec-title">
-        <h1 id="spec-title" className="text-2xl font-bold text-[var(--ink)]">
+        <h1 id="spec-title" className="text-lg font-bold text-[var(--ink)]">
           Agent Trust Labels v0.1 · open specification
         </h1>
-        <p className="mt-2 text-[var(--ink)]">
-          Every fact an agent relies on carries a trust label: how strong the evidence is, where it
-          came from and when. The gateway lets an agent act alone only when every fact it relies on
-          is strong enough <strong>and</strong> the order is inside the buyer's mandate. Everything
-          else goes to a named human, who signs off one exact proposal version and sees the exact
-          reason.
+        <p className="muted small mt-1">
+          An agent acts alone only when every decisive fact is verified or declared without conflict
+          and the order is within mandate; everything else goes to a named human for one proposal
+          version.
         </p>
-        <nav aria-label="On this page" className="mt-3">
-          <ul className="flex flex-wrap gap-2 text-sm">
+        <nav aria-label="On this page" className="mt-2.5">
+          <ul className="flex flex-wrap gap-1.5 text-xs">
             {[
               ['#levels', 'Trust levels'],
               ['#facts', 'Facts'],
               ['#reasons', 'Reason codes'],
               ['#operations', 'Operations'],
-              ['#machine-readable', 'OpenAPI and JSON Schemas'],
+              ['#machine-readable', 'OpenAPI & Schemas'],
             ].map(([href, label]) => (
               <li key={href}>
-                <a href={href} className="btn btn-scenario">
+                <a href={href} className="btn btn-scenario log-scenario-pill">
                   {label}
                 </a>
               </li>
@@ -321,8 +322,8 @@ export function Spec() {
 
       <Section id="reasons" title="Reason codes">
         <p className="muted small">
-          Every decision carries reason codes. A human may approve only trade-offs (approvable
-          codes), never missing evidence: everything else excludes the product or blocks the order.
+          Humans approve trade-offs only, never missing evidence; everything else excludes the
+          product or blocks the order.
         </p>
         {EFFECT_ORDER.map((effect) => {
           const rows = REASONS.filter((r) => r.effect === effect)
@@ -373,10 +374,8 @@ export function Spec() {
 
       <Section id="operations" title="Operations">
         <p className="muted small">
-          The deterministic gateway decides AUTO / ASK / BLOCK; an LLM never does. The approval link
-          never reaches an agent. <code>recheckAndConfirm</code> has no route: the server re-checks
-          live before every simulated confirmation. Every order is simulated: Simulated order — mock
-          environment.
+          Deterministic gateway policy decides AUTO / ASK / BLOCK; approval links never reach the
+          agent. Every confirmation re-checks live first (Simulated order — mock environment).
         </p>
         {OPERATIONS.map(({ channel, rows }) => (
           <div key={channel} className="mt-3">
@@ -422,10 +421,9 @@ export function Spec() {
             </a>
           </li>
         </ul>
-        <p className="muted small mt-3">
-          JSON Schema (Draft 2020-12) for every v0.1 model, each with the identifier{' '}
-          <code>urn:verified-or-ask:v0.1:&lt;Model&gt;</code>. Money and quantities are decimal
-          strings.
+        <p className="muted small mt-2.5">
+          Draft 2020-12 schemas (<code>urn:verified-or-ask:v0.1:&lt;Model&gt;</code>). Money and
+          quantities are decimal strings.
         </p>
         <ul
           className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 [&>*]:min-w-0"

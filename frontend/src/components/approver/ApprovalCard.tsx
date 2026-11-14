@@ -48,8 +48,7 @@ export function ApprovalState({ item }: { item: ApproverItem }) {
       return (
         <p className="approval-state approval-state-void" role="status">
           <Clock size={18} aria-hidden />
-          Expired · the offer ran out before sign-off and must be re-quoted. It can no longer be
-          approved.
+          Expired · the offer ran out before sign-off and must be re-quoted.
         </p>
       )
     case 'SUPERSEDED':
@@ -57,9 +56,8 @@ export function ApprovalState({ item }: { item: ApproverItem }) {
         <p className="approval-state approval-state-void" role="status">
           <AlertTriangle size={18} aria-hidden />
           <span>
-            Superseded · something changed at the re-check, so this version and any approval of it
-            are void. The new version
-            {proposal.supersededBy ? ` (${proposal.supersededBy})` : ''} was decided from scratch.
+            Superseded · something changed at the re-check; new version
+            {proposal.supersededBy ? ` (${proposal.supersededBy})` : ''} decided from scratch.
           </span>
         </p>
       )
@@ -121,26 +119,28 @@ export function ApprovalCard({
   return (
     <article className="approval-card" aria-labelledby={`approve-${proposal.proposalId}`}>
       <header className="approval-card-header">
-        <h2 id={`approve-${proposal.proposalId}`}>
-          {pending
-            ? `You are approving version ${proposal.offerVersion} of this proposal`
-            : `Version ${proposal.offerVersion} of this proposal`}
-        </h2>
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 id={`approve-${proposal.proposalId}`}>
+            {pending
+              ? `You are approving version ${proposal.offerVersion} of this proposal`
+              : `Version ${proposal.offerVersion} of this proposal`}
+          </h2>
+          <a href={logPath(proposal.proposalId)} className="text-xs font-semibold text-[var(--green)] underline">
+            Decision log
+          </a>
+        </div>
         {approvalStatement && !onlyLimit && (
           <p
-            className="mt-1.5 rounded-lg border border-[var(--ask)] bg-[var(--ask-bg)] px-3 py-2 text-sm font-semibold text-[var(--ink)]"
+            className="mt-1 rounded-lg border border-[var(--ask)] bg-[var(--ask-bg)] px-2.5 py-1.5 text-sm font-semibold text-[var(--ink)]"
             role="note"
             aria-label="Approval statement"
           >
             {approvalStatement}
           </p>
         )}
-        <p className="muted small">
-          {mandate?.organisationName ?? proposal.customerId} · proposal {proposal.proposalId} ·
-          offer {proposal.offerId} v{proposal.offerVersion} · mandate v{proposal.mandateVersion} ·{' '}
-          <a href={logPath(proposal.proposalId)} className="underline">
-            Decision log
-          </a>
+        <p className="muted small mt-0.5">
+          {mandate?.organisationName ?? proposal.customerId} · {proposal.proposalId} · offer{' '}
+          {proposal.offerId} v{proposal.offerVersion} · mandate v{proposal.mandateVersion}
         </p>
       </header>
 
@@ -230,67 +230,69 @@ export function ApprovalCard({
 
       {decided.proposal.state === 'PENDING_APPROVAL' ? (
         <div className="approval-actions">
-          <label htmlFor={`comment-${proposal.proposalId}`} className="field-label">
-            Comment (optional)
-          </label>
-          <textarea
-            id={`comment-${proposal.proposalId}`}
-            rows={2}
-            value={comment}
-            onChange={(e) => setComment(e.target.value)}
-            placeholder="Stored with your decision in the audit log."
-          />
-          <div className="approval-buttons">
-            <button
-              type="button"
-              className="btn btn-approve"
-              disabled={!activeToken || decide.isPending}
-              onClick={() => decide.mutate('APPROVE')}
-            >
-              <CheckCircle2 size={16} aria-hidden />
-              Approve {total}
-            </button>
-            <button
-              type="button"
-              className="btn btn-reject"
-              disabled={!activeToken || decide.isPending}
-              onClick={() => decide.mutate('REJECT')}
-            >
-              <Ban size={16} aria-hidden />
-              Reject
-            </button>
+          <div className="approval-action-bar">
+            <div className="approval-buttons">
+              <button
+                type="button"
+                className="btn btn-approve"
+                disabled={!activeToken || decide.isPending}
+                onClick={() => decide.mutate('APPROVE')}
+              >
+                <CheckCircle2 size={16} aria-hidden />
+                Approve {total}
+              </button>
+              <button
+                type="button"
+                className="btn btn-reject"
+                disabled={!activeToken || decide.isPending}
+                onClick={() => decide.mutate('REJECT')}
+              >
+                <Ban size={15} aria-hidden />
+                Reject
+              </button>
+            </div>
+            <div className="approval-comment-field">
+              <label htmlFor={`comment-${proposal.proposalId}`} className="field-label text-xs">
+                Comment (optional)
+              </label>
+              <textarea
+                id={`comment-${proposal.proposalId}`}
+                rows={1}
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                placeholder="Note for the audit log…"
+              />
+            </div>
           </div>
           {decide.isPending && (
             <p className="muted small" role="status">
-              Approving… the gateway re-checks price and availability before it confirms.
+              Re-checking live price &amp; availability…
             </p>
           )}
           {showQr && activeToken && (
             <aside
-              className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-[var(--line)] bg-[var(--bg)] p-3"
+              className="approval-qr-box"
               aria-label="Phone approval QR code"
             >
               <QrCode
+                size={96}
                 value={`${window.location.origin}/approve/${encodeURIComponent(activeToken)}?proposalId=${encodeURIComponent(proposal.proposalId)}`}
               />
-              <div className="min-w-[200px] flex-1 text-xs">
+              <div className="min-w-[180px] flex-1 text-xs">
                 <div className="inline-flex items-center gap-1.5 font-bold text-[var(--ink)]">
-                  <Smartphone size={14} aria-hidden />
-                  <span>Approve on your phone (QR)</span>
+                  <Smartphone size={13} aria-hidden />
+                  <span>Phone sign-off (QR)</span>
                 </div>
-                <p className="mt-1 text-[var(--muted)]">
-                  Scan with a phone camera to open this exact proposal version on mobile.
+                <p className="mt-0.5 text-[var(--muted)]">
+                  Scan to open v{proposal.offerVersion} on mobile.
                 </p>
-                <p className="mt-1.5">
+                <p className="mt-1">
                   <a
                     href={`/approve/${encodeURIComponent(activeToken)}?proposalId=${encodeURIComponent(proposal.proposalId)}`}
                     className="font-semibold text-[var(--green)] underline"
                   >
                     Open mobile approval page
                   </a>
-                </p>
-                <p className="mt-1 font-semibold text-[var(--muted)]">
-                  {view.data?.permissionNotice ?? 'Demo approval link — single use'}
                 </p>
               </div>
             </aside>

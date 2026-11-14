@@ -145,81 +145,87 @@ export function Log({ proposalId }: { proposalId?: string }) {
   }, [proposalId, source, trail.data])
 
   return (
-    <div className="grid gap-4">
+    <div className="grid gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <a
           href="/"
-          className="inline-flex items-center gap-1 font-semibold text-[var(--green)] underline"
+          aria-label="Back to the purchasing flow"
+          className="inline-flex items-center gap-1 text-sm font-semibold text-[var(--green)] underline"
         >
-          <ArrowLeft size={16} aria-hidden /> Back to the purchasing flow
+          <ArrowLeft size={15} aria-hidden /> Buy
         </a>
         <ModeBadge source={source} healthMode={health.data?.mode ?? gateway.healthMode} />
       </div>
 
       <section className="panel" aria-labelledby="log-title">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 id="log-title" className="panel-title inline-flex items-center gap-2">
-            <ScrollText size={18} aria-hidden /> Decision log
-            {proposalId && (
-              <span className="font-mono text-sm font-normal">· proposal {proposalId}</span>
-            )}
-          </h2>
-          {verification && (
-            <span
-              className={`status-pill ${verification.verified ? 'status-done' : 'status-blocked'}`}
-              role="status"
-              aria-label="Hash-chain verification status"
-            >
-              {verification.verified ? (
-                <>
-                  <ShieldCheck size={14} aria-hidden />
-                  <span>Hash chain verified ✓</span>
-                  <code className="font-mono text-[11px] opacity-80">
-                    sha256:{verification.headHash.slice(0, 12)}…
-                  </code>
-                </>
-              ) : (
-                <>
-                  <ShieldAlert size={14} aria-hidden />
-                  <span>Tamper detected · hash chain broken</span>
-                </>
+          <div>
+            <h2 id="log-title" className="panel-title mb-0 inline-flex items-center gap-2">
+              <ScrollText size={16} aria-hidden /> Decision log
+              {proposalId && (
+                <span className="font-mono text-xs font-normal tracking-normal normal-case">
+                  · {proposalId}
+                </span>
               )}
-            </span>
-          )}
+            </h2>
+            <p className="muted small mt-0.5">
+              Append-only audit trail. Click any row for rules, bindings and trust-labelled facts.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {verification && (
+              <span
+                className={`status-pill ${verification.verified ? 'status-done' : 'status-blocked'}`}
+                role="status"
+                aria-label="Hash-chain verification status"
+              >
+                {verification.verified ? (
+                  <>
+                    <ShieldCheck size={13} aria-hidden />
+                    <span>Hash chain verified ✓</span>
+                    <code className="font-mono text-[11px] opacity-80">
+                      sha256:{verification.headHash.slice(0, 10)}…
+                    </code>
+                  </>
+                ) : (
+                  <>
+                    <ShieldAlert size={13} aria-hidden />
+                    <span>Tamper detected · hash chain broken</span>
+                  </>
+                )}
+              </span>
+            )}
+            {proposalId && trail.data && (
+              <LogDownloads proposalId={proposalId} trail={trail.data.trail} source={source} />
+            )}
+          </div>
         </div>
-        <p className="muted small">
-          Every step of the order: what happened, who or what decided (the agent, a gateway rule or
-          a named human), which rule applied and which facts it used, with their trust labels.
-        </p>
-        {proposalId && trail.data && (
-          <LogDownloads proposalId={proposalId} trail={trail.data.trail} source={source} />
-        )}
         {recheck && (
           <p
             className={`notice mt-2 ${recheck.changed ? 'notice-error' : ''}`}
             role="status"
             data-testid="recheck-summary"
           >
-            <RefreshCcw size={16} aria-hidden />
+            <RefreshCcw size={15} aria-hidden />
             <span>{recheck.text}</span>
           </p>
         )}
         {verification && !verification.verified && verification.reason && (
           <p className="notice notice-error mt-2" role="alert">
-            <ShieldAlert size={16} aria-hidden />
+            <ShieldAlert size={15} aria-hidden />
             <span>{verification.reason}</span>
           </p>
         )}
 
         {source === 'MOCK' && (
-          <nav aria-label="Proposals with a decision log" className="mt-3">
-            <ul className="flex flex-wrap gap-2">
+          <nav aria-label="Proposals with a decision log" className="mt-2.5">
+            <ul className="flex flex-wrap gap-1.5">
               {MOCK_LOGS.map((log) => (
                 <li key={log.proposalId}>
                   <a
                     href={logPath(log.proposalId)}
                     aria-current={log.proposalId === current?.proposalId ? 'page' : undefined}
-                    className={`btn ${log.proposalId === current?.proposalId ? 'btn-primary' : 'btn-scenario'}`}
+                    className={`btn log-scenario-pill ${log.proposalId === current?.proposalId ? 'btn-primary' : 'btn-scenario'}`}
                   >
                     {log.title}
                   </a>
@@ -230,7 +236,7 @@ export function Log({ proposalId }: { proposalId?: string }) {
         )}
       </section>
 
-      {!proposalId && <p className="notice">Pick a proposal to read its decision log.</p>}
+      {!proposalId && <p className="notice">Select a proposal to view its decision log.</p>}
       {trail.error && (
         <p className="notice notice-error" role="alert">
           {trail.error.message}

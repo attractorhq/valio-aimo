@@ -1290,22 +1290,23 @@ export function ValioView() {
   )
 
   return (
-    <div className="grid gap-4">
+    <div className="grid gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <a
           href="/"
-          className="inline-flex items-center gap-1 font-semibold text-[var(--green)] underline"
+          aria-label="Back to the purchasing flow"
+          className="inline-flex items-center gap-1 text-sm font-semibold text-[var(--green)] underline"
         >
-          <ArrowLeft size={16} aria-hidden /> Back to the purchasing flow
+          <ArrowLeft size={15} aria-hidden /> Buy
         </a>
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => query.refetch()}
-            className="btn btn-scenario text-xs font-semibold"
+            className="btn btn-scenario log-scenario-pill text-xs font-semibold"
           >
-            <RefreshCw size={14} aria-hidden />
-            <span>Refresh readiness data</span>
+            <RefreshCw size={13} aria-hidden />
+            <span>Refresh</span>
           </button>
           <ModeBadge source={source} healthMode={health.data?.mode ?? insights.mode} />
         </div>
@@ -1319,10 +1320,9 @@ export function ValioView() {
               Valio Aimo Agent-Readiness View · Data quality = autonomous sales
             </h1>
             <p className="muted small mt-1 max-w-3xl">
-              The gateway only confirms an order on its own (<strong>AUTO</strong>) when every decisive fact is
-              verified or declared without conflict. Missing allergen declarations, unknown or name-only pack
-              contents, unpriced deposits and non-compliant listed substitutes directly block autonomous sales.
-              Every figure below is computed from catalogue and proposal data.
+              Autonomous sales (<strong>AUTO</strong>) require verified or declared facts without
+              conflict. Missing allergens, weak pack sizing, unpriced deposits and unsafe
+              substitutes block AUTO.
             </p>
           </div>
         </div>
@@ -1399,15 +1399,14 @@ export function ValioView() {
       <section className="panel" aria-labelledby="live-decision-stats-title">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h2 id="live-decision-stats-title" className="panel-title inline-flex items-center gap-2">
-              <BarChart3 size={16} aria-hidden /> Live AUTO / ASK / BLOCK Decision Statistics
+            <h2 id="live-decision-stats-title" className="panel-title mb-0 inline-flex items-center gap-2">
+              <BarChart3 size={15} aria-hidden /> Live AUTO / ASK / BLOCK Decision Statistics
             </h2>
-            <p className="muted small">
-              Computed from proposals evaluated by the deterministic gateway policy (
-              <strong>{displayedDecisionStats.totalProposals}</strong> total proposal(s) ·{' '}
+            <p className="muted small mt-0.5">
+              <strong>{displayedDecisionStats.totalProposals}</strong> proposals ·{' '}
               <strong>{displayedDecisionStats.activeProposals}</strong> active ·{' '}
               <strong>{displayedDecisionStats.supersededProposals}</strong> superseded ·{' '}
-              <strong>{displayedDecisionStats.confirmedSimulated}</strong> confirmed simulated).
+              <strong>{displayedDecisionStats.confirmedSimulated}</strong> confirmed (simulated)
             </p>
           </div>
           {decisionStats.totalProposals === 0 && (
@@ -1532,12 +1531,8 @@ export function ValioView() {
           Catalogue Data Gaps &amp; Which of Them Block AUTO
         </h2>
         <p className="muted small">
-          Per patch P2, a human may approve business trade-offs (<strong>ASK</strong>: e.g.{' '}
-          <code>QUANTITY_BASIS_WEAK</code>, <code>LOW_RELIABILITY</code>), but may never approve missing hard
-          evidence (<strong>EXCLUDE</strong>: e.g. <code>ALLERGEN_UNKNOWN</code>,{' '}
-          <code>QUANTITY_BASIS_UNKNOWN</code>, <code>DATA_CONFLICT</code>, <code>DEPOSIT_COST_UNVERIFIED</code>,{' '}
-          <code>SUBSTITUTE_REJECTED</code>). Both categories prevent an order from executing as{' '}
-          <strong>AUTO</strong>.
+          Trade-offs route to a human (<strong>ASK</strong>); missing or conflicting evidence
+          excludes the product (<strong>EXCLUDE</strong>). Both block <strong>AUTO</strong>.
         </p>
 
         <div className="table-scroll mt-3">
@@ -1593,15 +1588,15 @@ export function ValioView() {
       <section className="panel" aria-labelledby="supplier-gaps-title">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h2 id="supplier-gaps-title" className="panel-title inline-flex items-center gap-2">
-              <Filter size={16} aria-hidden /> Data Gaps by Supplier
+            <h2 id="supplier-gaps-title" className="panel-title mb-0 inline-flex items-center gap-2">
+              <Filter size={15} aria-hidden /> Data Gaps by Supplier
             </h2>
-            <p className="muted small">
-              Showing <strong>{visibleSuppliers.length}</strong> of{' '}
-              <strong>{filteredSuppliers.length}</strong> matching supplier(s) ·{' '}
+            <p className="muted small mt-0.5">
+              <strong>{visibleSuppliers.length}</strong> of{' '}
+              <strong>{filteredSuppliers.length}</strong> suppliers ·{' '}
               <strong>{filteredSupplierTotals.total.toLocaleString('en-US')}</strong> products (
               {filteredSupplierTotals.ready.toLocaleString('en-US')} AUTO-ready ·{' '}
-              {filteredSupplierTotals.blocked.toLocaleString('en-US')} blocked from AUTO).
+              {filteredSupplierTotals.blocked.toLocaleString('en-US')} blocked)
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -1736,12 +1731,12 @@ export function ValioView() {
       <section className="panel" aria-labelledby="fix-list-title">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h2 id="fix-list-title" className="panel-title inline-flex items-center gap-2">
-              <Wrench size={16} aria-hidden /> Prioritised Master-Data Fix List
+            <h2 id="fix-list-title" className="panel-title mb-0 inline-flex items-center gap-2">
+              <Wrench size={15} aria-hidden /> Prioritised Master-Data Fix List
             </h2>
-            <p className="muted small">
-              Concrete supplier batch fixes and product-level dataset traps (unsafe Valio substitutes, K1/K2/K6
-              contradictions, gluten-free claims without allergen declarations) computed from the catalogue.
+            <p className="muted small mt-0.5">
+              Highest-impact supplier batch fixes and product-level data traps computed from the
+              catalogue.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">

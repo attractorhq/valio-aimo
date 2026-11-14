@@ -171,7 +171,7 @@ export function recheckResult(entry: AuditEntry): { changed: boolean; text: stri
   }
   return {
     changed: false,
-    text: 'Re-checked: no change. Live price, stock, delivery date, cut-off, mandate and hard requirements were read again just before confirming.',
+    text: 'Re-checked: no change · live price, stock, cut-off and mandate verified before confirming.',
   }
 }
 
@@ -221,7 +221,7 @@ function Callout({ entry }: { entry: AuditEntry }) {
   return null
 }
 
-/** One decision-log entry: what happened, who or what decided, which rule, which facts. */
+/** One decision-log entry: one-line table row summary, with full rules and facts on expand. */
 export function LogEntry({ entry }: { entry: AuditEntry }) {
   const actor = classifyActor(entry.actor)
   const { icon: ActorIcon, className } = ACTOR_META[actor.kind]
@@ -234,120 +234,149 @@ export function LogEntry({ entry }: { entry: AuditEntry }) {
     { title: 'Other facts', items: facts.filter((f) => !isRequirementFact(f)) },
   ].filter((group) => group.items.length > 0)
   const highlighted = isSuperseded(entry) || isInstructionIgnored(entry)
+  const metaParts: string[] = []
+  if (entry.rule) metaParts.push(entry.rule)
+  if (facts.length > 0) metaParts.push(`${facts.length} fact${facts.length === 1 ? '' : 's'}`)
+
   return (
     <li
-      className={`log-entry rounded-[var(--radius)] border bg-[var(--surface)] p-4 ${highlighted ? 'border-[var(--ask)]' : 'border-[var(--line)]'}`}
+      className={`log-entry ${highlighted ? 'log-entry-highlight' : ''}`}
       aria-label={`${formatClock(entry.timestamp)} ${eventTitle(entry.event)}`}
     >
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <time
-          dateTime={entry.timestamp}
-          title={formatTime(entry.timestamp)}
-          className="font-mono text-sm text-[var(--muted)]"
-        >
-          {formatClock(entry.timestamp)}
-        </time>
-        <h3 className="text-base font-bold text-[var(--ink)]">{eventTitle(entry.event)}</h3>
-        <span
-          className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-bold tracking-wide uppercase ${className}`}
-        >
-          <ActorIcon size={12} aria-hidden />
-          <span>{actor.word}</span>
-        </span>
-        <span className="text-sm text-[var(--muted)]">{actor.who}</span>
-      </div>
+      <details className="log-details">
+        <summary className="log-row">
+          <time
+            dateTime={entry.timestamp}
+            title={formatTime(entry.timestamp)}
+            className="log-col-time"
+          >
+            {formatClock(entry.timestamp)}
+          </time>
+          <span className="log-col-actor">
+            <span
+              className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-bold tracking-wide uppercase ${className}`}
+            >
+              <ActorIcon size={11} aria-hidden />
+              <span>{actor.word}</span>
+            </span>
+          </span>
+          <span className="log-col-event">
+            <span className="font-semibold text-[var(--ink)]">{eventTitle(entry.event)}</span>
+          </span>
+          <span className="log-col-summary">
+            <span className="log-summary-text">{entry.summary}</span>
+            {entry.comment && (
+              <span className="text-xs italic text-[var(--muted)]"> “{entry.comment}”</span>
+            )}
+            {reasons.length > 0 && (
+              <span className="inline-flex flex-wrap gap-1 align-middle">
+                {reasons.map((code) => (
+                  <span key={code} className="chip log-inline-chip">
+                    {reasonChip(code)}
+                  </span>
+                ))}
+              </span>
+            )}
+          </span>
+          <span className="log-col-meta">
+            {metaParts.length > 0 && (
+              <span className="log-meta-pill">{metaParts.join(' · ')}</span>
+            )}
+            <span className="log-chevron" aria-hidden="true">
+              ▾
+            </span>
+          </span>
+        </summary>
 
-      <p className="mt-2 text-[var(--ink)]">{entry.summary}</p>
-      {entry.comment && (
-        <blockquote className="mt-2 border-l-4 border-[var(--line)] pl-3 text-sm text-[var(--muted)]">
-          Comment (as written): “{entry.comment}”
-        </blockquote>
-      )}
+        <div className="log-expanded">
+          {(highlighted || isRecheck(entry)) && (
+            <div className="mb-2.5">
+              <Callout entry={entry} />
+            </div>
+          )}
 
-      {(highlighted || isRecheck(entry)) && (
-        <div className="mt-3">
-          <Callout entry={entry} />
-        </div>
-      )}
-
-      <dl className="mt-3 grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[max-content_1fr]">
-        {(entry.fromState || entry.toState) && (
-          <>
-            <dt className="font-semibold text-[var(--muted)]">State</dt>
-            <dd>
-              {entry.fromState ? STATE_LABELS[entry.fromState] : 'Start'} →{' '}
-              <strong>{entry.toState ? STATE_LABELS[entry.toState] : 'unchanged'}</strong>
-            </dd>
-          </>
-        )}
-        {entry.rule && (
-          <>
-            <dt className="font-semibold text-[var(--muted)]">Rule</dt>
-            <dd>{entry.rule}</dd>
-          </>
-        )}
-        {entry.offerVersion != null && (
-          <>
-            <dt className="font-semibold text-[var(--muted)]">Bound to</dt>
-            <dd className="break-all">
-              offer v{entry.offerVersion}
-              {entry.offerHash && (
-                <span className="font-mono text-xs text-[var(--muted)]">
-                  {' '}
-                  · hash {entry.offerHash.slice(0, 12)}…
-                </span>
-              )}
-              {' · '}mandate v{entry.mandateVersion}
-            </dd>
-          </>
-        )}
-      </dl>
-
-      {reasons.length > 0 && (
-        <div className="mt-3">
-          <h4 className="text-sm font-semibold text-[var(--muted)]">Reasons</h4>
-          <ul className="mt-1 grid gap-2">
-            {reasons.map((code) => (
-              <li key={code} className="text-sm">
-                <span className="inline-flex items-center gap-1 rounded-md border border-[var(--line)] bg-[var(--bg)] px-2 py-0.5 font-semibold">
-                  <AlertOctagon size={12} aria-hidden />
-                  {reasonChip(code)}
-                </span>{' '}
-                <code className="text-xs">{code}</code>{' '}
-                <span className="text-[var(--muted)]">
-                  · {EFFECT_WORDS[REASON_REGISTRY[code].effect] ?? REASON_REGISTRY[code].effect}
-                </span>
-                <p className="mt-0.5 text-[var(--muted)]">{ruleText(code, entry)}</p>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {facts.length > 0 && (
-        <div className="mt-3">
-          <h4 className="text-sm font-semibold text-[var(--muted)]">Facts used</h4>
-          {factGroups.map((group) => (
-            <section key={group.title} aria-label={group.title} className="mt-1">
-              {factGroups.length > 1 && (
-                <h5 className="text-xs font-semibold text-[var(--muted)]">{group.title}</h5>
-              )}
-              <ul className="mt-1 grid gap-2">
-                {group.items.map((fact, index) => (
-                  <li key={`${fact.fact}-${index}`} className="grid gap-0.5 text-sm">
-                    <span className="flex flex-wrap items-center gap-2">
-                      <TrustBadge level={fact.level} conflict={fact.conflict} />
-                      <span className="font-semibold">{formatFactDisplay(fact)}</span>
-                      <code className="text-xs text-[var(--muted)]">{fact.fact}</code>
+          <dl className="grid gap-x-4 gap-y-1 text-xs sm:grid-cols-[max-content_1fr]">
+            <dt className="font-semibold text-[var(--muted)]">Actor</dt>
+            <dd>{actor.who}</dd>
+            {(entry.fromState || entry.toState) && (
+              <>
+                <dt className="font-semibold text-[var(--muted)]">State</dt>
+                <dd>
+                  {entry.fromState ? STATE_LABELS[entry.fromState] : 'Start'} →{' '}
+                  <strong>{entry.toState ? STATE_LABELS[entry.toState] : 'unchanged'}</strong>
+                </dd>
+              </>
+            )}
+            {entry.rule && (
+              <>
+                <dt className="font-semibold text-[var(--muted)]">Rule</dt>
+                <dd>{entry.rule}</dd>
+              </>
+            )}
+            {entry.offerVersion != null && (
+              <>
+                <dt className="font-semibold text-[var(--muted)]">Bound to</dt>
+                <dd className="break-all">
+                  offer v{entry.offerVersion}
+                  {entry.offerHash && (
+                    <span className="font-mono text-xs text-[var(--muted)]">
+                      {' '}
+                      · hash {entry.offerHash.slice(0, 12)}…
                     </span>
-                    <TrustSourceMeta fact={fact} />
+                  )}
+                  {' · '}mandate v{entry.mandateVersion}
+                </dd>
+              </>
+            )}
+          </dl>
+
+          {reasons.length > 0 && (
+            <div className="mt-2.5">
+              <h4 className="text-xs font-semibold text-[var(--muted)]">Reasons</h4>
+              <ul className="mt-1 grid gap-1.5">
+                {reasons.map((code) => (
+                  <li key={code} className="text-xs">
+                    <span className="inline-flex items-center gap-1 rounded border border-[var(--line)] bg-[var(--bg)] px-1.5 py-0.5 font-semibold">
+                      <AlertOctagon size={11} aria-hidden />
+                      {reasonChip(code)}
+                    </span>{' '}
+                    <code className="text-[11px]">{code}</code>{' '}
+                    <span className="text-[var(--muted)]">
+                      · {EFFECT_WORDS[REASON_REGISTRY[code].effect] ?? REASON_REGISTRY[code].effect}
+                    </span>
+                    <p className="mt-0.5 text-[var(--muted)]">{ruleText(code, entry)}</p>
                   </li>
                 ))}
               </ul>
-            </section>
-          ))}
+            </div>
+          )}
+
+          {facts.length > 0 && (
+            <div className="mt-2.5">
+              <h4 className="text-xs font-semibold text-[var(--muted)]">Facts used</h4>
+              {factGroups.map((group) => (
+                <section key={group.title} aria-label={group.title} className="mt-1">
+                  {factGroups.length > 1 && (
+                    <h5 className="text-[11px] font-semibold text-[var(--muted)]">{group.title}</h5>
+                  )}
+                  <ul className="mt-1 grid gap-1.5">
+                    {group.items.map((fact, index) => (
+                      <li key={`${fact.fact}-${index}`} className="grid gap-0.5 text-xs">
+                        <span className="flex flex-wrap items-center gap-1.5">
+                          <TrustBadge level={fact.level} conflict={fact.conflict} />
+                          <span className="font-semibold">{formatFactDisplay(fact)}</span>
+                          <code className="text-[11px] text-[var(--muted)]">{fact.fact}</code>
+                        </span>
+                        <TrustSourceMeta fact={fact} />
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ))}
+            </div>
+          )}
         </div>
-      )}
+      </details>
     </li>
   )
 }
