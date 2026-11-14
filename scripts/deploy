@@ -78,3 +78,16 @@ while :; do
   [ "$(date +%s)" -lt "$deadline" ] || fail "rollout not complete after 5 min: /health reports build '${live:-?}', expected $build_sha."
   sleep 10
 done
+
+# Warm the new container (mandates, catalogue search index, one agent run in a throwaway session) so the
+# first visitor after a deploy does not wait for lazy initialisation. Uses no live Valio calls beyond one
+# shortlist, and the throwaway session never touches anyone else's state.
+warm_session="deploy-warmup-$build_sha"
+curl -fsS --max-time 60 -o /dev/null -H "X-Demo-Sandbox: $warm_session" "$url/v0.1/mandates" || true
+curl -fsS --max-time 60 -o /dev/null -H "X-Demo-Sandbox: $warm_session" -H 'Content-Type: application/json' \
+  -d '{"query":"lactose-free milk","limit":5}' "$url/v0.1/products/search" || true
+curl -fsS --max-time 90 -o /dev/null -H "X-Demo-Sandbox: $warm_session" -H 'Content-Type: application/json' \
+  -H 'Accept: application/json' \
+  -d '{"customerId":"nordic-harbour-hotels","requestText":"I need 1,000 litres of lactose-free milk by Monday"}' \
+  "$url/v0.1/agent/run" || true
+echo "deploy: warmed up."
