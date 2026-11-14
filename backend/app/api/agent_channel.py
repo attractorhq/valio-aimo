@@ -6,11 +6,12 @@ approver channel. The server alone decides AUTO / ASK / BLOCK and confirms after
 
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Depends, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 
 from app.catalog.search import SearchProductsRequest, SearchProductsResult, search_products
 from app.contracts import AuditTrail, CreateProposalRequest, GetOfferRequest, Mandate, Offer, Proposal
 from app.gateway.log import AuditChainVerification
+from app.gateway.proposals import ProposalRequestMismatchError
 
 from .auth import AgentCustomer, audit_scope, bind_customer
 from .errors import ERROR_RESPONSES
@@ -99,7 +100,10 @@ def create_proposal(
 ) -> Proposal:
     bind_customer(customer, body.customerId)
     offer = state.gateway.get_registered_offer(body.offerId, body.offerVersion)
-    proposal = state.gateway.create_proposal(body, now=state.now_for(offer.mode))
+    try:
+        proposal = state.gateway.create_proposal(body, now=state.now_for(offer.mode))
+    except ProposalRequestMismatchError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     state.remember(proposal.proposalId)
     return proposal
 
