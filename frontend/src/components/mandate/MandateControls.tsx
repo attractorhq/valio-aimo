@@ -54,10 +54,13 @@ export function MandateControls({
   mandate,
   live,
   onChanged,
+  defaultOpen = true,
 }: {
   mandate: Mandate
   live: boolean
   onChanged?: (result: MandateChangeResult) => void
+  /** Collapsed on phones so the request and the result come first (T43). */
+  defaultOpen?: boolean
 }) {
   const queryClient = useQueryClient()
   const [limit, setLimit] = useState(mandate.autoApproveLimitEur)
@@ -104,97 +107,101 @@ export function MandateControls({
 
   return (
     <section className="panel" aria-labelledby="mandate-controls-heading">
-      <h2 id="mandate-controls-heading" className="panel-title inline-flex items-center gap-2">
-        <SlidersHorizontal size={16} aria-hidden /> Buyer admin controls
-      </h2>
-      <p className="muted small">
-        Policy is changed by a human buyer admin, never by the agent. Open proposals are re-decided
-        immediately, and the change is logged.
-      </p>
-      {live && changed && defaults.data && (
-        <div className="notice small mt-2" role="note">
-          <p>{changedFromDefaultText(defaults.data.differences)}</p>
-          <button
-            type="button"
-            className="btn mt-1 inline-flex items-center gap-1"
-            onClick={() => reset.mutate()}
-            disabled={busy}
-          >
-            <RotateCcw size={14} aria-hidden /> Reset to default mandate
+      <details className="admin-details" open={defaultOpen}>
+        <summary className="admin-summary">
+          <h2 id="mandate-controls-heading" className="panel-title inline-flex items-center gap-2">
+            <SlidersHorizontal size={16} aria-hidden /> Buyer admin controls
+          </h2>
+        </summary>
+        <p className="muted small">
+          Policy is changed by a human buyer admin, never by the agent. Open proposals are
+          re-decided immediately, and the change is logged.
+        </p>
+        {live && changed && defaults.data && (
+          <div className="notice small mt-2" role="note">
+            <p>{changedFromDefaultText(defaults.data.differences)}</p>
+            <button
+              type="button"
+              className="btn mt-1 inline-flex items-center gap-1"
+              onClick={() => reset.mutate()}
+              disabled={busy}
+            >
+              <RotateCcw size={14} aria-hidden /> Reset to default mandate
+            </button>
+          </div>
+        )}
+        <form
+          className="mt-2 grid gap-2"
+          onSubmit={(event) => {
+            event.preventDefault()
+            apply.mutate()
+          }}
+        >
+          <label className="field-label" htmlFor="admin-limit">
+            Auto-approve limit (€, excl. VAT)
+          </label>
+          <input
+            id="admin-limit"
+            inputMode="decimal"
+            value={limit}
+            onChange={(event) => setLimit(event.target.value)}
+            disabled={!live || busy}
+            className="rounded-md border border-[var(--line)] px-2 py-1"
+          />
+          <fieldset disabled={!live || busy} className="flex gap-3">
+            <legend className="field-label">Allergen mode</legend>
+            {(['STANDARD', 'STRICT'] as const).map((value) => (
+              <label key={value} className="inline-flex items-center gap-1">
+                <input
+                  type="radio"
+                  name="admin-allergen-mode"
+                  value={value}
+                  checked={mode === value}
+                  onChange={() => setMode(value)}
+                />
+                {value === 'STRICT' ? 'Strict' : 'Standard'}
+              </label>
+            ))}
+          </fieldset>
+          <button type="submit" className="btn btn-primary" disabled={!live || busy}>
+            Apply policy change
           </button>
-        </div>
-      )}
-      <form
-        className="mt-2 grid gap-2"
-        onSubmit={(event) => {
-          event.preventDefault()
-          apply.mutate()
-        }}
-      >
-        <label className="field-label" htmlFor="admin-limit">
-          Auto-approve limit (€, excl. VAT)
-        </label>
-        <input
-          id="admin-limit"
-          inputMode="decimal"
-          value={limit}
-          onChange={(event) => setLimit(event.target.value)}
-          disabled={!live || busy}
-          className="rounded-md border border-[var(--line)] px-2 py-1"
-        />
-        <fieldset disabled={!live || busy} className="flex gap-3">
-          <legend className="field-label">Allergen mode</legend>
-          {(['STANDARD', 'STRICT'] as const).map((value) => (
-            <label key={value} className="inline-flex items-center gap-1">
-              <input
-                type="radio"
-                name="admin-allergen-mode"
-                value={value}
-                checked={mode === value}
-                onChange={() => setMode(value)}
-              />
-              {value === 'STRICT' ? 'Strict' : 'Standard'}
-            </label>
-          ))}
-        </fieldset>
-        <button type="submit" className="btn btn-primary" disabled={!live || busy}>
-          Apply policy change
-        </button>
-      </form>
-      {!live && (
-        <p className="notice small mt-2">
-          Re-deciding needs the live gateway; the offline example proposals shown here are fixed.
-        </p>
-      )}
-      {error && (
-        <p className="notice notice-error small mt-2" role="alert">
-          {error.message}
-        </p>
-      )}
-      {result && (
-        <div className="notice small mt-2" role="status">
-          <p>
-            {result.kind === 'reset'
-              ? 'Policy reset to default by buyer admin'
-              : 'Policy changed by buyer admin'}{' '}
-            · mandate v{result.data.mandate.version} · auto-approve limit{' '}
-            {formatMoney(result.data.mandate.autoApproveLimitEur)}
+        </form>
+        {!live && (
+          <p className="notice small mt-2">
+            Re-deciding needs the live gateway; the offline example proposals shown here are fixed.
           </p>
-          {result.data.redecided.length === 0 ? (
-            <p>No open proposals to re-decide.</p>
-          ) : (
-            <ul>
-              {result.data.redecided.map((proposal) => (
-                <li key={proposal.proposalId}>
-                  Re-decided {proposal.proposalId} (offer v{proposal.offerVersion}):{' '}
-                  <strong>{DECISION_WORDS[proposal.decision]}</strong> ·{' '}
-                  {formatMoney(proposal.totals.exclVat)}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
+        )}
+        {error && (
+          <p className="notice notice-error small mt-2" role="alert">
+            {error.message}
+          </p>
+        )}
+        {result && (
+          <div className="notice small mt-2" role="status">
+            <p>
+              {result.kind === 'reset'
+                ? 'Policy reset to default by buyer admin'
+                : 'Policy changed by buyer admin'}{' '}
+              · mandate v{result.data.mandate.version} · auto-approve limit{' '}
+              {formatMoney(result.data.mandate.autoApproveLimitEur)}
+            </p>
+            {result.data.redecided.length === 0 ? (
+              <p>No open proposals to re-decide.</p>
+            ) : (
+              <ul>
+                {result.data.redecided.map((proposal) => (
+                  <li key={proposal.proposalId}>
+                    Re-decided {proposal.proposalId} (offer v{proposal.offerVersion}):{' '}
+                    <strong>{DECISION_WORDS[proposal.decision]}</strong> ·{' '}
+                    {formatMoney(proposal.totals.exclVat)}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </details>
     </section>
   )
 }

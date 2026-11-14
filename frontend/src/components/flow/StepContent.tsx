@@ -201,3 +201,87 @@ export function ApprovalOutcome({ proposal, mandate }: { proposal: Proposal; man
     </div>
   )
 }
+
+function resultTone(proposal: Proposal): 'auto' | 'ask' | 'block' {
+  if (proposal.state === 'CONFIRMED_SIMULATED') return 'auto'
+  if (['REJECTED', 'EXPIRED', 'SUPERSEDED'].includes(proposal.state)) return 'block'
+  return proposal.decision === 'AUTO' ? 'auto' : proposal.decision === 'ASK' ? 'ask' : 'block'
+}
+
+/**
+ * T43: the result first. Decision, total and order lines, then the reasons, with links down to the
+ * evidence. Every detail stays in steps 1–4 below.
+ */
+export function ResultBanner({ proposal, logHref }: { proposal: Proposal; logHref?: string }) {
+  const tone = resultTone(proposal)
+  const Icon =
+    tone === 'auto' ? CheckCircle2 : tone === 'ask' ? Hourglass : tone === 'block' ? Ban : Info
+  return (
+    <section
+      className={`outcome outcome-${tone} result-banner`}
+      aria-label="Result"
+      data-testid="result-banner"
+    >
+      <div className="result-head">
+        <p className="outcome-headline">
+          <Icon size={22} aria-hidden />
+          <span>
+            <span className="outcome-word">{proposal.decision}</span>
+            {approvalLabel(proposal)}
+          </span>
+        </p>
+        <p className="result-total">
+          <strong>{formatMoney(proposal.totals.exclVat)}</strong>
+          <span> excl. VAT · {formatMoney(proposal.totals.inclVat)} incl. VAT</span>
+        </p>
+      </div>
+      <ul className="result-lines" aria-label="Order lines">
+        {proposal.lines.map((line) => (
+          <li key={line.lineId}>
+            <span>
+              {formatNumber(line.quantitySalesUnits)} × {line.name}
+            </span>
+            <span className="num">{formatMoney(line.lineTotalExclVat)}</span>
+          </li>
+        ))}
+      </ul>
+      {proposal.reasons.length > 0 && (
+        <ul className="chip-list" aria-label="Decision reasons">
+          {proposal.reasons.map((code) => (
+            <li key={code} className="chip bg-[var(--surface)]">
+              {reasonChip(code)}
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="result-links">
+        <a href="#step-3">Order lines and evidence</a>
+        <a href="#step-4">Decision and reasons</a>
+        {logHref && <a href={logHref}>Decision log</a>}
+      </p>
+    </section>
+  )
+}
+
+/** The result when nothing could be ordered (no compliant product, or the run stopped). */
+export function NoOrderBanner({ summary, detail }: { summary: string; detail?: string }) {
+  return (
+    <section
+      className="outcome outcome-block result-banner"
+      aria-label="Result"
+      data-testid="result-banner"
+    >
+      <p className="outcome-headline">
+        <Ban size={22} aria-hidden />
+        <span>
+          <span className="outcome-word">NO ORDER</span>
+          {summary}
+        </span>
+      </p>
+      {detail && <p className="mt-1 text-sm text-[var(--ink)]">{detail}</p>}
+      <p className="result-links">
+        <a href="#step-2">Why: excluded candidates</a>
+      </p>
+    </section>
+  )
+}

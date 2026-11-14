@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { AlertCircle, HelpCircle, Info, Pencil } from 'lucide-react'
 import type { Proposal } from '../lib/contracts'
@@ -12,13 +12,18 @@ import {
   type FlowResult,
   type ScenarioId,
 } from '../lib/gateway'
-import { formatMoney, reasonChip } from '../lib/format'
+import { formatMoney } from '../lib/format'
 import { MandatePanel } from '../components/flow/MandatePanel'
 import { MandateControls } from '../components/mandate/MandateControls'
 import { RequestComposer } from '../components/flow/RequestComposer'
 import { ModeBadge } from '../components/flow/ModeBadge'
-import { StatusPill, Step, type StepStatus } from '../components/flow/Step'
-import { RequestCard, approvalLabel } from '../components/flow/StepContent'
+import { Step, type StepStatus } from '../components/flow/Step'
+import {
+  NoOrderBanner,
+  RequestCard,
+  ResultBanner,
+  approvalLabel,
+} from '../components/flow/StepContent'
 import type { ItemPlanSummary } from '../components/request/AssumptionChips'
 import { DecisionFooter } from '../components/order/DecisionFooter'
 import { ExcludedList } from '../components/order/ExcludedList'
@@ -51,6 +56,21 @@ function itemCountFromItems(n: number) {
 
 const IN_FLIGHT = new Set(['PENDING_APPROVAL', 'APPROVED', 'AUTO_APPROVED', 'RECHECKED'])
 
+// Same breakpoint as the single-column layout in styles.css.
+const NARROW = '(max-width: 900px)'
+
+function useNarrow(): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      const query = window.matchMedia(NARROW)
+      query.addEventListener('change', onChange)
+      return () => query.removeEventListener('change', onChange)
+    },
+    () => window.matchMedia(NARROW).matches,
+    () => false,
+  )
+}
+
 /** A superseded proposal points to the version decided from scratch after it; show the newest one. */
 async function latestVersion(proposalId: string): Promise<Proposal> {
   let proposal = await gateway.getProposal(proposalId)
@@ -66,6 +86,7 @@ async function latestVersion(proposalId: string): Promise<Proposal> {
 
 /** The one main view: Request → Lookup → Order → Approval, around a structured flow (not a chat). */
 export function Main() {
+  const narrow = useNarrow()
   const mandates = useQuery({ queryKey: ['mandates'], queryFn: () => gateway.listMandates() })
   const health = useQuery({
     queryKey: ['gateway-health'],
@@ -220,7 +241,7 @@ export function Main() {
 
   return (
     <div className="main-grid">
-      <aside className="main-side">
+      <aside className="main-side" id="buyer-mandate">
         {mandates.error ? (
           <p className="notice notice-error" role="alert">
             Could not load mandates.
@@ -235,6 +256,8 @@ export function Main() {
         )}
         {mandate && (
           <MandateControls
+            key={narrow ? 'narrow' : 'wide'}
+            defaultOpen={!narrow}
             mandate={mandate}
             live={sourceState === 'GATEWAY'}
             onChanged={() => {
@@ -245,6 +268,12 @@ export function Main() {
         )}
       </aside>
       <div className="main-flow">
+        {mandate && (
+          <p className="buyer-line mobile-only">
+            Buying for <strong>{mandate.organisationName}</strong> ·{' '}
+            <a href="#buyer-mandate">Change buyer</a>
+          </p>
+        )}
         <RequestComposer
           text={text}
           onTextChange={setText}
@@ -254,27 +283,12 @@ export function Main() {
           running={running}
           error={run.error?.message ?? streamError?.message}
         />
+        {proposal && <ResultBanner proposal={proposal} logHref={logPath(proposal.proposalId)} />}
+        {!proposal && step4 && (
+          <NoOrderBanner summary={step4.summary} detail={step4.explanation?.text} />
+        )}
         <div className="flow-header">
-          <div className="flex flex-wrap items-center gap-3">
-            <h2 className="panel-title">Flow</h2>
-            {proposal && (
-              <div
-                className="flex flex-wrap items-center gap-2 text-xs"
-                aria-label="Decision summary"
-              >
-                <StatusPill status={approvalStatus(proposal)} word={approvalWord(proposal)} />
-                <strong>{approvalLabel(proposal)}</strong>
-                {proposal.reasons.map((code) => (
-                  <span key={code} className="chip">
-                    {reasonChip(code)}
-                  </span>
-                ))}
-                <a href="#step-4" className="font-semibold text-[var(--green)] underline">
-                  Jump to step 4
-                </a>
-              </div>
-            )}
-          </div>
+          <h2 className="panel-title">Flow</h2>
           <ModeBadge
             source={run.data?.source ?? sourceState}
             proposal={proposal}
