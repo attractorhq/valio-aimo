@@ -724,6 +724,8 @@ _CHEESE_VARIETIES: tuple[tuple[str, str, tuple[str, ...], tuple[str, ...]], ...]
     ("blue", "blue cheese", (r"\bblue cheese\b", r"\bsinihome\w*", r"\bgorgonzola\b", r"\broquefort\b"),
      ("blue cheese", "sinihome", "gorgonzola", "roquefort")),
     ("fontal", "fontal", (r"\bfontal\w*",), ("fontal",)),
+    # T74: Finnish "kermajuusto" is a semi-hard cheese that Valio sells as tilsit, not cream cheese (tuorejuusto).
+    ("tilsit", "tilsit", (r"\btilsit\w*", r"\bkermajuust\w*"), ("tilsit", "kermajuust")),
 )
 
 TYPE_QUALIFIER_GROUPS: tuple[TypeQualifierGroup, ...] = (
@@ -860,7 +862,10 @@ TYPE_QUALIFIER_GROUPS: tuple[TypeQualifierGroup, ...] = (
 )
 
 # Requested concepts that name a dairy product: a plant-based alternative is a different product type.
-DAIRY_CONCEPTS: frozenset[str] = frozenset({"milk", "cream", "sour_cream", "yoghurt", "quark", "butter", "cheese"})
+DAIRY_CONCEPTS: frozenset[str] = frozenset({
+    "milk", "milk_powder", "cream", "sour_cream", "yoghurt", "quark", "butter", "cheese", "cream_cheese",
+    "processed_cheese",
+})
 
 ALTERNATIVE_PRODUCT_TERMS: tuple[str, ...] = (
     "alternative", "vaihtoehto", "plant-based", "plant based", "kasvipohj", "kasvirasva", "vegetable fat",
@@ -870,7 +875,9 @@ ALTERNATIVE_PRODUCT_TERMS: tuple[str, ...] = (
 _ASKED_FOR_ALTERNATIVE = re.compile(
     r"\b(alternative|vaihtoehto\w*|plant[- ]based|kasvi\w*|vegan\w*|vegaani\w*|oat\w*|kaura\w*|havre\w*|"
     r"soy\w*|soija\w*|soja\w*|coconut|kookos\w*|kokos\w*|almond|manteli\w*|mandel\w*|dairy[- ]free|"
-    r"milk[- ]free|maidoton\w*|mjölkfri\w*|växt\w*)",
+    r"milk[- ]free|maidoton\w*|mjölkfri\w*|växt\w*|"
+    # T74: a fat spread or margarine is a vegetable-fat product by definition.
+    r"margarin\w*|margariin\w*|levite\w*|rasvaseos\w*|spreads?\b)",
     re.IGNORECASE,
 )
 

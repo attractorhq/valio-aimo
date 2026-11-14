@@ -56,12 +56,22 @@ PRODUCT_CONCEPTS: tuple[ProductConcept, ...] = (
         sv_stems=("kokosmjölk", "kokosdryck"),
     ),
     ProductConcept(
+        concept_id="milk_powder",
+        category_prefixes=("104",),
+        en_terms=("milk powder", "powdered milk", "dried milk"),
+        fi_stems=("maitojauhe",),
+        sv_stems=("mjölkpulver",),
+    ),
+    ProductConcept(
         concept_id="milk",
         category_prefixes=("10400",),
         en_terms=("milk drink", "milkdrink", "semi skimmed milk", "skimmed milk", "whole milk", "milk"),
         fi_stems=("kevytmaitojuom", "maitojuom", "kevytmaito", "rasvaton maito", "täysmaito", "maito", "maido"),
         sv_stems=("lättmjölksdryck", "mjölkdryck", "lättmjölk", "skummjölk", "helmjölk", "mjölk"),
-        exclude_stems=("kookos", "coconut", "kaura", "oat", "soija", "soy", "manteli", "almond", "jauhe", "powder"),
+        exclude_stems=(
+            "kookos", "coconut", "kaura", "oat", "soija", "soy", "manteli", "almond", "jauhe", "powder",
+            "milk chocolate", "maitosuklaa", "mjölkchoklad",
+        ),
         prefer_plain_over=("coffee", "kahvi", "cafè", "cafe", "latte", "cocoa", "kaakao", "choco", "portion", "2 cl"),
     ),
     ProductConcept(
@@ -70,7 +80,10 @@ PRODUCT_CONCEPTS: tuple[ProductConcept, ...] = (
         en_terms=("whipping cream", "cooking cream", "coffee cream", "cream"),
         fi_stems=("kuohukerma", "ruokakerma", "kahvikerma", "vispikerma", "kerma"),
         sv_stems=("vispgrädde", "matgrädde", "kaffegrädde", "grädde"),
-        exclude_stems=("sour cream", "kermaviili", "ice cream", "jäätelö", "cream cheese", "tuorejuusto", "cream slice"),
+        exclude_stems=(
+            "sour cream", "kermaviili", "ice cream", "jäätelö", "cream cheese", "tuorejuusto", "kermajuust",
+            "cream slice", "cream powder", "kermajauhe",
+        ),
     ),
     ProductConcept(
         concept_id="sour_cream",
@@ -96,10 +109,14 @@ PRODUCT_CONCEPTS: tuple[ProductConcept, ...] = (
     ProductConcept(
         concept_id="butter",
         category_prefixes=("105",),
-        en_terms=("butter", "margarine"),
-        fi_stems=("voi", "margariin"),
-        sv_stems=("smör", "margarin"),
-        exclude_stems=("peanut butter", "maapähkinävoi", "jordnötssmör", "voitaikina", "butter chicken"),
+        en_terms=("butter", "margarine", "fat spread", "vegetable spread", "spread"),
+        fi_stems=("voi", "margariin", "levite", "rasvaseos"),
+        sv_stems=("smör", "margarin", "matfett"),
+        exclude_stems=(
+            "peanut butter", "maapähkinävoi", "jordnötssmör", "voitaikina", "butter chicken",
+            "cheese spread", "hazelnut spread", "chocolate spread", "nut spread", "cocoa spread",
+            "kaakaolevite", "pähkinälevite", "juustolevite", "hummus",
+        ),
     ),
     ProductConcept(
         concept_id="oil",
@@ -108,12 +125,29 @@ PRODUCT_CONCEPTS: tuple[ProductConcept, ...] = (
         fi_stems=("rypsiöljy", "oliiviöljy", "ruokaöljy", "paistoöljy", "öljy"),
         sv_stems=("rapsolja", "olivolja", "matolja", "olja"),
     ),
+    # T74: the most specific type wins over its head word ("cream cheese" is not cream, "milk powder" is
+    # not milk). Specific concepts come before generic ones, and the longest matched term ranks first.
+    ProductConcept(
+        concept_id="cream_cheese",
+        category_prefixes=("106",),
+        en_terms=("cream cheese",),
+        # Not "kermajuusto": in Finnish that is a semi-hard cheese (Valio sells it as tilsit), see TYPE_QUALIFIER_GROUPS.
+        fi_stems=("tuorejuusto",),
+        sv_stems=("färskost",),
+    ),
+    ProductConcept(
+        concept_id="processed_cheese",
+        category_prefixes=("106",),
+        en_terms=("processed cheese",),
+        fi_stems=("sulatejuust",),
+        sv_stems=("smältost",),
+    ),
     ProductConcept(
         concept_id="cheese",
         category_prefixes=("106",),
-        en_terms=("cheese", "cheddar", "mozzarella", "emmental", "feta", "cream cheese"),
-        fi_stems=("juusto", "emmental", "mozzarella", "tuorejuusto", "salaattijuusto"),
-        sv_stems=("ost", "mozzarella", "färskost", "salladsost"),
+        en_terms=("cheese", "cheddar", "mozzarella", "emmental", "feta", "tilsit"),
+        fi_stems=("juusto", "emmental", "mozzarella", "salaattijuusto"),
+        sv_stems=("ost", "mozzarella", "salladsost"),
     ),
     ProductConcept(
         concept_id="macaroni",
@@ -424,6 +458,16 @@ FI_SV_TO_EN_SYNONYMS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("organic", ("organic", "luomu", "ekologisk")),
 )
 
+# T74: brands and product lines in the catalogue's names. A brand phrase is a name ("Oatly No Sugars"), so
+# "No" or "Zero" inside it is never an exclusion.
+KNOWN_BRANDS: tuple[str, ...] = (
+    "Valio", "Arla", "Oatly", "Oddlygood", "Alpro", "Fazer", "Paulig", "Atria", "HK", "Snellman", "Saarioinen",
+    "Felix", "Keiju", "Becel", "Flora", "Bregott", "Lipton", "Nordqvist", "Juustoportti", "Pågen", "Elovena",
+    "Apetit", "Findus", "Planti", "Yosa", "Philadelphia", "Président", "Castelli", "Violife", "Benecol", "Ingman",
+    "Eila", "Oltermanni", "Viola", "Koskenlaskija", "Kippari", "Gefilus", "Profeel", "Oivariini", "Eleplant",
+    "Coca-Cola", "Pepsi", "Hartwall", "Barilla", "Panzani", "Santa Maria", "Myllyn Paras", "Pirkka", "Rainbow",
+)
+
 QUERY_STOPWORDS: frozenset[str] = frozenset({
     "a", "an", "and", "by", "for", "from", "in", "need", "of", "on", "or", "please", "some",
     "the", "to", "until", "we", "with", "i", "want", "order", "buy", "get",
@@ -506,6 +550,16 @@ def match_concept_in_text(concept: ProductConcept, text_lower: str, words: froze
     return False
 
 
+def _named_by_longer_phrase(concept: ProductConcept, q_lower: str, norm_text: str) -> bool:
+    """True when the query names a longer phrase built on the concept's own word, which the concept excludes:
+    "cream cheese" / "kermajuusto" is not cream, "peanut butter" is not butter (T74: the longest match wins)."""
+    terms = (*concept.en_terms, *concept.fi_stems, *concept.sv_stems)
+    for bad in concept.exclude_stems:
+        if (bad in q_lower or bad in norm_text) and any(len(t) >= 3 and t in bad for t in terms):
+            return True
+    return False
+
+
 def resolve_query_concepts(cleaned_query: str) -> list[ProductConcept]:
     """Resolve a cleaned query string (EN/FI/SV) into ordered matching ProductConcepts."""
     q_lower = cleaned_query.lower().strip()
@@ -516,28 +570,30 @@ def resolve_query_concepts(cleaned_query: str) -> list[ProductConcept]:
     word_set = frozenset(raw_words) | frozenset(norm_words)
     norm_text = " ".join(norm_words)
 
-    matched: list[ProductConcept] = []
-    for concept in PRODUCT_CONCEPTS:
-        # Check multi-word English phrases first
-        hit = False
+    scored: list[tuple[int, int, ProductConcept]] = []
+    for order, concept in enumerate(PRODUCT_CONCEPTS):
+        if _named_by_longer_phrase(concept, q_lower, norm_text):
+            continue
+        # The longest term that matched: "cream cheese" (12) outranks "cream" (5), "maitojauhe" outranks "maito".
+        best = 0
         for en_term in concept.en_terms:
             if " " in en_term:
                 if en_term in q_lower or all(p in word_set for p in en_term.split()):
-                    hit = True
-                    break
+                    best = max(best, len(en_term))
             elif en_term in word_set:
-                hit = True
-                break
-        if not hit:
-            for stem in (*concept.fi_stems, *concept.sv_stems):
-                if len(stem) >= 5 and (stem in q_lower or stem in norm_text):
-                    hit = True
-                    break
-                if len(stem) < 5 and (stem in word_set or any(w.startswith(stem) or w.endswith(stem) for w in norm_words)):
-                    hit = True
-                    break
-        if hit:
-            matched.append(concept)
+                best = max(best, len(en_term))
+        for stem in (*concept.fi_stems, *concept.sv_stems):
+            if len(stem) >= 5:
+                if stem in q_lower or stem in norm_text:
+                    best = max(best, len(stem))
+            elif stem in word_set or (
+                # A two-letter stem ("te") is only ever a whole word: "levite" is not tea.
+                len(stem) >= 3 and any(w.startswith(stem) or w.endswith(stem) for w in norm_words)
+            ):
+                best = max(best, len(stem))
+        if best:
+            scored.append((-best, order, concept))
+    matched = [concept for _best, _order, concept in sorted(scored, key=lambda hit: (hit[0], hit[1]))]
 
     # Prefer specific concepts over generic ones (e.g. oat_drink over milk, macaroni over pasta).
     specific_ids = {c.concept_id for c in matched}
