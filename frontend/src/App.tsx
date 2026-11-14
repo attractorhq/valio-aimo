@@ -24,7 +24,8 @@ export default function App() {
       <header className="app-header">
         {/* Logo only; the "not an official Valio service" disclaimer lives in the footer. */}
         <Link to="/" className="brand" aria-label="Valio Aimo · Trusted Trade Gateway (prototype)">
-          <span className="brand-wordmark">Valio Aimo</span>
+          <img src="/brand/valio-aimo-logo-white.svg" alt="Valio Aimo" className="brand-logo" />
+          <span className="brand-proto">Prototype</span>
         </Link>
         <nav className="app-nav" aria-label="Views">
           <Link

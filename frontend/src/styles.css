@@ -207,6 +207,20 @@ select {
   white-space: nowrap;
   flex-shrink: 0;
 }
+.brand-logo {
+  display: block;
+  height: 30px;
+  width: auto;
+}
+.brand-proto {
+  padding: 1px 8px;
+  border: 1px solid rgb(255 255 255 / 0.5);
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+  color: rgb(255 255 255 / 0.9);
+  white-space: nowrap;
+}
 .brand-title-row {
   display: flex;
   flex-wrap: wrap;
@@ -1655,6 +1669,9 @@ main {
   .brand-wordmark {
     font-size: 15px;
     padding: 2px 9px;
+  }
+  .brand-logo {
+    height: 24px;
   }
   .brand-name {
     font-size: 16px;
