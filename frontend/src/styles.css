@@ -1007,3 +1007,139 @@ main {
   font-weight: 600;
   color: #23264a;
 }
+
+/* T43: lead with the result; details one click away */
+.result-banner {
+  display: grid;
+  gap: 8px;
+}
+.result-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 16px;
+}
+.result-total {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+}
+.result-total strong {
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+}
+.result-lines {
+  display: grid;
+  gap: 2px;
+  color: var(--ink);
+  font-size: 14px;
+}
+.result-lines li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+.result-lines li > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.result-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.result-links a,
+.buyer-line a {
+  color: var(--green);
+  text-decoration: underline;
+}
+.disclosure-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 2px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.disclosure-btn:hover {
+  border-color: var(--green);
+}
+.admin-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+.admin-summary::-webkit-details-marker {
+  display: none;
+}
+.admin-summary::after {
+  content: '▾';
+  color: var(--muted);
+  transition: transform 0.15s;
+}
+.admin-details[open] > .admin-summary::after {
+  transform: rotate(180deg);
+}
+.buyer-line {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.mobile-only {
+  display: none;
+}
+@media (max-width: 900px) {
+  /* Phones: the request and the result first; the mandate and admin controls below. */
+  .main-flow {
+    order: -1;
+  }
+  .mobile-only {
+    display: block;
+  }
+}
+@media (max-width: 640px) {
+  /* Phones: a compact header and one row of scenario buttons, so the result fits the first screen. */
+  .app-header {
+    gap: 8px;
+    padding: 10px 16px;
+  }
+  /* The approver header keeps its "not the agent" line. */
+  :not(.app-approver) > .app-header .brand-sub {
+    display: none;
+  }
+  .app-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .app-nav a {
+    font-size: 12px;
+    padding: 6px 8px;
+  }
+  .composer-actions .btn-primary {
+    width: 100%;
+    justify-content: center;
+  }
+  .scenario-buttons {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .scenario-text small {
+    display: none;
+  }
+}

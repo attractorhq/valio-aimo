@@ -129,7 +129,8 @@ test('collapsible trust cards keep step 4 reachable within one viewport scroll a
   const approvalTop = await step(page, 'Approval').evaluate(
     (el) => el.getBoundingClientRect().top + window.scrollY,
   )
-  expect(approvalTop).toBeLessThanOrEqual(1800)
+  // T43 puts a result banner (decision, total, lines) at the top, so step 4 sits slightly lower.
+  expect(approvalTop).toBeLessThanOrEqual(1900)
 
   // Expanding a trust card reveals every fact with its badge, source and timestamp.
   await toggles.first().click()
