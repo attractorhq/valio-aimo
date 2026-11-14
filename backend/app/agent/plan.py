@@ -19,10 +19,14 @@ from typing import Literal
 from pydantic import Field
 
 from app.catalog.categories import (
+    DAIRY_CONCEPTS,
+    VARIANT_CHOICE_LABELS,
     TypeMatch,
     missing_family_nouns,
     product_type_match,
+    product_variant,
     same_product_family,
+    stated_groups,
 )
 from app.catalog.normalise import apply_price_ratio_content
 from app.catalog.search import (
@@ -1541,6 +1545,102 @@ def good_better_best_alternatives(ranked_candidates: Sequence[RankedCandidate]) 
     ][:4]
 
 
+# ---- T77: material variant choices the buyer did not state -------------------------------------------
+
+
+class VariantChoice(Contract):
+    """One material attribute the compliant shortlist differs in, and the value the agent chose."""
+
+    label: str  # "Cream type", "Fresh or frozen", "Salt", "Lactose", "Organic", "Pack size"
+    value: str  # the recommended product's value, or "unknown" when its data does not say
+    others: list[str] = Field(default_factory=list)
+    restricts: bool = False  # the item is kept to this value (never a silent fresh + frozen mix)
+
+    @property
+    def chip(self) -> str:
+        return f"{self.label}: {self.value}"
+
+
+def _names(product: Product) -> tuple[str, ...]:
+    return (product.name, *product.names.values())
+
+
+def _pack_text(value: Decimal, unit: str) -> str:
+    if unit in ("kg", "l") and value < 1:
+        return f"{_pct(value * 1000)} {'g' if unit == 'kg' else 'ml'}"
+    return f"{_pct(value)} {unit}"
+
+
+def variant_choices(
+    item: RequestItem, ranked: Sequence[RankedCandidate], products_by_id: Mapping[str, Product]
+) -> list[VariantChoice]:
+    """Material attributes in which the compliant, exact-type candidates differ and the buyer said nothing.
+
+    Values come only from product data (names in every language, claims, labels, declared pack content).
+    Cream type, fresh/frozen and salt are material use choices: the item is kept to the recommended value.
+    Lactose, organic and a ≥5× pack-size spread are stated so the buyer can see and change them.
+    """
+    exact = [products_by_id[rc.productId] for rc in ranked if rc.exactType and rc.productId in products_by_id]
+    if len(exact) < 2:
+        return []
+    primary, _ = _concept_for_item(item)
+    concept_id = primary.concept_id if primary else None
+    stated = stated_groups(item.what, concept_id)
+    choices: list[VariantChoice] = []
+
+    for group_id, label in VARIANT_CHOICE_LABELS.items():
+        if group_id in stated:
+            continue
+        values = [product_variant(group_id, _names(p)) for p in exact]
+        distinct = {v for v in values if v}
+        if len(distinct) < 2:
+            continue
+        chosen = values[0] or "unknown"
+        choices.append(VariantChoice(label=label, value=chosen, others=sorted(distinct - {chosen}), restricts=True))
+
+    codes = {r.code for r in item.requirements}
+    if concept_id in DAIRY_CONCEPTS and "FREE_FROM_LACTOSE" not in codes:
+        lactose = ["lactose-free" if "FREE_FROM_LACTOSE" in p.claims else "regular" for p in exact]
+        if len(set(lactose)) > 1:
+            choices.append(VariantChoice(label="Lactose", value=lactose[0],
+                                         others=sorted(set(lactose) - {lactose[0]})))
+    if not any(p.kind == "ORGANIC" for p in item.preferences):
+        organic = ["organic" if is_organic(p) else "not organic" for p in exact]
+        if len(set(organic)) > 1:
+            choices.append(VariantChoice(label="Organic", value="yes" if organic[0] == "organic" else "no",
+                                         others=["yes" if organic[0] != "organic" else "no"]))
+    if not any(p.kind == "PACK_SIZE" for p in item.preferences):
+        packs = [p.contentPerSalesUnit for p in exact]
+        known = [c for c in packs if c is not None and c.unit == item.unit]
+        if packs[0] is not None and packs[0].unit == item.unit and len(known) > 1:
+            smallest, largest = min(c.value for c in known), max(c.value for c in known)
+            if smallest > 0 and largest / smallest >= 5:
+                chosen_pack = _pack_text(packs[0].value, packs[0].unit)
+                others = sorted({_pack_text(c.value, c.unit) for c in known} - {chosen_pack})
+                choices.append(VariantChoice(label="Pack size", value=chosen_pack, others=others))
+    return choices
+
+
+def keep_chosen_variants(
+    ranked: Sequence[RankedCandidate], choices: Sequence[VariantChoice], products_by_id: Mapping[str, Product]
+) -> list[RankedCandidate]:
+    """Drop exact-type candidates whose value differs from the chosen one in a restricting group, so an
+    item is never filled half fresh, half frozen (or half whipping, half cooking cream)."""
+    restricting = [(gid, c) for c in choices if c.restricts
+                   for gid, label in VARIANT_CHOICE_LABELS.items() if label == c.label]
+    if not restricting:
+        return list(ranked)
+    kept: list[RankedCandidate] = []
+    for rc in ranked:
+        product = products_by_id.get(rc.productId)
+        if rc.exactType and product is not None and any(
+            (product_variant(gid, _names(product)) or "unknown") != choice.value for gid, choice in restricting
+        ):
+            continue
+        kept.append(rc)
+    return kept
+
+
 # ---- T44: a feasible order within the hard limit (information only) -------------------------------------
 
 
@@ -1665,6 +1765,9 @@ def feasible_within_hard_limit(
 
 __all__ = [
     "MAX_SHORTLIST_PER_ITEM",
+    "VariantChoice",
+    "keep_chosen_variants",
+    "variant_choices",
     "FeasibleLine",
     "FeasibleOrder",
     "feasible_within_hard_limit",

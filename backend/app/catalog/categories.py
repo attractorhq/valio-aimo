@@ -1212,3 +1212,36 @@ def same_product_family(
     if not groups:
         return True
     return all(family_group_matches(grp, text_lower, words) for grp in groups)
+
+
+# ---- T77: material variant choices the buyer did not state -------------------------------------------
+
+# Groups whose unstated variant is a material choice: shown as an editable assumption chip, and an item is
+# never filled with two different variants of them.
+VARIANT_CHOICE_LABELS: Mapping[str, str] = MappingProxyType({
+    "cream_use": "Cream type",
+    "product_state": "Fresh or frozen",
+    "salt": "Salt",
+})
+
+
+def stated_groups(query: str, concept_id: str | None) -> frozenset[str]:
+    """The qualifier groups the buyer already decided in their own words."""
+    return frozenset(group.group_id for group, _ in requested_variants(query, concept_id))
+
+
+def product_variant(group_id: str, product_names: tuple[str, ...]) -> str | None:
+    """The product's value in a variant group, read from its names in every language; None if not stated.
+
+    Fresh is the default state of a product that is not frozen, smoked or cured.
+    """
+    group = next(g for g in TYPE_QUALIFIER_GROUPS if g.group_id == group_id)
+    text = " ".join(n for n in product_names if n).lower() + " "
+    for variant in group.variants:
+        if variant.product_terms and any(t in text for t in variant.product_terms) and not any(
+            t in text for t in variant.forbid_terms
+        ):
+            return variant.label
+    if group_id == "product_state":
+        return "fresh"
+    return None

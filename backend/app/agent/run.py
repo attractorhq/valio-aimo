@@ -32,10 +32,12 @@ from app.agent.plan import (
     build_shortlist_offer_items,
     check_valio_substitutes,
     feasible_within_hard_limit,
+    keep_chosen_variants,
     normalise_item_for_planning,
     observation_from_offer_line,
     rank_candidates,
     select_curated_static_excluded,
+    variant_choices,
 )
 from app.catalog.search import SearchProductsRequest, SearchProductsResult
 from app.contracts import (
@@ -603,6 +605,7 @@ def _iter_agent_steps_inner(
     sub_checks_by_product: dict[str, list[ValioSubstituteCheck]] = {}
     final_offer_items: list[OfferItem] = []
     updated_request_items: list[RequestItem] = []
+    variant_chips: list[str] = []
 
     for item in planned_request.items:
         s_res = search_results[item.itemId]
@@ -619,6 +622,13 @@ def _iter_agent_steps_inner(
             observations=obs_for_item,
             named_product=named_prod,
         )
+
+        # T77: material choices the buyer left open (cream type, fresh/frozen, salt, lactose, organic, pack size)
+        # become editable assumption chips; the item is never filled with two different use variants.
+        choices = variant_choices(item, ranked, products_by_id)
+        offer_ranked = keep_chosen_variants(ranked, choices, products_by_id)
+        prefix = f"{item.what}: " if len(planned_request.items) > 1 else ""
+        variant_chips.extend(f"{prefix}{c.chip}" for c in choices)
 
         # If the top ranked candidate is a product-type substitute (AGENT_SUBSTITUTE) and item.productId
         # was not yet set, bind item.productId to the primary requested-type candidate so the gateway's
@@ -684,7 +694,7 @@ def _iter_agent_steps_inner(
 
         shortlist_offer_items = build_shortlist_offer_items(
             effective_item,
-            ranked_candidates=ranked,
+            ranked_candidates=offer_ranked,
             live_excluded_ids=recorded_or_all_live_ex,
             static_strict_excluded_ids=static_strict_ex_ids,
             limit=MAX_SHORTLIST_PER_ITEM,
@@ -723,7 +733,10 @@ def _iter_agent_steps_inner(
             )
         )
 
-    planned_request = planned_request.model_copy(update={"items": updated_request_items})
+    planned_request = planned_request.model_copy(update={
+        "items": updated_request_items,
+        "assumptions": list(dict.fromkeys([*planned_request.assumptions, *variant_chips])),
+    })
 
     yield AgentStepEvent(
         step=2,
