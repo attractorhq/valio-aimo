@@ -1,5 +1,9 @@
 import { REASON_REGISTRY, type Mandate, type Proposal, type ReasonCode } from '../../lib/contracts'
 import { formatDate, formatMoney, formatNumber, reasonChip, reasonText } from '../../lib/format'
+import {
+  formatFullSplitApprovalStatement,
+  formatSplitDetailLines,
+} from '../proposal/SplitProposalSummary'
 
 const WEEKDAY_NAMES = [
   'Sunday',
@@ -66,6 +70,10 @@ export function formatApprovalStatement(proposal: Proposal, mandate?: Mandate): 
     }
   }
 
+  const splitStatement = formatFullSplitApprovalStatement(proposal)
+  if (splitStatement) {
+    return splitStatement
+  }
   if (shortfalls.length > 0 && dateClause) {
     return `Approving means ${shortfalls.join(', ')}, ${dateClause}.`
   }
@@ -126,6 +134,12 @@ export function plainReason(
   proposal: Proposal,
   mandate?: Mandate,
 ): string | null {
+  if (code === 'SPLIT') {
+    const details = formatSplitDetailLines(proposal)
+    return details.length > 0
+      ? details.join(' ')
+      : `Covered by ${proposal.lines.length} products that all meet your requirements.`
+  }
   if (code === 'AGENT_SUBSTITUTE') return substituteStatement(proposal)
   if (code === 'VALIO_SUBSTITUTE') return valioSubstituteStatement(proposal)
   if (code === 'OVER_AUTO_LIMIT' && mandate) {

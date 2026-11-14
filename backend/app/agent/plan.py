@@ -522,6 +522,7 @@ _KNOWN_BRANDS: tuple[tuple[str, str], ...] = (
     ("fazer aito", "Fazer Aito"),
     ("explore cuisine", "Explore Cuisine"),
     ("myllyn paras", "Myllyn Paras"),
+    ("arla pro", "Arla Pro"),
     ("valio", "Valio"),
     ("oddlygood", "Oddlygood"),
     ("elovena", "Elovena"),
@@ -765,6 +766,24 @@ def _concept_for_item(item: RequestItem) -> tuple[ProductConcept | None, Product
     return primary, parent
 
 
+def _requested_brand(item: RequestItem) -> tuple[str, str] | None:
+    """Return `(needle_lower, display_label)` when the buyer explicitly asked for a known brand."""
+    if item.productId is not None:
+        return None
+    for pref in item.preferences:
+        if pref.kind == "BRAND" and pref.value.strip():
+            low = pref.value.strip().lower()
+            for needle, label in _KNOWN_BRANDS:
+                if needle == low or re.search(rf"\b{re.escape(needle)}\b", low):
+                    return needle, label
+            return low, pref.value.strip()
+    q_lower = item.what.lower()
+    for needle, label in _KNOWN_BRANDS:
+        if re.search(rf"\b{re.escape(needle)}\b", q_lower):
+            return needle, label
+    return None
+
+
 def requested_type_match(product: Product, item: RequestItem) -> TypeMatch:
     """Is `product` exactly the product type the buyer asked for (e.g. whipping, not cooking cream)? (T34, T22)"""
     primary, _ = _concept_for_item(item)
@@ -811,6 +830,18 @@ def requested_type_match(product: Product, item: RequestItem) -> TypeMatch:
         elif target_fat not in fats:
             shown = " / ".join(_pct(f) for f in sorted(fats))
             differences.append(f"{shown} % fat, not {_pct(target_fat)} %")
+
+    req_brand = _requested_brand(item)
+    if req_brand is not None:
+        brand_needle, brand_label = req_brand
+        prod_brand = _extract_brand(product)
+        matches_brand = bool(re.search(rf"\b{re.escape(brand_needle)}\b", text_lower)) or (
+            prod_brand is not None and brand_needle in prod_brand.lower()
+        )
+        if not matches_brand:
+            diff = f"{prod_brand}, not {brand_label}" if prod_brand else f"not {brand_label}"
+            if diff not in differences:
+                differences.append(diff)
 
     return TypeMatch(exact=not differences, differences=tuple(differences))
 
@@ -1242,6 +1273,8 @@ def normalise_item_for_planning(
         )
         if not has_compliant_brand:
             updated_item = updated_item.model_copy(update={"productId": named_prod.productId})
+        else:
+            named_prod = None
 
     if updated_item.unit in ("cases", "pcs"):
         candidate_units = {
@@ -1368,15 +1401,44 @@ def build_shortlist_offer_items(
         add_id(pid)
 
     # Next: compliant deliverable candidates in §7.6 ranked order.
-    # Per §7.7 ("same product type first"), if non-substitute candidates exist (substitutionSource is None),
-    # do not mix different-product-type agent substitutes into the same item allocation.
+    # Per §7.7 ("same product type first"), if non-substitute candidates cover the full need, do not mix
+    # different-product-type agent substitutes into the same item allocation.
+    # T69: when exact-type stock covers only part of the line (`0 < shortfall < item.quantity`), include
+    # ONE compliant top-up candidate from the shortlist that has stock for the shortfall.
     has_direct_candidates = any(rc.substitutionSource is None for rc in ranked_candidates)
-    # T39 / T51: a different product type (frozen for fresh, margarine for butter) never fills the remainder
-    # of an item while products of the requested type exist. When exact-type stock is absent, offer at most
-    # ONE same-family substitute; never pad with other products.
     has_exact_type = any(rc.exactType for rc in ranked_candidates)
+
+    exact_covered = Decimal(0)
+    for rc in ranked_candidates:
+        if rc.exactType and (rc.substitutionSource is None or item.productId is not None):
+            if rc.stockTier in ("PLENTY", "SUPPLIER", "UNKNOWN"):
+                exact_covered = max(exact_covered, item.quantity)
+            elif rc.deliveredQuantity is not None:
+                exact_covered += rc.deliveredQuantity.value
+
+    shortfall = max(item.quantity - exact_covered, Decimal(0))
+    need_top_up = has_exact_type and Decimal(0) < shortfall < item.quantity
+
     agent_sub_added = False
     for rc in ranked_candidates:
+        is_sub = (rc.substitutionSource == "AGENT" and item.productId is None) or not rc.exactType
+        if is_sub and has_exact_type:
+            if not need_top_up or agent_sub_added:
+                continue
+            if any(
+                bad in rc.tradeoff
+                for bad in ("does not whip", "cooking cream, not whipping cream", "margarine or fat spread")
+            ):
+                continue
+            covers_shortfall = rc.stockTier in ("PLENTY", "SUPPLIER", "UNKNOWN") or (
+                rc.deliveredQuantity is not None and rc.deliveredQuantity.value >= shortfall
+            )
+            if not covers_shortfall:
+                continue
+            agent_sub_added = True
+            add_id(rc.productId)
+            continue
+
         if has_direct_candidates and rc.substitutionSource == "AGENT" and item.productId is None:
             continue
         if has_exact_type and not rc.exactType:
