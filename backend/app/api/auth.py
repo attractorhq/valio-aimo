@@ -52,6 +52,30 @@ def audit_scope(request: Request, state, proposal_id: str | None, customer_id: s
     return authenticated
 
 
+def proposal_read_scope(request: Request, state, proposal_id: str):
+    """T100: who may read one proposal. Mirrors the audit scope (T55).
+
+    - a browser's private sandbox: everything in it was created by that browser, so no key is needed;
+    - the demo admin key, or the approver role / single-use approval link for that proposal;
+    - otherwise the owning buyer's agent key: none is 401, another buyer's key is 404 (no existence leak).
+    """
+    from app.gateway.proposals import ProposalNotFoundError
+
+    proposal = state.gateway.get_proposal(proposal_id)
+    if request.headers.get("x-demo-admin-key") is not None:
+        require_admin(request)
+        return proposal
+    if request.headers.get("authorization") is None:
+        if state.sandbox_id != "shared":
+            return proposal
+        if getattr(request.state, "approval_token", None) or request.headers.get("x-demo-approver-role"):
+            approver_role(request, state, proposal)
+            return proposal
+    if agent_customer(request) != proposal.customerId:
+        raise ProposalNotFoundError(f"Unknown proposal {proposal_id}")
+    return proposal
+
+
 def approver_role(request: Request, state, proposal=None) -> str:
     role = request.headers.get("x-demo-approver-role")
     # A signed phone link carries only the named role to which the grant was issued.

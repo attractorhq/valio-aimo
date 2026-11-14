@@ -1187,6 +1187,10 @@ def rank_candidates(
     tier_names: tuple[CandidateTier, ...] = ("RECOMMENDED", "BEST", "BETTER", "GOOD")
     ranked: list[RankedCandidate] = []
     best_comp_price: Decimal | None = None
+    # T100: when the recommendation is exactly the requested type, Best / Better / Good go only to products of that
+    # same type (oat flakes are never "Better" as millet flakes); other types stay plain alternatives.
+    exact_first = bool(scored) and scored[0][6]
+    tiered = 0
 
     for idx, (_key, prod, obs, sub_source, sub_for, type_differences, is_exact_type) in enumerate(scored):
         sizing = size(prod, item.quantity, item.unit)
@@ -1221,7 +1225,10 @@ def rank_candidates(
         comp_price, comp_unit = _comparison_price(prod, obs, item.unit)
         if idx == 0:
             best_comp_price = comp_price
-        tier: CandidateTier = tier_names[idx] if idx < len(tier_names) else "ALTERNATIVE"
+        tier: CandidateTier = "ALTERNATIVE"
+        if tiered < len(tier_names) and (is_exact_type or not exact_first):
+            tier = tier_names[tiered]
+            tiered += 1
         rel = _product_reliability(prod)
         pref_matches = _matched_preferences_count(prod, item.preferences)
         unk_count = _unknown_fact_count(prod, obs.facts if obs else ())

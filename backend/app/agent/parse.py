@@ -167,6 +167,15 @@ _REQUIREMENTS: tuple[tuple[str, tuple[Requirement, ...]], ...] = (
     (r"\bvegetarian\b", (Requirement(kind="CLAIM", code="VEGETARIAN"),)),
 )
 _REQUIREMENT_RES = tuple((re.compile(p, re.IGNORECASE), r) for p, r in _REQUIREMENTS)
+# T100: a plant base ("oat-based", "plant-based", "kaurapohjainen") is a hard requirement that excludes dairy. The
+# words stay in the item ("oat-based whipping cream" is still an oat product type); only milk-free is added. "Vegan"
+# already is its own claim (VEGAN), which no dairy product carries.
+_PLANT_BASE_RE = re.compile(
+    r"\b(?:oat|soy|soya|almond|coconut|pea|rice|plant|kaura|soija|manteli|kookos|herne|riisi|kasvi)"
+    r"[\s-]*(?:based|pohjai\w*)\b",
+    re.IGNORECASE,
+)
+_MILK_FREE = Requirement(kind="AVOID_ALLERGEN", code="AM")
 _DIET_RES = (
     (re.compile(r"\b(?:keliaki\w*|keliaak(?:ikko|iko)\w*|keliakist\w*|gluteeni-?allergi\w*|co?eliacs?)\b",
                 re.IGNORECASE),
@@ -856,6 +865,8 @@ def _extract(fragment: str) -> tuple[str, list[Requirement], list[Preference], s
     requirements.extend(excluded)
     for pattern, _found in _DIET_RES:
         rest = pattern.sub(" ", rest)
+    if _PLANT_BASE_RE.search(rest) and _MILK_FREE not in requirements:
+        requirements.append(_MILK_FREE)
     for pattern, found in _REQUIREMENT_RES:
         if pattern.search(rest):
             requirements.extend(r for r in found if r not in requirements)

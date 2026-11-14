@@ -293,6 +293,29 @@ function valioSubstituteStatement(proposal: Proposal): string | null {
  * `null` when there is nothing to say beyond the chip itself, so a chip is never followed by its own
  * label ("Agent substitute Agent substitute").
  */
+/**
+ * T100: items whose whole packs deliver more than 25 % above the amount asked, e.g.
+ * "40 kg for 25 kg asked: whole 20 kg packs" (the server's QUANTITY_BASIS_WEAK policy rule).
+ */
+export function overbuyNotes(proposal: Proposal): string[] {
+  const notes: string[] = []
+  for (const item of proposal.request.items) {
+    const lines = proposal.lines.filter((line) => line.itemId === item.itemId)
+    const delivered = lines.reduce((sum, line) => sum + Number(line.deliveredQuantity.value), 0)
+    if (!lines.length || delivered <= Number(item.quantity) * 1.25) continue
+    const packs = [
+      ...new Set(
+        lines.map((line) => Number(line.deliveredQuantity.value) / Number(line.quantitySalesUnits)),
+      ),
+    ]
+    const pack = packs.length === 1 ? `: whole ${formatNumber(String(packs[0]))} ${item.unit} packs` : ''
+    notes.push(
+      `${formatNumber(String(delivered))} ${item.unit} for ${formatNumber(String(item.quantity))} ${item.unit} asked${pack}`,
+    )
+  }
+  return notes
+}
+
 export function plainReason(
   code: ReasonCode,
   proposal: Proposal,
@@ -306,6 +329,10 @@ export function plainReason(
   }
   if (code === 'AGENT_SUBSTITUTE') return substituteStatement(proposal)
   if (code === 'VALIO_SUBSTITUTE') return valioSubstituteStatement(proposal)
+  if (code === 'QUANTITY_BASIS_WEAK') {
+    const over = overbuyNotes(proposal)
+    if (over.length) return `Whole packs come to well above the amount asked: ${over.join('; ')}.`
+  }
   const committed = committedLimitSentence(code, proposal, mandate)
   if (committed) return committed
   if (code === 'OVER_AUTO_LIMIT') {
@@ -455,7 +482,12 @@ export function explainWhyNotAuto(
       continue
     }
     if (code === 'QUANTITY_BASIS_WEAK') {
-      clauses.push('pack size was estimated from the product name')
+      const over = overbuyNotes(proposal)
+      clauses.push(
+        over.length
+          ? `whole packs come to well above the amount asked (${over.join('; ')})`
+          : 'pack size was estimated from the product name',
+      )
       continue
     }
     if (code === 'LOW_RELIABILITY') {

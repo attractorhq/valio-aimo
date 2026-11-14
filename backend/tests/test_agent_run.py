@@ -677,11 +677,13 @@ def test_scenario_b_ask_over_auto_limit_and_valio_substitute_rejected(synthetic_
     assert len(result.plan.items) == 2
     b_i1_ranked = result.plan.items[0].rankedCandidates
     b_i2_ranked = result.plan.items[1].rankedCandidates
+    # T100: penne and fettuccine are not macaroni, so they are plain alternatives, never "Best" / "Better".
     assert [(rc.tier, rc.productId) for rc in b_i1_ranked] == [
         ("RECOMMENDED", "474235"),
-        ("BEST", "462324"),
-        ("BETTER", "468969"),
+        ("ALTERNATIVE", "462324"),
+        ("ALTERNATIVE", "468969"),
     ]
+    assert [rc.exactType for rc in b_i1_ranked] == [True, False, False]
     assert [(rc.tier, rc.productId) for rc in b_i2_ranked[:4]] == [
         ("RECOMMENDED", "468465"),
         ("BEST", "473609"),

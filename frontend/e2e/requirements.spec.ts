@@ -217,7 +217,7 @@ test('T86: empty requirement list never says "No hard requirements were stated" 
     "Ships from the supplier's warehouse. Valio Aimo can't see the quantity.",
   )
   expect(plainReason('QUANTITY_BASIS_WEAK', multiAskProposal)).toBe(
-    'Pack size read from the product name only.',
+    'Pack size read from the product name only, or whole packs well above the amount asked.',
   )
   expect(plainReason('REQUOTED', multiAskProposal)).toBe(
     'Re-checked live against current price, stock, cut-off and mandate before ordering.',

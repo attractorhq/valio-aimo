@@ -36,7 +36,15 @@ from app.gateway.log import (
 )
 from app.gateway.proposals import NoOrderError, ProposalRequestMismatchError
 
-from .auth import AgentCustomer, agent_customer, audit_scope, bind_customer, require_admin
+from .approver_channel import ApprovalState
+from .auth import (
+    AgentCustomer,
+    agent_customer,
+    audit_scope,
+    bind_customer,
+    proposal_read_scope,
+    require_admin,
+)
 from .errors import ERROR_RESPONSES, error
 from .state import GatewayState, GatewayUnavailable, get_state, utc_now
 
@@ -315,8 +323,14 @@ def create_proposal(body: CreateProposalRequest, state: GatewayState, customer: 
 
 
 @router.get("/proposals/{proposalId}", response_model=Proposal, operation_id="getProposal",
-            summary="The current state of a proposal")
-def get_proposal(proposalId: str, state: State) -> Proposal:
+            summary="The current state of a proposal (the owning buyer's agent key; 404 for another buyer)")
+def get_proposal_route(proposalId: str, request: Request, state: ApprovalState) -> Proposal:
+    proposal_read_scope(request, state, proposalId)
+    return get_proposal(proposalId, state)
+
+
+def get_proposal(proposalId: str, state: GatewayState) -> Proposal:
+    """In-process read for the agent run, which already acts for one authenticated buyer."""
     current = state.gateway.get_proposal(proposalId)
     return state.gateway.get_proposal(proposalId, now=state.now_for(current.mode))
 

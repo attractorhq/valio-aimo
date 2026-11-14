@@ -95,7 +95,7 @@ from app.policy import (
     evaluate_line,
 )
 from app.policy.limits import delivery_dates, limit_sentence
-from app.policy.lines import split_price_guard_detail, split_price_rise_pct
+from app.policy.lines import is_exact_top_up, split_price_guard_detail, split_price_rise_pct
 from app.valio.facts import SENTINEL_METHOD, is_stock_sentinel
 
 # T62: proposal states whose total counts against the same-day limits (the split-order guard).
@@ -1379,11 +1379,15 @@ class ProposalGateway:
                 primary_ppu = primary_line.price_per_delivered_unit()
                 for top_idx in ok_indices[1:]:
                     ln = updated[top_idx]
+                    # T100: the same type, form and variant at a guarded price is no substitute.
+                    same = (ln.substitution is None and ln.check_requested_type
+                            and is_exact_top_up(ln, primary_line, item))
                     updated[top_idx] = replace(
                         ln,
                         split_top_up=True,
-                        substitution=ln.substitution or "AGENT",
-                        substitute_for=ln.substitute_for or primary_line.product.productId,
+                        same_as_primary=same,
+                        substitution=ln.substitution or (None if same else "AGENT"),
+                        substitute_for=ln.substitute_for or (None if same else primary_line.product.productId),
                         primary_price_per_unit=primary_ppu,
                     )
             elif not explicit_partial and Decimal(0) < covered < item.quantity:
@@ -1525,7 +1529,7 @@ class ProposalGateway:
         items_by_id = {item.itemId: item for item in proposal.request.items}
         used_stock: dict[str, Decimal] = {}
         refreshed_line_inputs: list[LineInput] = []
-        primary_by_item: dict[str, tuple[str, Decimal | None]] = {}
+        primary_by_item: dict[str, LineInput] = {}
         partial_for_prop = self._partial_items.get(proposal.proposalId, frozenset())
 
         for line in proposal.lines:
@@ -1612,16 +1616,19 @@ class ProposalGateway:
                     substitute_for=line.substituteFor,
                 )
             if line.itemId not in primary_by_item:
-                primary_by_item[line.itemId] = (line.productId, probe.price_per_delivered_unit())
+                primary_by_item[line.itemId] = probe
             elif line.itemId not in partial_for_prop or ReasonCode.SPLIT in line.reasons:
                 # T85: a partial item can also carry top-up lines (SPLIT); they are re-checked as top-ups.
-                primary_pid, primary_ppu = primary_by_item[line.itemId]
+                primary = primary_by_item[line.itemId]
+                # T100: decided exactly as at createProposal, so an unchanged top-up never supersedes itself.
+                same = line.substitutionSource is None and is_exact_top_up(probe, primary, req_item)
                 probe = replace(
                     probe,
                     split_top_up=True,
-                    substitution=line.substitutionSource or "AGENT",
-                    substitute_for=line.substituteFor or primary_pid,
-                    primary_price_per_unit=primary_ppu,
+                    same_as_primary=same,
+                    substitution=line.substitutionSource or (None if same else "AGENT"),
+                    substitute_for=line.substituteFor or (None if same else primary.product.productId),
+                    primary_price_per_unit=primary.price_per_delivered_unit(),
                 )
             verdict = evaluate_line(
                 probe,

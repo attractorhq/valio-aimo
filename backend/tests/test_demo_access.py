@@ -181,3 +181,29 @@ def test_mcp_omitted_customer_on_offer_and_proposal_uses_key_buyer(access):
     })).json()["result"]["structuredContent"]
     assert proposal["customerId"] == M2.customerId
     assert not {"approvalToken", "approvalUrl", "qrPayload"} & proposal.keys()
+
+
+def test_proposal_reads_are_scoped_to_the_owning_buyer(access):
+    """T100: like the audit (T55), a proposal read needs the owner's agent key on the shared session."""
+    client, school, hotel, _, _ = access
+    path = f"/v0.1/proposals/{school['proposalId']}"
+    assert client.get(path).status_code == 401
+    assert client.get(path, headers=SCHOOL).status_code == 200
+    other = client.get(path, headers=HOTEL)
+    assert other.status_code == 404  # no hint that the proposal exists
+    unknown = client.get("/v0.1/proposals/P-DOES-NOT-EXIST", headers=HOTEL)
+    assert unknown.status_code == 404 and other.json()["error"]["code"] == unknown.json()["error"]["code"]
+    assert client.get(path, headers=ADMIN).status_code == 200
+    assert client.get(path, headers=CHEF).status_code == 200  # the approver who signs it off
+    assert client.get(path, headers=MANAGER).status_code == 403
+    assert client.get(f"/v0.1/proposals/{hotel['proposalId']}", headers=HOTEL).status_code == 200
+
+
+def test_a_used_phone_link_can_still_read_its_own_proposal(access):
+    client, school, _, _, _ = access
+    path = f"/v0.1/approver/proposals/{school['proposalId']}"
+    view = client.get(path, headers=CHEF).json()
+    body = {"offerVersion": school["offerVersion"], "approvalToken": view["approvalToken"], "action": "APPROVE"}
+    assert client.post(path + "/decision", json=body).status_code == 200
+    read = client.get(f"/v0.1/proposals/{school['proposalId']}", headers={"X-Approval-Token": view["approvalToken"]})
+    assert read.status_code == 200 and read.json()["state"] == "CONFIRMED_SIMULATED"
