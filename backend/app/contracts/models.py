@@ -225,6 +225,7 @@ class ApproverView(Contract):
 
     proposal: Proposal
     approver: Approver
+    approvalStatement: str | None = None
     approvalToken: str = Field(min_length=1)
     approvalUrl: str | None = None
     qrPayload: str | None = None

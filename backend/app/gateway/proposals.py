@@ -603,9 +603,11 @@ class ProposalGateway:
         """Build the approver-channel `ApproverView` for a `PENDING_APPROVAL` proposal."""
         proposal = self.get_proposal(proposal_id)
         mandate = self.mandates.get_version(proposal.customerId, proposal.mandateVersion)
+        statement = format_approval_statement(proposal, mandate=mandate)
         view = self.approvals.issue(
             proposal,
             mandate.approver,
+            approval_statement=statement,
             approval_url=approval_url,
             qr_payload=qr_payload,
         )

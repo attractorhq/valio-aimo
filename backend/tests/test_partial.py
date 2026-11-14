@@ -467,6 +467,7 @@ def test_offers_and_proposals_produce_partial_delivery_version_without_manual_ov
     cov_fact = next((f for f in pasta_line.facts if f.fact == "coverage.partial"), None)
     assert cov_fact is not None
     assert cov_fact.display == "Partial delivery: 95 kg of 120 kg on Mon 16 Nov"
+    assert cov_fact.source.retrievedAt == NOW
 
     assert (oat_line.productId, oat_line.quantitySalesUnits, oat_line.deliveredQuantity.value) == (
         "468465",
@@ -524,6 +525,7 @@ def test_partial_delivery_version_has_its_own_approval_and_supersedes_on_recheck
     p1 = gateway.create_proposal(M2.customerId, offer1.offerId, offer1.offerVersion, struct_req)
     view1 = gateway.get_approver_view(p1.proposalId)
     assert view1.permissionNotice == PERMISSION_NOTICE
+    assert view1.approvalStatement == EXPECTED_APPROVAL_STATEMENT
     assert format_approval_statement(view1.proposal, mandate=M2) == EXPECTED_APPROVAL_STATEMENT
 
     confirmed1 = decide_approval(gateway, p1.proposalId, p1.offerVersion, view1.approvalToken, "APPROVE")
@@ -562,6 +564,7 @@ def test_partial_delivery_version_has_its_own_approval_and_supersedes_on_recheck
     with pytest.raises(TokenBindingMismatchError):
         decide_approval(gateway, v2.proposalId, v2.offerVersion, view_v1.approvalToken, "APPROVE")
     view_v2 = gateway.get_approver_view(v2.proposalId)
+    assert view_v2.approvalStatement == "Approving means 90 kg instead of 120 kg, on Monday instead of today."
     confirmed_v2 = decide_approval(gateway, v2.proposalId, v2.offerVersion, view_v2.approvalToken, "APPROVE")
     assert confirmed_v2.state == "CONFIRMED_SIMULATED"
 
@@ -616,6 +619,12 @@ def test_agent_run_scenario_b2_end_to_end_over_http_and_in_process():
                 assert "473895" in ex_by_id and ReasonCode.CUTOFF_PASSED in ex_by_id["473895"].reasons
                 assert "471108" in ex_by_id and ReasonCode.CUTOFF_PASSED in ex_by_id["471108"].reasons
                 assert format_approval_statement(prop, mandate=M2) == EXPECTED_APPROVAL_STATEMENT
+                assert "approvalStatement" not in prop.model_dump_json()
+
+            view_resp = client.get(f"/v0.1/approver/proposals/{res_http.proposal.proposalId}")
+            assert view_resp.status_code == 200
+            view_json = view_resp.json()
+            assert view_json["approvalStatement"] == EXPECTED_APPROVAL_STATEMENT
 
             assert res_proc.proposal.offerHash == res_http.proposal.offerHash
     finally:

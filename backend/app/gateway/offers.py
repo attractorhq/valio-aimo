@@ -171,7 +171,13 @@ def _format_qty_amount(value: Decimal) -> str:
     return str(int(norm)) if norm == norm.to_integral() else format(norm, "f")
 
 
-def _partial_coverage_label(delivered: Quantity, requested: Quantity, delivery_date) -> TrustLabel:
+def _partial_coverage_label(
+    delivered: Quantity,
+    requested: Quantity,
+    delivery_date,
+    *,
+    retrieved_at: datetime | None = None,
+) -> TrustLabel:
     deliv_str = f"{_format_qty_amount(delivered.value)} {delivered.unit}"
     req_str = f"{_format_qty_amount(requested.value)} {requested.unit}"
     date_part = f" on {format_date(delivery_date)}" if delivery_date is not None else ""
@@ -183,7 +189,7 @@ def _partial_coverage_label(delivered: Quantity, requested: Quantity, delivery_d
         source=TrustSource(
             system="valio-aimo.availability-api",
             field="scheduleLines[0].availableAmount",
-            retrievedAt=None,
+            retrievedAt=retrieved_at,
         ),
         method="partial-delivery allocation (P2.5, P8 B2)",
         conflict=None,
@@ -335,6 +341,7 @@ def build_offer(
                 Quantity(value=delivered_total, unit=unit),
                 Quantity(value=requested_qty, unit=unit),
                 lines[item_line_indices[0]].deliveryDate,
+                retrieved_at=snapshot.captured_at,
             )
             for idx in item_line_indices:
                 ln = lines[idx]
