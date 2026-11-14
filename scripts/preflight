@@ -1,0 +1,41 @@
+#!/usr/bin/env python3
+"""Run the live pre-flight check (A, B, C, B2) against the Valio Aimo API and report GREEN (live) or RED (recorded)."""
+
+import argparse
+from dataclasses import asdict
+import json
+import os
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+VENV_PY = ROOT / ".venv/bin/python"
+if VENV_PY.exists() and Path(sys.prefix).resolve() != (ROOT / ".venv").resolve():
+    os.execv(str(VENV_PY), [str(VENV_PY), *sys.argv])
+
+sys.path.insert(0, str(ROOT / "backend"))
+
+from app.eval.preflight import format_preflight_table, run_preflight  # noqa: E402
+from app.eval.runner import ReferenceFixtureProvider  # noqa: E402
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--json", action="store_true", help="Print JSON output instead of table")
+    parser.add_argument(
+        "--reference",
+        action="store_true",
+        help="Run against the reference fixture provider (offline self-test)",
+    )
+    args = parser.parse_args()
+
+    live = ReferenceFixtureProvider() if args.reference else None
+    report = run_preflight(live_provider=live)
+    if args.json:
+        print(json.dumps(asdict(report), indent=2))
+    else:
+        print(format_preflight_table(report))
+
+
+if __name__ == "__main__":
+    main()

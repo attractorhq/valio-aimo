@@ -1,6 +1,6 @@
 # Live Demo Guide & Stage Script (`A → B → C`)
 
-This document is the stage playbook for **Verified or Ask**: demo-state reset, the timed 3-minute walkthrough in the official P12 sequence **A (`AUTO`) → B (`ASK`; the approver approves version 1) → C (`BLOCK`)**, the verbatim P12 pitch lines, and the honest fallback to recorded mode (P5.3).
+This document is the stage playbook for **Verified or Ask**: pre-flight checks, demo-state reset, the timed 3-minute walkthrough in the official P12 sequence **A (`AUTO`) → B (`ASK`; the approver approves version 1) → C (`BLOCK`)**, the verbatim P12 pitch lines, and the honest fallback to recorded mode (P5.2, P5.3).
 
 ---
 
@@ -21,9 +21,18 @@ Keep these five lines exact on stage and in Q&A (Patch v2, P12):
 
 ---
 
-## 2. Demo-State Reset (2 Minutes Before Presenting)
+## 2. Pre-Flight & Demo-State Reset (2 Minutes Before Presenting)
 
-### Step 1: Reset Demo State & Verify End-to-End (`scripts/demo`)
+### Step 1: Run the Live Pre-Flight Check (`scripts/preflight`)
+
+```bash
+scripts/preflight
+```
+
+- **If `GREEN` (`Recommended mode: LIVE`):** Present against the live Valio Aimo API. Every scenario (`A`, `B`, `C`, `B2`) matches expected decisions, prices, stock, delivery dates, and cut-offs.
+- **If `RED` (`Recommended mode: RECORDED`):** Follow **[Section 5: Fallback to Recorded Mode](#5-fallback-to-recorded-mode-patch-p52--p53)** below.
+
+### Step 2: Reset Demo State & Verify End-to-End (`scripts/demo`)
 
 Reset mandates `M1` (`€1,500.00` auto / `€5,000.00` hard, `STANDARD`) and `M2` (`€500.00` auto / `€3,000.00` hard, `STRICT`) to their defaults and clear any pending proposals in the Approver queue:
 
@@ -33,13 +42,13 @@ scripts/demo --reset https://valio-aimo.<account>.workers.dev
 # or locally:
 scripts/demo --reset http://localhost:8000
 
-# Full automated rehearsal: reset + 3× consecutive Playwright E2E runs + second-client check:
+# Full automated rehearsal: pre-flight + reset + 3× consecutive Playwright E2E runs + second-client check:
 scripts/demo https://valio-aimo.<account>.workers.dev
 # or locally (starts backend + frontend automatically):
 scripts/demo
 ```
 
-### Step 2: Window & Device Layout Before Going Live
+### Step 3: Window & Device Layout Before Going Live
 
 1. **Window 1 (Left / Main screen — Buyer View):** `<URL>/`
    - Confirm the mode badge reads **`Live · Valio Aimo API`** (or **`Recorded · captured …`** if in recorded mode), never `Synthetic mock data`.
@@ -165,15 +174,17 @@ If a judge asks *"What if the school raises its auto-approve limit to €510?"*:
 
 ---
 
-## 5. Fallback to Recorded Mode (Patch P5.3)
+## 5. Fallback to Recorded Mode (Patch P5.2 & P5.3)
 
-### Why Cut-Offs Can Advance After Sunday 15 Nov 17:00 EET
+### Why Pre-Flight Can Turn Red After Sunday 15 Nov 17:00 EET
 
 In Valio Aimo's mock dataset, most Stock items for Monday `2026-11-16` delivery carry `closingTime: "2026-11-15T17:00:00+02:00"`. If judging takes place after Sunday 15 Nov 17:00 EET and the mock API cut-offs advance against wall-clock time, live runs of Scenarios A and B will classify `464306`, `474235`, and `468465` as `CUTOFF_PASSED` (rule K3 — delivery cannot be promised).
 
 ### How to Switch to Recorded Mode
 
-1. **Run the Gateway in Recorded Mode (`VALIO_MODE=recorded`):**
+1. **Show the Live Pre-Flight Table Honestly:**
+   - Run `scripts/preflight` in the terminal so the comparison table is visible before switching to recorded mode.
+2. **Run the Gateway in Recorded Mode (`VALIO_MODE=recorded`):**
    - **Local stack:**
      ```bash
      scripts/demo --mode recorded
@@ -182,5 +193,5 @@ In Valio Aimo's mock dataset, most Stock items for Monday `2026-11-16` delivery 
      ```
    - **Deployed Cloudflare Worker (Architect machine only):**
      Set `"VALIO_MODE": "recorded"` in `edge/wrangler.jsonc` and run `scripts/deploy --containers-rollout=none`.
-2. **What to Say on Stage When Presenting in Recorded Mode (P5.3):**
-   > "Because the Monday 16 Nov order cut-offs (`Sun 15 Nov 17:00 EET`) have now passed in wall-clock time, the live gateway refuses to promise Monday delivery (`CUTOFF_PASSED`). Rather than faking a live clock or hiding the cut-off rule, we run the walkthrough against our recorded API capture (`Fri 13 Nov 21:50`), clearly badged in the UI."
+3. **What to Say on Stage When Presenting in Recorded Mode (P5.3):**
+   > "Before going on stage we ran our live pre-flight check against the Valio Aimo API. Because the Monday 16 Nov order cut-offs (`Sun 15 Nov 17:00 EET`) have now passed in wall-clock time, the live gateway refuses to promise Monday delivery (`CUTOFF_PASSED`). Rather than faking a live clock or hiding the cut-off rule, we show the pre-flight report openly and run the walkthrough against our recorded API capture (`Fri 13 Nov 21:50`), clearly badged in the UI."
