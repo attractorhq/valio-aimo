@@ -175,6 +175,50 @@ def _format_qty_amount(value: Decimal) -> str:
     return str(int(norm)) if norm == norm.to_integral() else format(norm, "f")
 
 
+def _format_qty_comma(value: Decimal) -> str:
+    norm = value.normalize()
+    return f"{int(norm):,}" if norm == norm.to_integral() else format(norm, ",f")
+
+
+def _partial_stock_pack_explanation(
+    product: Product,
+    sizing: Sizing,
+    units: Decimal,
+    free: Decimal,
+) -> str | None:
+    """Explain why the offered quantity is below the shown stock when floored to whole packs/lots (T51)."""
+    if units >= free or sizing.content is None or sizing.content.value <= 0:
+        return None
+    unit = sizing.delivered.unit
+    deliv_str = f"{_format_qty_amount(sizing.delivered.value)} {unit}"
+    lot = product.allowedLotSize
+    cpsu_val = sizing.content.value
+    if lot > 1:
+        pack_size = lot * cpsu_val
+        num_packs = units / lot
+        stock_in_unit = free * cpsu_val
+        return (
+            f"{deliv_str} = {_format_qty_amount(num_packs)} × {_format_qty_amount(pack_size)} {unit} packs; "
+            f"{_format_qty_amount(stock_in_unit)} {unit} in stock"
+        )
+    if cpsu_val != 1:
+        return (
+            f"{deliv_str} = {_format_qty_amount(units)} × {_format_qty_amount(cpsu_val)} {unit} packs; "
+            f"{_format_qty_amount(free)} in stock"
+        )
+    return (
+        f"{deliv_str} = {_format_qty_amount(units)} × 1 {unit} packs; "
+        f"{_format_qty_amount(free)} {unit} in stock"
+    )
+
+
+def _with_stock_display(facts: Sequence[TrustLabel], display: str) -> list[TrustLabel]:
+    return [
+        f.model_copy(update={"display": display}) if f.fact == "stock.quantity" else f
+        for f in facts
+    ]
+
+
 def _partial_coverage_label(
     delivered: Quantity,
     requested: Quantity,
@@ -355,6 +399,7 @@ def build_offer(
                 continue
 
             units = sizing.quantity_sales_units
+            pack_explanation: str | None = None
             if probe.stock is StockKind.EXACT:
                 free = max(probe.stock_amount - used.get(product.productId, Decimal(0)), Decimal(0))
                 if free < units:
@@ -367,10 +412,13 @@ def build_offer(
                         continue
                     sizing = Sizing(units, Quantity(value=units * sizing.content.value, unit=unit),
                                     sizing.content, sizing.basis, sizing.unit_mismatch)
+                    pack_explanation = _partial_stock_pack_explanation(product, sizing, units, free)
             final = _line_input(line_id, item_id, product, facts, sizing)
             if final.stock is StockKind.EXACT:
                 # The pool left for this line after earlier items used the same product.
                 final = replace(final, stock_amount=probe.stock_amount - used.get(product.productId, Decimal(0)))
+                if pack_explanation is not None:
+                    final = replace(final, facts=tuple(_with_stock_display(final.facts, pack_explanation)))
             verdict = evaluate_line(final, item=_neutral_item(item_id, remaining, unit), mandate=mandate,
                                     requested_date=request.requestedDate, now=now)
             used[product.productId] = used.get(product.productId, Decimal(0)) + units
@@ -378,6 +426,9 @@ def build_offer(
             if price.valid_to is not None:
                 valid_tos.append(price.valid_to)
             item_line_indices.append(len(lines))
+            line_facts = [*facts.facts, *product.facts]
+            if pack_explanation is not None:
+                line_facts = _with_stock_display(line_facts, pack_explanation)
             lines.append(OfferLine(
                 lineId=line_id,
                 itemId=item_id,
@@ -394,7 +445,7 @@ def build_offer(
                 vatRate=price.vat_rate,
                 deliveryDate=facts.availability.delivery_date,
                 closingTime=facts.availability.closing_time,
-                facts=[*facts.facts, *product.facts],
+                facts=line_facts,
                 reasons=[ReasonCode(r) for r in verdict.reasons],
             ))
             verdicts.append(verdict)
@@ -402,10 +453,17 @@ def build_offer(
         if item_line_indices and remaining > 0:
             partial_item_ids.add(item_id)
             delivered_total = sum((lines[idx].deliveredQuantity.value for idx in item_line_indices), Decimal(0))
+            shortfall = requested_qty - delivered_total
+            deliv_date = lines[item_line_indices[0]].deliveryDate
+            date_str = format_date(deliv_date) if deliv_date is not None else format_date(request.requestedDate)
+            shortfall_clause = (
+                f"{_format_qty_comma(delivered_total)} {unit} now; "
+                f"{_format_qty_comma(shortfall)} {unit} cannot be met by {date_str}"
+            )
             cov_label = _partial_coverage_label(
                 Quantity(value=delivered_total, unit=unit),
                 Quantity(value=requested_qty, unit=unit),
-                lines[item_line_indices[0]].deliveryDate,
+                deliv_date,
                 retrieved_at=snapshot.captured_at,
             )
             for idx in item_line_indices:
@@ -413,14 +471,26 @@ def build_offer(
                 updated_reasons = [ReasonCode(r) for r in ln.reasons]
                 if ReasonCode.PARTIAL_AVAILABILITY not in updated_reasons:
                     updated_reasons.append(ReasonCode.PARTIAL_AVAILABILITY)
+                updated_facts = [
+                    f.model_copy(update={"display": f"{f.display} · {shortfall_clause}"})
+                    if f.fact == "stock.quantity" and f.display and shortfall_clause not in f.display
+                    else f
+                    for f in ln.facts
+                ]
                 lines[idx] = ln.model_copy(update={
                     "reasons": updated_reasons,
-                    "facts": [*ln.facts, cov_label],
+                    "facts": [*updated_facts, cov_label],
                 })
                 vd = verdicts[idx]
+                vd_facts = tuple(
+                    f.model_copy(update={"display": f"{f.display} · {shortfall_clause}"})
+                    if f.fact == "stock.quantity" and f.display and shortfall_clause not in f.display
+                    else f
+                    for f in vd.line.facts
+                )
                 verdicts[idx] = replace(
                     vd,
-                    line=replace(vd.line, facts=(*vd.line.facts, cov_label)),
+                    line=replace(vd.line, facts=(*vd_facts, cov_label)),
                 )
 
     created = snapshot.captured_at

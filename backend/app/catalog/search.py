@@ -10,7 +10,14 @@ from typing import Literal
 from pydantic import Field
 
 from app.catalog.build import CatalogArtifact, get_cached_catalog
-from app.catalog.categories import is_food_category, matching_categories_for_type, product_type_match
+from app.catalog.categories import (
+    family_group_matches,
+    is_food_category,
+    matching_categories_for_type,
+    product_type_match,
+    query_family_noun_groups,
+    same_product_family,
+)
 from app.catalog.normalise import allergen_declaration, product_fact
 from app.catalog.vocab import (
     CONCEPTS_BY_ID,
@@ -336,6 +343,8 @@ def evaluate_product_static_requirements(
 
 def _token_group_matches(group: tuple[str, ...], entry: _IndexedProduct) -> bool:
     for term in group:
+        if term in ("fille", "salmo"):
+            continue
         if " " in term:
             if term in entry.text_lower:
                 return True
@@ -425,20 +434,31 @@ def search_products(
 
     allow_non_food = include_non_food or (primary_concept is not None and not primary_concept.is_food)
     token_groups, _ = expand_query_tokens(cleaned_query)
+    family_groups = query_family_noun_groups(cleaned_query)
+    requirement_codes = tuple(r.code for r in applied_reqs)
 
     # Candidate pool selection:
     pool: list[_IndexedProduct] = []
     seen_pool: set[str] = set()
 
-    def add_to_pool(entry: _IndexedProduct) -> None:
+    def add_to_pool(entry: _IndexedProduct, *, is_named_id: bool = False) -> None:
         if not allow_non_food and not entry.is_food:
+            return
+        if not is_named_id and not same_product_family(
+            cleaned_query,
+            (entry.product.name, *entry.product.names.values()),
+            concept_id=primary_concept.concept_id if primary_concept else None,
+            parent_concept_id=parent_concept.concept_id if parent_concept else None,
+            category=entry.category,
+            requirement_codes=requirement_codes,
+        ):
             return
         if entry.product.productId not in seen_pool:
             seen_pool.add(entry.product.productId)
             pool.append(entry)
 
     if target_product_id and target_product_id in index.by_id:
-        add_to_pool(index.by_id[target_product_id])
+        add_to_pool(index.by_id[target_product_id], is_named_id=True)
 
     if primary_concept is not None:
         active_concept = parent_concept or primary_concept
@@ -455,19 +475,16 @@ def search_products(
                     parent_concept is not None and match_concept_in_text(parent_concept, entry.text_lower, entry.words)
                 ):
                     add_to_pool(entry)
-    elif token_groups:
+    elif family_groups or token_groups:
+        active_groups = family_groups or tuple(token_groups)
         cat_prefixes = matching_categories_for_type(cleaned_query)
         search_space = index.entries_for_prefixes(cat_prefixes) if cat_prefixes else index.all_entries
         for entry in search_space:
-            if all(_token_group_matches(grp, entry) for grp in token_groups):
+            if all(family_group_matches(grp, entry.text_lower, entry.words) for grp in active_groups):
                 add_to_pool(entry)
         if not pool and search_space is not index.all_entries:
             for entry in index.all_entries:
-                if all(_token_group_matches(grp, entry) for grp in token_groups):
-                    add_to_pool(entry)
-        if not pool and len(token_groups) > 1:
-            for entry in index.all_entries:
-                if any(_token_group_matches(grp, entry) for grp in token_groups):
+                if all(family_group_matches(grp, entry.text_lower, entry.words) for grp in active_groups):
                     add_to_pool(entry)
     else:
         for entry in index.all_entries:
@@ -502,8 +519,6 @@ def search_products(
 
     q_lower = cleaned_query.lower()
 
-    requirement_codes = tuple(r.code for r in applied_reqs)
-
     def rank_key(entry: _IndexedProduct) -> tuple[int, int, int, int, int, int, float, int, str]:
         prod = entry.product
         is_exact_id = 0 if (target_product_id and prod.productId == target_product_id) else 1
@@ -514,12 +529,13 @@ def search_products(
         )
         # T34: the buyer's use-changing qualifiers (whipping vs cooking cream, dairy vs alternative) come
         # right after the product concept, so exact types fill the shortlist before substitutes.
-        type_mismatch = 0 if product_type_match(
+        tm = product_type_match(
             cleaned_query,
             (prod.name, *prod.names.values()),
             concept_id=primary_concept.concept_id if primary_concept else None,
             requirement_codes=requirement_codes,
-        ).exact else 1
+        )
+        type_mismatch = 0 if tm.exact else len(tm.differences)
         matched_tokens = sum(1 for grp in token_groups if _token_group_matches(grp, entry))
         is_specialty = 0
         if primary_concept and primary_concept.prefer_plain_over:

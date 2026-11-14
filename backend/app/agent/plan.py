@@ -18,7 +18,12 @@ from typing import Literal
 
 from pydantic import Field
 
-from app.catalog.categories import TypeMatch, product_type_match, strip_type_qualifiers
+from app.catalog.categories import (
+    TypeMatch,
+    missing_family_nouns,
+    product_type_match,
+    same_product_family,
+)
 from app.catalog.normalise import apply_price_ratio_content
 from app.catalog.search import (
     SearchProductsResult,
@@ -31,7 +36,6 @@ from app.catalog.search import (
 from app.catalog.vocab import (
     CONCEPTS_BY_ID,
     ProductConcept,
-    expand_query_tokens,
     extract_inline_requirements,
     match_concept_in_text,
     resolve_query_concepts,
@@ -51,10 +55,19 @@ from app.contracts import (
     Requirement,
     StructuredRequest,
     TrustLabel,
+    format_date,
     format_money,
 )
 from app.contracts.common import Contract
-from app.gateway.offers import PIECE_UNITS, VOLUME_UNITS, WEIGHT_UNITS, size
+from app.gateway.offers import (
+    PIECE_UNITS,
+    VOLUME_UNITS,
+    WEIGHT_UNITS,
+     Sizing,
+    _floor_to_lot,
+    _partial_stock_pack_explanation,
+    size,
+)
 from app.policy.requirements import check_requirements, hard_requirements
 from app.trust.labels import SOURCE_SUBSTITUTION, allergen_name
 from app.valio.record import BRIEF_PRODUCT_IDS
@@ -556,6 +569,10 @@ _GENERIC_NAME_LEADS: frozenset[str] = frozenset({
     "cooking",
     "whipping",
     "fresh",
+    "frozen",
+    "smoked",
+    "lightly",
+    "buffet",
     "light",
     "cream",
     "pasta",
@@ -566,6 +583,19 @@ _GENERIC_NAME_LEADS: frozenset[str] = frozenset({
     "lasagne",
     "fettuccine",
     "fettucine",
+    "salmon",
+    "rainbow",
+    "trout",
+    "flounder",
+    "flounderfillet",
+    "herring",
+    "cod",
+    "fish",
+    "butter",
+    "cheese",
+    "bread",
+    "msc",
+    "asc",
 })
 
 _PASTA_SHAPES: tuple[tuple[str, str], ...] = (
@@ -673,6 +703,8 @@ def _format_tradeoff(
     substitution_source: SubstitutionKind | None,
     substitute_for: str | None,
     type_differences: tuple[str, ...] = (),
+    pack_explanation: str | None = None,
+    shortfall_text: str | None = None,
 ) -> str:
     parts: list[str] = []
     if substitution_source == "VALIO" and substitute_for:
@@ -709,7 +741,12 @@ def _format_tradeoff(
     if stock_tier == "PLENTY":
         parts.append("plenty in stock (verified)")
     elif stock_tier == "EXACT" and available_qty is not None:
-        parts.append(f"{format(available_qty.normalize(), 'f')} in stock (verified)")
+        if pack_explanation is not None:
+            parts.append(f"{pack_explanation} (verified)")
+        else:
+            parts.append(f"{format(available_qty.normalize(), 'f')} in stock (verified)")
+        if shortfall_text is not None:
+            parts.append(shortfall_text)
     elif stock_tier == "SUPPLIER":
         parts.append("supplier warehouse stock (quantity unknown)")
     elif stock_tier == "UNKNOWN":
@@ -770,20 +807,7 @@ def requested_type_match(product: Product, item: RequestItem) -> TypeMatch:
 
 def _missing_query_nouns(what: str, text_lower: str) -> list[str]:
     """The buyer's product words (qualifiers such as 'fresh' removed) that the product name does not contain."""
-    cleaned, _ = extract_inline_requirements(what)
-    groups, _ = expand_query_tokens(strip_type_qualifiers(cleaned))
-    words = frozenset(_WORD_RE.findall(text_lower))
-    missing: list[str] = []
-    for group in groups:
-        if not any(
-            (" " in term and term in text_lower)
-            or term in words
-            or f"{term}s" in words
-            or (len(term) >= 5 and term in text_lower)
-            for term in group
-        ):
-            missing.append(group[0])
-    return missing
+    return missing_family_nouns(what, text_lower)
 
 
 def _matches_primary_concept(product: Product, primary: ProductConcept | None, query_lower: str) -> tuple[bool, bool]:
@@ -823,13 +847,14 @@ def rank_candidates(
     Non-compliant or non-deliverable candidates are excluded and never returned here.
     """
     obs_map = observations or {}
-    primary_concept, _ = _concept_for_item(item)
+    primary_concept, parent_concept = _concept_for_item(item)
     q_lower = item.what.lower()
     target_id = item.productId or (named_product.productId if named_product else None)
     valio_subs_of_named: frozenset[str] = (
         frozenset(named_product.substitutions) if named_product is not None else frozenset()
     )
     target_fat = requested_fat_percent(item.preferences, item.what)
+    req_codes = tuple(r.code for r in item.requirements)
 
     scored: list[
         tuple[tuple, Product, CandidateObservation | None, SubstitutionKind | None, str | None, tuple[str, ...], bool]
@@ -837,6 +862,17 @@ def rank_candidates(
 
     for prod in candidates:
         named = target_id is not None and prod.productId == target_id
+        # T51 product family guard: a candidate may be offered (even as AGENT_SUBSTITUTE) only if it is
+        # in the same product family as the item.
+        if not named and not same_product_family(
+            item.what,
+            (prod.name, *prod.names.values()),
+            concept_id=primary_concept.concept_id if primary_concept else None,
+            parent_concept_id=parent_concept.concept_id if parent_concept else None,
+            category=prod.category,
+            requirement_codes=req_codes,
+        ):
+            continue
         static_reasons, _ = evaluate_product_static_requirements(
             prod, item.requirements, mandate, named=named, item_id=item.itemId
         )
@@ -866,6 +902,14 @@ def rank_candidates(
         sizing = size(prod, item.quantity, item.unit)
         if sizing.unit_mismatch or sizing.content is None:
             continue
+        if (
+            obs is not None
+            and obs.stock_tier == "EXACT"
+            and obs.available_quantity is not None
+            and obs.available_quantity < sizing.quantity_sales_units
+        ):
+            if _floor_to_lot(obs.available_quantity, prod.allowedLotSize) <= 0:
+                continue
 
         matches_primary, is_specialty = _matches_primary_concept(prod, primary_concept, q_lower)
         # A product of a different type (whipping vs cooking cream, dairy vs alternative) is never an
@@ -894,6 +938,8 @@ def rank_candidates(
             else:
                 sub_rank = 2
                 sub_source = "AGENT"
+
+        type_diff_count = 0 if exact_type else len(type_match.differences)
 
         # When live/recorded observations exist for this item, any candidate with a verified observation
         # ranks ahead of static-only candidates that were not in a partial recorded fixture batch.
@@ -946,6 +992,7 @@ def rank_candidates(
         sort_key = (
             has_observation,
             sub_rank,
+            type_diff_count,
             fat_unknown_rank,
             crit1_declared,
             crit2_deliverable,
@@ -968,6 +1015,34 @@ def rank_candidates(
 
     for idx, (_key, prod, obs, sub_source, sub_for, type_differences, is_exact_type) in enumerate(scored):
         sizing = size(prod, item.quantity, item.unit)
+        pack_explanation: str | None = None
+        shortfall_text: str | None = None
+        if (
+            obs is not None
+            and obs.stock_tier == "EXACT"
+            and obs.available_quantity is not None
+            and sizing.content is not None
+            and obs.available_quantity < sizing.quantity_sales_units
+        ):
+            capped_units = _floor_to_lot(obs.available_quantity, prod.allowedLotSize)
+            if capped_units > 0:
+                sizing = Sizing(
+                    capped_units,
+                    Quantity(value=capped_units * sizing.content.value, unit=item.unit),
+                    sizing.content,
+                    sizing.basis,
+                    sizing.unit_mismatch,
+                )
+                pack_explanation = _partial_stock_pack_explanation(
+                    prod, sizing, capped_units, obs.available_quantity
+                )
+                if sizing.delivered.value < item.quantity:
+                    shortfall = item.quantity - sizing.delivered.value
+                    day_str = format_date(obs.delivery_date or requested_date)
+                    shortfall_text = (
+                        f"{_qty_text(sizing.delivered.value, item.unit)} now; "
+                        f"{_qty_text(shortfall, item.unit)} cannot be met by {day_str}"
+                    )
         comp_price, comp_unit = _comparison_price(prod, obs, item.unit)
         if idx == 0:
             best_comp_price = comp_price
@@ -1012,6 +1087,8 @@ def rank_candidates(
             substitution_source=sub_source,
             substitute_for=sub_for,
             type_differences=type_differences if sub_source == "AGENT" else (),
+            pack_explanation=pack_explanation,
+            shortfall_text=shortfall_text,
         )
 
         ranked.append(
@@ -1269,14 +1346,20 @@ def build_shortlist_offer_items(
     # Per §7.7 ("same product type first"), if non-substitute candidates exist (substitutionSource is None),
     # do not mix different-product-type agent substitutes into the same item allocation.
     has_direct_candidates = any(rc.substitutionSource is None for rc in ranked_candidates)
-    # T39: a different product type (frozen for fresh, margarine for butter) never fills the remainder of an
-    # item while products of the requested type exist, also when the buyer named a product.
+    # T39 / T51: a different product type (frozen for fresh, margarine for butter) never fills the remainder
+    # of an item while products of the requested type exist. When exact-type stock is absent, offer at most
+    # ONE same-family substitute; never pad with other products.
     has_exact_type = any(rc.exactType for rc in ranked_candidates)
+    agent_sub_added = False
     for rc in ranked_candidates:
         if has_direct_candidates and rc.substitutionSource == "AGENT" and item.productId is None:
             continue
         if has_exact_type and not rc.exactType:
             continue
+        if rc.substitutionSource == "AGENT" or not rc.exactType:
+            if agent_sub_added:
+                continue
+            agent_sub_added = True
         add_id(rc.productId)
 
     return [
@@ -1330,6 +1413,39 @@ def _qty_text(value: Decimal, unit: str) -> str:
     return f"{format(value.normalize(), ',f')} {unit}"
 
 
+def _is_valid_feasible_line(ln: OfferLine, item: RequestItem | None, mandate: Mandate) -> bool:
+    """T51: feasible-within-limit hints may use only valid, compliant, same-family lines."""
+    if any(r in _NON_ORDERABLE_CODES for r in ln.reasons):
+        return False
+    if ln.unitPriceExclVat <= 0 or ln.contentPerSalesUnit.value <= 0 or ln.quantitySalesUnits <= 0:
+        return False
+    if item is not None:
+        facts_by_key = {f.fact: f for f in ln.facts}
+        for req in hard_requirements(item.requirements, mandate):
+            key = f"claim.{req.code}" if req.kind == "CLAIM" else f"allergen.{req.code}"
+            fact = facts_by_key.get(key)
+            if fact is not None:
+                if fact.level == "UNKNOWN" or fact.conflict is not None:
+                    return False
+                if req.kind == "CLAIM" and fact.value is False:
+                    return False
+                if req.kind == "AVOID_ALLERGEN" and fact.value in ("CONTAINS", "MAY_CONTAIN", None):
+                    return False
+        if item.productId != ln.productId:
+            primary_c, parent_c = _concept_for_item(item)
+            is_syn = ln.productId.startswith("SYN-") or ln.name.lower().startswith("synthetic syn-")
+            if not same_product_family(
+                item.what,
+                (ln.name, *([ln.nameFi] if ln.nameFi else [])),
+                concept_id=primary_c.concept_id if primary_c else None,
+                parent_concept_id=parent_c.concept_id if parent_c else None,
+                category="synthetic" if is_syn else "",
+                requirement_codes=tuple(r.code for r in item.requirements),
+            ):
+                return False
+    return True
+
+
 def feasible_within_hard_limit(
     proposal: Proposal, mandate: Mandate, lot_sizes: Mapping[str, Decimal] | None = None
 ) -> FeasibleOrder | None:
@@ -1340,9 +1456,13 @@ def feasible_within_hard_limit(
         return None
     if any(r in (ReasonCode.ALLERGEN_CONTAINS,) for r in proposal.reasons) or not proposal.lines:
         return None
-    total = proposal.totals.exclVat
+    items_by_id = {it.itemId: it for it in proposal.request.items}
+    valid_lines = [ln for ln in proposal.lines if _is_valid_feasible_line(ln, items_by_id.get(ln.itemId), mandate)]
+    if not valid_lines:
+        return None
+    total = sum((ln.lineTotalExclVat for ln in valid_lines), Decimal(0))
     limit = mandate.hardLimitEur
-    if total <= 0 or total <= limit:
+    if total <= 0 or (len(valid_lines) == len(proposal.lines) and total <= limit):
         return None
     given = lot_sizes or {}
 
@@ -1353,16 +1473,16 @@ def feasible_within_hard_limit(
             return Decimal(1)
         return size_
 
-    factor = limit / total
-    lots = {ln.lineId: lot(ln) for ln in proposal.lines}
-    units = {ln.lineId: _floor_units(ln.quantitySalesUnits * factor, lots[ln.lineId]) for ln in proposal.lines}
+    factor = min(Decimal(1), limit / total)
+    lots = {ln.lineId: lot(ln) for ln in valid_lines}
+    units = {ln.lineId: _floor_units(ln.quantitySalesUnits * factor, lots[ln.lineId]) for ln in valid_lines}
 
     def line_total(ln: OfferLine) -> Decimal:
         return (units[ln.lineId] * ln.unitPriceExclVat).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     # Rounding can never push the sum over the limit, but stay safe: drop whole lots from the largest line.
-    while sum((line_total(ln) for ln in proposal.lines), Decimal(0)) > limit:
-        largest = max(proposal.lines, key=line_total)
+    while sum((line_total(ln) for ln in valid_lines), Decimal(0)) > limit:
+        largest = max(valid_lines, key=line_total)
         units[largest.lineId] -= lots[largest.lineId]
     feasible = [
         FeasibleLine(
@@ -1374,7 +1494,7 @@ def feasible_within_hard_limit(
                                        unit=ln.deliveredQuantity.unit),
             lineTotalExclVat=line_total(ln),
         )
-        for ln in proposal.lines
+        for ln in valid_lines
         if units[ln.lineId] > 0
     ]
     if not feasible:
