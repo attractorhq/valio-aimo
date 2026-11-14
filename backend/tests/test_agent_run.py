@@ -579,6 +579,33 @@ def synthetic_api():
 # --------------------------------------------------------------------------- 1. Synthetic A, B, C, Row 8, Row 24
 
 
+def test_openapi_request_examples_run_through_the_agent_gateway(synthetic_api):
+    client, _ = synthetic_api
+    paths = client.get("/openapi.json").json()["paths"]
+
+    def examples(route):
+        return paths["/v0.1/" + route]["post"]["requestBody"]["content"]["application/json"]["examples"]
+
+    for example in examples("agent/run").values():
+        response = client.post("/v0.1/agent/run", json=example["value"])
+        assert response.status_code == 200, response.text
+        assert response.json()["proposal"] is not None
+
+    search = client.post("/v0.1/products/search", json=examples("products/search")["school_gluten_free"]["value"])
+    assert search.status_code == 200, search.text
+    assert any(product["productId"] == "474235" for product in search.json()["candidates"])
+    offer = client.post("/v0.1/offers", json=examples("offers")["school_gluten_free"]["value"])
+    assert offer.status_code == 200, offer.text
+
+    proposal = client.post("/v0.1/proposals", json={
+        **examples("proposals")["school_gluten_free"]["value"],
+        "offerId": offer.json()["offerId"],
+        "offerVersion": offer.json()["offerVersion"],
+    })
+    assert proposal.status_code == 201, proposal.text
+    assert proposal.json()["offerHash"] == offer.json()["offerHash"]
+
+
 def test_scenario_a_auto_ranks_cheapest_milk_and_confirms(synthetic_api):
     client, _ = synthetic_api
     t0 = time.perf_counter()

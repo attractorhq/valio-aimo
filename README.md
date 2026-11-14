@@ -130,7 +130,62 @@ Two channels on one origin. The full contract is in `docs/API.md`, and JSON Sche
   | 503 | `GATEWAY_UNAVAILABLE` |
 - **Demo access:** there is no authentication. Anyone who can reach the demo approver channel can obtain demo approval permissions; channel separation is not production access control. Links/tokens are labelled **Demo approval link — single use**, expire with the offer and are bound to `proposalId + offerVersion + offerHash`. The QR and phone link exist only in the Approver view, never an agent response. The demo audit actor is `human:Head Chef (demo, link-based)`, not an authenticated identity. Production needs named approvers (SSO/OIDC) and per-customer agent credentials; buyer-admin routes also need authorisation. Export `APPROVAL_SIGNING_KEY` into the backend process environment if configuring a stable local signing key.
 
-Walkthrough, scenario B (school kitchen, €500 auto-approve limit):
+### API in 60 seconds
+
+Open `/docs` for ready-to-edit request examples. These Bash commands use `curl` and `jq`. Set `API` to `http://localhost:8000` to use a local gateway. The sandbox header keeps the offer and proposal in the same demo session.
+
+**Run the official hotel request**
+
+```bash
+API=${API:-https://valio-aimo.attractorfi.workers.dev}
+SANDBOX="api-quickstart-$(date +%s)-$RANDOM"
+curl -fsS "$API/v0.1/agent/run" -H "X-Demo-Sandbox: $SANDBOX" -H 'Content-Type: application/json' -d '{
+  "customerId": "nordic-harbour-hotels",
+  "requestText": "I need 1,000 litres of lactose-free milk by Monday. Find an option that meets our requirements based on price and availability."
+}' | jq '{decision, reasons, totals: .proposal.totals}'
+```
+
+**Search and quote the school kitchen's shortlist**
+
+```bash
+curl -fsS "$API/v0.1/products/search?customerId=northbay-school-kitchen" \
+  -H "X-Demo-Sandbox: $SANDBOX" -H 'Content-Type: application/json' -d '{
+    "query": "macaroni", "itemId": "I1", "limit": 5,
+    "requirements": [{"kind": "CLAIM", "code": "FREE_FROM_GLUTEN"}]
+  }' | jq '.candidates[] | {productId, name}'
+
+OFFER=$(curl -fsS "$API/v0.1/offers" -H "X-Demo-Sandbox: $SANDBOX" -H 'Content-Type: application/json' -d '{
+  "customerId": "northbay-school-kitchen", "requestedDate": "2026-11-16",
+  "items": [
+    {"itemId": "I1", "productId": "474235", "quantity": "90", "unit": "kg"},
+    {"itemId": "I2", "productId": "468465", "quantity": "80", "unit": "l"}
+  ]
+}')
+printf '%s\n' "$OFFER" | jq '{offerId, offerVersion, requestedDate, totals}'
+```
+
+**Create a proposal from that offer**
+
+```bash
+printf '%s\n' "$OFFER" | jq '{
+  customerId, offerId, offerVersion,
+  request: {
+    requestedDate,
+    requestText: "We need 90 kg of gluten-free macaroni and 80 litres of gluten-free oat drink.",
+    items: [
+      {itemId: "I1", productId: "474235", what: "macaroni", quantity: "90", unit: "kg",
+       requirements: [{kind: "CLAIM", code: "FREE_FROM_GLUTEN"}]},
+      {itemId: "I2", productId: "468465", what: "oat drink", quantity: "80", unit: "l",
+       requirements: [{kind: "CLAIM", code: "FREE_FROM_GLUTEN"}]}
+    ]
+  }
+}' | curl -fsS "$API/v0.1/proposals" -H "X-Demo-Sandbox: $SANDBOX" \
+  -H 'Content-Type: application/json' --data-binary @- | jq '{proposalId, decision, reasons, state}'
+```
+
+Submit the proposal before the offer expires. The delivery date in these examples matches the challenge dataset. After the live order cut-off, use a gateway serving the recorded capture.
+
+Walkthrough for human approval of Scenario B (school kitchen, €500 auto-approve limit):
 
 ```bash
 API=http://localhost:8000
