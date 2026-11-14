@@ -98,7 +98,7 @@ uvicorn.run(app, host="127.0.0.1", port=${apiPort}, log_level="warning")
     try {
       const admin = await first.newPage()
       await admin.goto(`${baseURL}/admin`)
-      await admin.getByRole('button', { name: 'Enter demo admin key', exact: true }).click()
+      await admin.getByRole('button', { name: 'Enter admin key', exact: true }).click()
       await admin.getByLabel('Auto-approve limit (€, excl. VAT)').fill('100')
       await admin.getByRole('button', { name: 'Apply policy change' }).click()
       await expect
@@ -147,7 +147,7 @@ uvicorn.run(app, host="127.0.0.1", port=${apiPort}, log_level="warning")
 
       await expect(buyer.getByText('Private session')).toBeVisible()
       await buyer.goto(`${baseURL}/admin`)
-      await buyer.getByRole('button', { name: 'Enter demo admin key', exact: true }).click()
+      await buyer.getByRole('button', { name: 'Enter admin key', exact: true }).click()
       await buyer.goto(baseURL)
       await buyer.getByRole('button', { name: 'Reset', exact: true }).click()
       await expect(buyer.getByRole('listitem', { name: /Order/ })).toContainText('Not started')

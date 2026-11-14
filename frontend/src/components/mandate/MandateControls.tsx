@@ -334,11 +334,11 @@ export function BuyerAdmin() {
         </Link>
       </header>
       <section className="panel">
-        <p>Demo admin key: <code>demo-admin</code> · public demonstration only, not production authentication.</p>
+        <p>Admin changes need the public admin key.</p>
         <button type="button" className="button" disabled={adminEntered} onClick={() => {
           sessionStorage.setItem('verified-or-ask.demo-admin-key', 'demo-admin')
           setAdminEntered(true)
-        }}>{adminEntered ? 'Demo admin key entered' : 'Enter demo admin key'}</button>
+        }}>{adminEntered ? 'Admin key entered' : 'Enter admin key'}</button>
       </section>
       <div className="main-grid">
         <aside className="main-side panel">

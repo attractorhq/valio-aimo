@@ -56,7 +56,7 @@ export function Approver() {
         <div>
           <h1>Approver{mandate ? ` — ${mandate.approver.role}` : ''}</h1>
           <p>Human sign-off channel · not the agent</p>
-          <p>Demo sign-in: role only, no password</p>
+          <p>Sign-in: role only, no password</p>
         </div>
         {mandates.isPending ? (
           <label className="approver-switch" aria-hidden="true">

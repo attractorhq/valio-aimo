@@ -12,14 +12,15 @@ DEMO_AGENT_KEYS = {f"demo-agent-{m.customerId}": m.customerId for m in DEMO_MAND
 
 def require_admin(request: Request) -> None:
     if not hmac.compare_digest(request.headers.get("x-demo-admin-key", "").encode(), b"demo-admin"):
-        raise HTTPException(401, "Enter the demo admin key.")
+        raise HTTPException(401, "Buyer-admin changes need the public demo header 'X-Demo-Admin-Key: demo-admin'.")
 
 
 def agent_customer(request: Request) -> str:
     scheme, _, token = request.headers.get("authorization", "").partition(" ")
     customer = DEMO_AGENT_KEYS.get(token) if scheme.lower() == "bearer" else None
     if customer is None:
-        raise HTTPException(401, "A customer-scoped demo agent Bearer key is required.",
+        raise HTTPException(401, "Send the buyer's public agent key: 'Authorization: Bearer demo-agent-<customerId>' "
+                                 f"(one of: {', '.join(sorted(DEMO_AGENT_KEYS))}). See /docs.",
                             headers={"WWW-Authenticate": "Bearer"})
     return customer
 

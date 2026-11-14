@@ -29,7 +29,7 @@ export default function App() {
       await gateway.checkHealth()
       if (gateway.source === 'GATEWAY') {
         if (!sessionStorage.getItem(DEMO_ADMIN_STORAGE)) {
-          throw new Error('Enter the demo admin key on the Buyer admin page before resetting.')
+          throw new Error('Enter the admin key on the Buyer admin page before resetting.')
         }
         const response = await fetch('/v0.1/admin/demo/reset', { method: 'POST', headers: adminHeaders() })
         if (!response.ok) throw new Error('Could not reset your session. Please try again.')

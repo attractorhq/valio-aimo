@@ -251,7 +251,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     // Separate Approver panel signs off version 1
     const approverPage = await context.newPage()
     await approverPage.goto(`${baseURL}/approver`)
-    await expect(approverPage.getByText('Demo sign-in: role only, no password')).toBeVisible()
+    await expect(approverPage.getByText('Sign-in: role only, no password')).toBeVisible()
     await approverPage.getByRole('combobox').selectOption('northbay-school-kitchen')
     await expect(approverPage.getByRole('heading', { name: 'Approver — Head Chef' })).toBeVisible()
     await expect(
