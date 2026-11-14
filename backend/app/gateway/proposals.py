@@ -102,6 +102,11 @@ from app.valio.facts import SENTINEL_METHOD, is_stock_sentinel
 COMMITTED_STATES = frozenset({"PENDING_APPROVAL", "APPROVED", "AUTO_APPROVED", "RECHECKED", "CONFIRMED_SIMULATED"})
 
 
+def _type_guard_facts(facts: Sequence[TrustLabel]) -> list[TrustLabel]:
+    return [fact for fact in facts
+            if fact.fact == "product.typeGuard" or fact.fact.startswith("substitute.allergen.")]
+
+
 class ProposalError(ValueError):
     """Base error for proposal operations."""
 
@@ -880,7 +885,7 @@ class ProposalGateway:
         if eval_now.tzinfo is None:
             raise ValueError("now must be timezone-aware")
 
-        line_inputs = self._line_inputs_for(stored)
+        line_inputs = [replace(line, check_requested_type=True) for line in self._line_inputs_for(stored)]
         effective_partial = (
             frozenset(stored.partial_items | _inferred_offer_partial_items(bound_offer))
             if partial_items is None
@@ -1292,6 +1297,10 @@ class ProposalGateway:
                 continue
             verdict = verdict_by_line[line.lineId]
             facts = list(evaluated_facts(line.productId, line.itemId, line.facts))
+            guard_facts = _type_guard_facts(verdict.line.facts)
+            if guard_facts:
+                guard_keys = {fact.fact for fact in guard_facts}
+                facts = [fact for fact in facts if fact.fact not in guard_keys] + guard_facts
             if line.itemId not in primary_line_by_item:
                 primary_line_by_item[line.itemId] = line
                 if (
@@ -1477,7 +1486,7 @@ class ProposalGateway:
                 diffs.append(f"cut-off time for {line.productId} changed")
 
             # e. hard requirements still proven (line rules L1–L14)
-            probe = _line_input(line.lineId, line.itemId, sized_product, facts, sizing)
+            probe = replace(_line_input(line.lineId, line.itemId, sized_product, facts, sizing), check_requested_type=True)
             if probe.stock is StockKind.EXACT:
                 prev_used = used_stock.get(line.productId, Decimal(0)) - line.quantitySalesUnits
                 probe = replace(probe, stock_amount=(avail.available_quantity or Decimal(0)) - prev_used)
@@ -1505,6 +1514,9 @@ class ProposalGateway:
                 requested_date=proposal.requestedDate,
                 now=check_now,
             )
+            # A changed type/base or added allergen is a new trade-off, even if the reason remains AGENT_SUBSTITUTE.
+            if _type_guard_facts(verdict.line.facts) != _type_guard_facts(line.facts):
+                diffs.append(f"product type or substitute allergen disclosure for {line.productId} changed")
             if verdict.status != "OK":
                 diffs.append(
                     f"line {line.lineId} ({line.productId}) failed rules: "
