@@ -1,0 +1,389 @@
+#!/usr/bin/env python3
+"""Demo kit for Verified or Ask (T18, Patch P5.2/P5.3/P8/P12).
+
+Runs:
+1. Live pre-flight check (A, B, C, B2) against the Valio Aimo API (or recorded fallback when red/offline).
+2. Demo-state reset (restores mandates M1/M2 to default limits/modes and clears pending approvals).
+3. End-to-end Playwright browser test (`frontend/e2e/demo.spec.ts`: A AUTO → B ASK + Approver v1 → C BLOCK)
+   3× in a row against a target URL (deployed Cloudflare Worker or an automatically started local stack).
+4. Openness check (`scripts/second-client`) against the same gateway.
+
+Usage:
+  scripts/demo                                         # pre-flight + local gateway + 3× e2e + second-client
+  scripts/demo https://valio-aimo.<acct>.workers.dev   # pre-flight + reset + 3× e2e against deployed URL
+  scripts/demo --reset [URL]                           # only reset demo state on URL (default: http://localhost:8000)
+  scripts/demo --preflight                             # only run live pre-flight check
+  scripts/demo --mode recorded                         # force RECORDED mode fallback (P5.3) for local demo
+"""
+
+import argparse
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import time
+from typing import Any
+import urllib.error
+import urllib.parse
+import urllib.request
+
+ROOT = Path(__file__).resolve().parents[1]
+VENV_PY = ROOT / ".venv/bin/python"
+if VENV_PY.exists() and Path(sys.prefix).resolve() != (ROOT / ".venv").resolve():
+    os.execv(str(VENV_PY), [str(VENV_PY), *sys.argv])
+
+sys.path.insert(0, str(ROOT / "backend"))
+
+DEFAULT_MANDATES: tuple[dict[str, Any], ...] = (
+    {
+        "customerId": "nordic-harbour-hotels",
+        "autoApproveLimitEur": "1500.00",
+        "hardLimitEur": "5000.00",
+        "allergenMode": "STANDARD",
+        "autoAcceptValioSubstitutes": True,
+        "autoAcceptSupplierStock": False,
+        "minReliability": "0.80",
+    },
+    {
+        "customerId": "northbay-school-kitchen",
+        "autoApproveLimitEur": "500.00",
+        "hardLimitEur": "3000.00",
+        "allergenMode": "STRICT",
+        "autoAcceptValioSubstitutes": False,
+        "autoAcceptSupplierStock": False,
+        "minReliability": "0.80",
+    },
+)
+
+
+def _http_json(
+    method: str,
+    url: str,
+    body: dict[str, Any] | None = None,
+    timeout: float = 20.0,
+) -> Any:
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    headers = {"Accept": "application/json"}
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, headers=headers, method=method.upper())
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def reset_demo_state(api_base_url: str) -> dict[str, Any]:
+    """Reset mandates M1 and M2 to defaults and clear any pending proposals in the Approver queue."""
+    clean = api_base_url.rstrip("/")
+    health = _http_json("GET", f"{clean}/health")
+    if not isinstance(health, dict) or not health.get("ready"):
+        raise RuntimeError(f"Gateway at {clean}/health is not ready: {health}")
+
+    reset_mandates: list[str] = []
+    for spec in DEFAULT_MANDATES:
+        cid = spec["customerId"]
+        current = _http_json("GET", f"{clean}/v0.1/mandates/{urllib.parse.quote(cid)}")
+        patch: dict[str, Any] = {}
+        if str(current.get("autoApproveLimitEur")) != spec["autoApproveLimitEur"]:
+            patch["autoApproveLimitEur"] = spec["autoApproveLimitEur"]
+        if str(current.get("hardLimitEur")) != spec["hardLimitEur"]:
+            patch["hardLimitEur"] = spec["hardLimitEur"]
+        if current.get("allergenMode") != spec["allergenMode"]:
+            patch["allergenMode"] = spec["allergenMode"]
+        if bool(current.get("autoAcceptValioSubstitutes")) != spec["autoAcceptValioSubstitutes"]:
+            patch["autoAcceptValioSubstitutes"] = spec["autoAcceptValioSubstitutes"]
+        if bool(current.get("autoAcceptSupplierStock")) != spec["autoAcceptSupplierStock"]:
+            patch["autoAcceptSupplierStock"] = spec["autoAcceptSupplierStock"]
+        if float(current.get("minReliability", 0.8)) != float(spec["minReliability"]):
+            patch["minReliability"] = spec["minReliability"]
+        if patch:
+            _http_json(
+                "PATCH",
+                f"{clean}/v0.1/admin/mandates/{urllib.parse.quote(cid)}",
+                patch,
+            )
+            reset_mandates.append(cid)
+
+    cleared_proposals: list[str] = []
+    pending = _http_json("GET", f"{clean}/v0.1/approver/proposals?pendingOnly=true")
+    if isinstance(pending, list):
+        for item in pending:
+            pid = str(item.get("proposalId", ""))
+            if not pid:
+                continue
+            try:
+                view = _http_json("GET", f"{clean}/v0.1/approver/proposals/{urllib.parse.quote(pid)}")
+                token = view.get("approvalToken")
+                ver = view.get("proposal", {}).get("offerVersion", item.get("offerVersion", 1))
+                if token:
+                    _http_json(
+                        "POST",
+                        f"{clean}/v0.1/approver/proposals/{urllib.parse.quote(pid)}/decision",
+                        {
+                            "offerVersion": ver,
+                            "approvalToken": token,
+                            "action": "REJECT",
+                            "comment": "Demo state reset before presentation",
+                        },
+                    )
+                    cleared_proposals.append(pid)
+            except urllib.error.HTTPError:
+                continue
+
+    return {
+        "apiBaseUrl": clean,
+        "mode": health.get("mode", "RECORDED"),
+        "catalogProducts": health.get("catalogProducts", 0),
+        "resetMandates": reset_mandates,
+        "clearedPendingProposals": cleared_proposals,
+    }
+
+
+def ensure_local_catalog() -> None:
+    """Link or build `data/catalog/catalog.json` when available in a worktree or main clone."""
+    catalog_file = ROOT / "data/catalog/catalog.json"
+    if catalog_file.exists():
+        return
+    try:
+        git_common = subprocess.check_output(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            cwd=ROOT,
+            text=True,
+        ).strip()
+        main_root = Path(git_common).parent
+        main_catalog_dir = main_root / "data/catalog"
+        if (main_catalog_dir / "catalog.json").exists():
+            target_dir = ROOT / "data/catalog"
+            target_dir.mkdir(parents=True, exist_ok=True)
+            for item in main_catalog_dir.iterdir():
+                dest = target_dir / item.name
+                if not dest.exists():
+                    dest.symlink_to(item)
+            return
+    except Exception:
+        pass
+
+    if (ROOT / "data/raw/products.json").exists():
+        subprocess.run([str(ROOT / "scripts/build-catalog")], cwd=ROOT, check=True)
+
+
+def run_preflight_check(force_mode: str | None = None) -> tuple[bool, str]:
+    """Run pre-flight check and return `(green, recommended_mode)`."""
+    from app.config import get_settings
+    from app.eval.preflight import format_preflight_table, run_preflight
+    from app.eval.runner import ReferenceFixtureProvider
+
+    ensure_local_catalog()
+    settings = get_settings()
+    use_reference = not bool(settings.valio_api_key)
+    live_provider = ReferenceFixtureProvider() if use_reference else None
+    report = run_preflight(live_provider=live_provider)
+    print(format_preflight_table(report))
+    if force_mode:
+        chosen = force_mode.upper()
+        print(f"demo: mode explicitly set to {chosen}.")
+        return report.green, chosen
+    return report.green, report.recommended_mode
+
+
+def wait_for_http(url: str, timeout_s: float = 30.0, require_ready: bool = False) -> None:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=2.0) as resp:
+                if resp.status == 200:
+                    if not require_ready:
+                        return
+                    payload = json.loads(resp.read().decode("utf-8"))
+                    if payload.get("ready"):
+                        return
+        except Exception:
+            pass
+        time.sleep(0.25)
+    raise RuntimeError(f"Timed out waiting for {url}")
+
+
+def start_local_stack(mode: str, api_port: int, vite_port: int) -> tuple[subprocess.Popen, subprocess.Popen]:
+    """Start local FastAPI `/v0.1` backend and Vite dev server."""
+    py_script = f"""
+import os, uvicorn
+from test_agent_run import _build_synthetic_catalog, SyntheticAgentProvider, NOW
+from app.api.state import DEFAULT_FIXTURES_DIR, GatewayState, build_state, get_state, latest_capture, try_state
+from app.catalog.build import DEFAULT_ARTIFACT_PATH
+from app.gateway.proposals import ProposalGateway
+from app.main import app
+from app.policy import DEMO_MANDATES, MandateBook
+
+state = None
+if DEFAULT_ARTIFACT_PATH.exists():
+    try:
+        state = build_state()
+    except Exception:
+        state = None
+
+if state is None:
+    products = _build_synthetic_catalog()
+    provider = SyntheticAgentProvider(now=NOW)
+    gateway = ProposalGateway(
+        products=products,
+        mandates=MandateBook(DEMO_MANDATES),
+        provider=provider,
+    )
+    state = GatewayState(
+        gateway=gateway,
+        catalog=list(products.values()),
+        mode="RECORDED",
+        clock=lambda: NOW,
+    )
+
+app.dependency_overrides[get_state] = lambda: state
+app.dependency_overrides[try_state] = lambda: state
+uvicorn.run(app, host="127.0.0.1", port={api_port}, log_level="warning")
+"""
+    backend_env = {
+        **os.environ,
+        "PYTHONPATH": f"{ROOT / 'backend'}:{ROOT / 'backend/tests'}",
+        "VALIO_MODE": "recorded" if mode.upper() == "RECORDED" else "live",
+        "OPENROUTER_API_KEY": "",
+        "FRONTEND_ORIGINS": f"http://127.0.0.1:{vite_port},http://localhost:{vite_port}",
+    }
+    backend_proc = subprocess.Popen(
+        [str(VENV_PY), "-c", py_script],
+        cwd=ROOT / "backend",
+        env=backend_env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
+    wait_for_http(f"http://127.0.0.1:{api_port}/health", timeout_s=35.0, require_ready=True)
+
+    npx_bin = shutil.which("npx") or "npx"
+    vite_env = {
+        **os.environ,
+        "VITE_API_BASE_URL": f"http://127.0.0.1:{api_port}",
+    }
+    vite_proc = subprocess.Popen(
+        [npx_bin, "vite", "--host", "127.0.0.1", "--port", str(vite_port), "--strictPort"],
+        cwd=ROOT / "frontend",
+        env=vite_env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
+    wait_for_http(f"http://127.0.0.1:{vite_port}", timeout_s=25.0)
+    return backend_proc, vite_proc
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument(
+        "url",
+        nargs="?",
+        default=os.environ.get("DEMO_URL", ""),
+        help="Target deployed or local URL (starts an isolated local stack when omitted)",
+    )
+    parser.add_argument(
+        "--api-url",
+        default=os.environ.get("DEMO_API_URL", ""),
+        help="API base URL if different from the frontend URL",
+    )
+    parser.add_argument(
+        "--runs",
+        type=int,
+        default=3,
+        help="Number of consecutive Playwright e2e runs required to pass (default: 3)",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["live", "recorded"],
+        default=None,
+        help="Force LIVE or RECORDED mode when starting the local stack",
+    )
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Only reset demo state (mandates M1/M2 + pending approvals) on target URL",
+    )
+    parser.add_argument(
+        "--preflight",
+        action="store_true",
+        help="Only run the live pre-flight check and exit",
+    )
+    args = parser.parse_args()
+
+    if args.preflight:
+        run_preflight_check(args.mode)
+        return
+
+    if args.reset:
+        target_api = args.api_url or args.url or os.environ.get("GATEWAY_URL", "http://localhost:8000")
+        info = reset_demo_state(target_api)
+        print(
+            f"demo-reset: ok ({info['apiBaseUrl']} · mode={info['mode']} · "
+            f"resetMandates={info['resetMandates']} · clearedPending={len(info['clearedPendingProposals'])})"
+        )
+        return
+
+    _, recommended_mode = run_preflight_check(args.mode)
+    backend_proc: subprocess.Popen | None = None
+    vite_proc: subprocess.Popen | None = None
+
+    try:
+        if args.url:
+            ui_url = args.url.rstrip("/")
+            api_url = (args.api_url or args.url).rstrip("/")
+        else:
+            api_port = 8029
+            vite_port = 5199
+            backend_proc, vite_proc = start_local_stack(recommended_mode, api_port, vite_port)
+            ui_url = f"http://127.0.0.1:{vite_port}"
+            api_url = f"http://127.0.0.1:{api_port}"
+
+        npx_bin = shutil.which("npx") or "npx"
+        run_durations: list[float] = []
+
+        for idx in range(1, args.runs + 1):
+            t0 = time.perf_counter()
+            info = reset_demo_state(api_url)
+            print(
+                f"\n=== Demo E2E Run {idx}/{args.runs} against {ui_url} "
+                f"(gateway mode={info['mode']}, catalog={info['catalogProducts']}) ==="
+            )
+            env = {
+                **os.environ,
+                "DEMO_URL": ui_url,
+                "DEMO_API_URL": api_url,
+            }
+            subprocess.run(
+                [npx_bin, "playwright", "test", "e2e/demo.spec.ts", "--project=desktop"],
+                cwd=ROOT / "frontend",
+                env=env,
+                check=True,
+            )
+            elapsed = round(time.perf_counter() - t0, 2)
+            run_durations.append(elapsed)
+            print(f"=== Run {idx}/{args.runs} GREEN ({elapsed:.2f}s) ===")
+
+        # Final reset + second-client openness verification (P12)
+        reset_demo_state(api_url)
+        print(f"\n=== Verifying OpenAPI + second client against {api_url} ===")
+        subprocess.run(
+            [str(VENV_PY), str(ROOT / "scripts/second-client"), api_url],
+            cwd=ROOT,
+            check=True,
+        )
+        reset_demo_state(api_url)
+
+        timings_str = ", ".join(f"{d:.2f}s" for d in run_durations)
+        print(
+            f"\ndemo: {args.runs}/{args.runs} consecutive e2e runs GREEN [{timings_str}] "
+            f"(A AUTO → B ASK + Approver v1 → C BLOCK · mode={recommended_mode})"
+        )
+    finally:
+        if vite_proc is not None:
+            vite_proc.terminate()
+        if backend_proc is not None:
+            backend_proc.terminate()
+
+
+if __name__ == "__main__":
+    main()
