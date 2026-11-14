@@ -143,6 +143,8 @@ test('all-verified evidence says verified; Valio-declared stock says declared', 
   expect(counts.valioDeclared).toBe(1)
   expect(evidenceHeadline(counts)).toBe('Every required fact verified or declared.')
   expect(evidenceCountsText(counts)).toContain('1 declared by Valio')
+})
+
 test('T86: empty requirement list never says "No hard requirements were stated" and plainReason fills all ASK/INFO templates', () => {
   const emptyStatement = requirementsStatement([])
   expect(emptyStatement.allProven).toBe(true)
