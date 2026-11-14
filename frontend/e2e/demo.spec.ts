@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { spawn, type ChildProcess } from 'node:child_process'
+import { createServer } from 'node:net'
 import path from 'node:path'
 
 // T65: every browser has its own session. The browser context and the Node-side API calls in this spec share
@@ -15,6 +16,44 @@ function sfetch(url: string, init: RequestInit = {}): Promise<Response> {
 }
 
 const step = (page: Page, name: string) => page.getByRole('listitem', { name: new RegExp(name) })
+
+async function assertPortFree(port: number): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const server = createServer()
+    server.once('error', (error) =>
+      reject(new Error(`port ${port} busy: stale test server?`, { cause: error })),
+    )
+    server.listen({ port, host: '127.0.0.1', exclusive: true }, () => server.close(() => resolve()))
+  })
+}
+
+async function stopServer(child: ChildProcess | null): Promise<void> {
+  if (!child?.pid) return
+  const signal = (name: NodeJS.Signals) => {
+    try {
+      if (process.platform === 'win32') return child.kill(name)
+      process.kill(-child.pid!, name)
+      return true
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+      return false
+    }
+  }
+  const closed = new Promise<void>((resolve) => child.once('close', () => resolve()))
+  if (!signal('SIGTERM')) return
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      closed,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, 1500)
+      }),
+    ])
+  } finally {
+    clearTimeout(timer)
+    signal('SIGKILL')
+  }
+}
 
 /**
  * Reset the gateway and browser demo state before a presentation or test run:
@@ -79,6 +118,9 @@ test.describe('P12 live demo kit: A (AUTO) → B (ASK; approver approves v1) →
       return
     }
 
+    await assertPortFree(backendPort)
+    await assertPortFree(vitePort)
+
     const repoRoot = path.resolve(process.cwd(), '..')
     // Opt-in live setup pattern from playwright.live.config.ts:
     // Uses LiveValioProvider when catalogue + VALIO_API_KEY are present and VALIO_MODE != 'recorded';
@@ -128,20 +170,18 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
         FRONTEND_ORIGINS: `http://127.0.0.1:${vitePort},http://localhost:${vitePort}`,
       },
       stdio: 'pipe',
+      detached: process.platform !== 'win32',
     })
 
-    for (let i = 0; i < 60; i++) {
-      try {
-        const res = await sfetch(`http://127.0.0.1:${backendPort}/health`)
-        if (res.ok) {
-          const data = (await res.json()) as { ready?: boolean }
-          if (data.ready) break
-        }
-      } catch {
-        // wait for backend startup
-      }
-      await new Promise((r) => setTimeout(r, 250))
-    }
+    await expect
+      .poll(
+        async () => {
+          const response = await sfetch(`http://127.0.0.1:${backendPort}/health`).catch(() => null)
+          return response?.ok ? (await response.json()).ready : false
+        },
+        { timeout: 30_000, message: 'The demo gateway is ready' },
+      )
+      .toBe(true)
 
     viteProc = spawn(
       'npx',
@@ -153,23 +193,41 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
           VITE_API_BASE_URL: `http://127.0.0.1:${backendPort}`,
         },
         stdio: 'pipe',
+        detached: process.platform !== 'win32',
       },
     )
 
-    for (let i = 0; i < 40; i++) {
-      try {
-        const res = await sfetch(baseURL)
-        if (res.ok) break
-      } catch {
-        // wait for vite startup
-      }
-      await new Promise((r) => setTimeout(r, 200))
-    }
+    await expect
+      .poll(
+        async () => {
+          const response = await sfetch(`${baseURL}/health`).catch(() => null)
+          return response?.ok ? (await response.json()).ready : false
+        },
+        { timeout: 20_000, message: 'Vite is proxying to the demo gateway' },
+      )
+      .toBe(true)
   })
 
   test.afterAll(async () => {
-    viteProc?.kill('SIGTERM')
-    backendProc?.kill('SIGTERM')
+    await Promise.all([stopServer(viteProc), stopServer(backendProc)])
+    if (viteProc?.pid)
+      await expect
+        .poll(() =>
+          assertPortFree(vitePort).then(
+            () => true,
+            () => false,
+          ),
+        )
+        .toBe(true)
+    if (backendProc?.pid)
+      await expect
+        .poll(() =>
+          assertPortFree(backendPort).then(
+            () => true,
+            () => false,
+          ),
+        )
+        .toBe(true)
   })
 
   test('runs demo-state reset, pre-flight / mode check, and A (AUTO) → B (ASK + Approver v1) → C (BLOCK)', async ({
