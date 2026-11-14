@@ -33,6 +33,7 @@ A trusted trade gateway for Valio Aimo plus a demo purchasing agent. It separate
   - Before confirmation, the server re-checks price, quantity, delivery and requirements. Any change voids the old approval and decides a new version from scratch.
   - Unknown allergens and passed cut-offs cannot be waived.
   - Partial stock becomes its own proposal version with its own approval.
+  - When another compliant product has the missing stock, it tops up the rest as a split order. The split always goes to a human, and a price rise of more than 10 % per kg or litre is stated.
 - **Alternatives and editable assumptions:**
   - Each line shows Good / Better / Best alternatives with a one-line trade-off (price per litre or kilo, pack, brand, stock certainty). Only compliant products are listed.
   - The agent's assumptions are editable chips, for example "Any fat %" → "1.5 %". Editing one re-runs the flow, and the gateway's shortlist changes.
