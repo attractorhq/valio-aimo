@@ -19,6 +19,7 @@ from .findings import Finding, ordered_codes
 from .instructions import detect_instruction
 from .limits import format_days
 from .lines import LineInput, LineVerdict, evaluate_line
+from .mandates import window_violation
 
 Outcome = Literal["AUTO", "ASK", "BLOCK", "NO_ORDER"]
 
@@ -151,6 +152,10 @@ def decide(
     elif exposure > mandate.autoApproveLimitEur:
         detail = f"{context} > {format_money(mandate.autoApproveLimitEur)} auto-approve limit" if context else None
         findings.append(Finding("OVER_AUTO_LIMIT", "ASK", "O3", detail=detail))
+
+    # O0 (T68): outside its validity window the mandate authorises nothing, not even with a human sign-off.
+    if (expired := window_violation(mandate, now)) is not None:
+        findings.append(Finding("MANDATE_NOT_VALID", "BLOCK", "O0", detail=expired))
 
     # O4: the request text is data. O6: unclear or contradictory requests are asked about, not assumed.
     if instruction_ignored or detect_instruction(request.requestText):

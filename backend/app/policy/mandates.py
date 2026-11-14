@@ -5,11 +5,14 @@ and emits an audit entry. Nothing here is reachable from the agent channel.
 """
 
 from collections.abc import Iterable, Mapping
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
+from zoneinfo import ZoneInfo
 
-from app.contracts import Approver, AuditEntry, Mandate, format_money
+from app.contracts import Approver, AuditEntry, Mandate, format_date, format_money
+
+HELSINKI = ZoneInfo("Europe/Helsinki")
 
 M1 = Mandate(
     customerId="nordic-harbour-hotels",
@@ -43,6 +46,28 @@ M2 = Mandate(
 )
 DEMO_MANDATES = (M1, M2)
 
+
+
+def category_allowed(mandate: Mandate, category: str) -> bool:
+    """T68: empty `allowedCategories` allows any category; otherwise the product code must start with one."""
+    if not mandate.allowedCategories:
+        return True
+    code = (category or "").strip()
+    return any(code.startswith(prefix.strip()) for prefix in mandate.allowedCategories if prefix.strip())
+
+
+def window_violation(mandate: Mandate, now: datetime) -> str | None:
+    """T68: why the mandate does not apply at `now` (Helsinki calendar day, both ends inclusive), or None."""
+    if now.tzinfo is None:
+        raise ValueError("now must be timezone-aware")
+    today = now.astimezone(HELSINKI).date()
+    if mandate.validFrom and today < mandate.validFrom:
+        return f"Mandate valid from {format_date(mandate.validFrom)}; today is {format_date(today)}"
+    if mandate.validTo and today > mandate.validTo:
+        return f"Mandate expired after {format_date(mandate.validTo)}; a buyer admin must renew it"
+    return None
+
+
 # Identity and version are the gateway's; autoAcceptAgentSubstitutes is always false by contract.
 _IMMUTABLE = frozenset({"customerId", "version", "autoAcceptAgentSubstitutes"})
 
@@ -52,6 +77,12 @@ def _show(field: str, value: Any) -> str:
         return format_money(value)
     if isinstance(value, Approver):
         return f"{value.name} ({value.role})"
+    if isinstance(value, date):
+        return format_date(value)
+    if value is None:
+        return "none"
+    if isinstance(value, list):
+        return ", ".join(map(str, value)) or "any"
     return str(value)
 
 

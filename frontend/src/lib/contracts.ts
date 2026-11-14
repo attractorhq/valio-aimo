@@ -127,6 +127,9 @@ export type Mandate = {
   enforceCutoff?: boolean;
   forbiddenAllergens?: Array<string>;
   approver: Approver;
+  allowedCategories?: Array<string>;
+  validFrom?: string | null;
+  validTo?: string | null;
 };
 
 export type Offer = {
@@ -232,7 +235,7 @@ export type Quantity = {
   unit: "l" | "kg" | "pcs" | "cases";
 };
 
-export type ReasonCode = "DATE_LATER" | "CUTOFF_PASSED" | "SUPPLIER_STOCK_UNKNOWN" | "PARTIAL_AVAILABILITY" | "SPLIT" | "DATA_CONFLICT" | "AGENT_SUBSTITUTE" | "VALIO_SUBSTITUTE" | "SUBSTITUTE_REJECTED" | "QUANTITY_BASIS_WEAK" | "QUANTITY_BASIS_UNKNOWN" | "LOW_RELIABILITY" | "UNIT_MISMATCH" | "OVER_AUTO_LIMIT" | "OVER_HARD_LIMIT" | "ALLERGEN_CONTAINS" | "ALLERGEN_MAY_CONTAIN" | "ALLERGEN_IMPLICIT" | "ALLERGEN_UNKNOWN" | "CLAIM_MISSING" | "NOT_AVAILABLE" | "SALES_BLOCKED" | "PRICE_UNAVAILABLE" | "INSTRUCTION_IGNORED" | "NO_CANDIDATE" | "CLARIFICATION_NEEDED" | "REQUOTED" | "DEPOSIT_COST_UNVERIFIED" | "VARIABLE_WEIGHT_UNVERIFIED";
+export type ReasonCode = "DATE_LATER" | "CUTOFF_PASSED" | "SUPPLIER_STOCK_UNKNOWN" | "PARTIAL_AVAILABILITY" | "SPLIT" | "DATA_CONFLICT" | "AGENT_SUBSTITUTE" | "VALIO_SUBSTITUTE" | "SUBSTITUTE_REJECTED" | "QUANTITY_BASIS_WEAK" | "QUANTITY_BASIS_UNKNOWN" | "LOW_RELIABILITY" | "UNIT_MISMATCH" | "OVER_AUTO_LIMIT" | "OVER_HARD_LIMIT" | "ALLERGEN_CONTAINS" | "ALLERGEN_MAY_CONTAIN" | "ALLERGEN_IMPLICIT" | "ALLERGEN_UNKNOWN" | "CLAIM_MISSING" | "NOT_AVAILABLE" | "SALES_BLOCKED" | "PRICE_UNAVAILABLE" | "INSTRUCTION_IGNORED" | "NO_CANDIDATE" | "CLARIFICATION_NEEDED" | "REQUOTED" | "DEPOSIT_COST_UNVERIFIED" | "VARIABLE_WEIGHT_UNVERIFIED" | "CATEGORY_NOT_ALLOWED" | "MANDATE_NOT_VALID";
 
 export type ReasonDefinition = {
   code: ReasonCode;
@@ -586,6 +589,26 @@ export const REASON_REGISTRY = {
     "template": "Returnable packaging charges are not priced, so the order total is incomplete.",
     "allowedEffects": [
       "EXCLUDE"
+    ]
+  },
+  "CATEGORY_NOT_ALLOWED": {
+    "code": "CATEGORY_NOT_ALLOWED",
+    "effect": "EXCLUDE",
+    "approvable": false,
+    "chipText": "Category not allowed",
+    "template": "Category {category} is outside this mandate's allowed categories.",
+    "allowedEffects": [
+      "EXCLUDE"
+    ]
+  },
+  "MANDATE_NOT_VALID": {
+    "code": "MANDATE_NOT_VALID",
+    "effect": "BLOCK",
+    "approvable": false,
+    "chipText": "Mandate not valid",
+    "template": "The mandate is not valid on {date}. A buyer admin must renew it before the agent can order.",
+    "allowedEffects": [
+      "BLOCK"
     ]
   },
   "VARIABLE_WEIGHT_UNVERIFIED": {

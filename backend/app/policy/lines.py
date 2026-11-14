@@ -11,6 +11,7 @@ from app.contracts import Mandate, Product, Quantity, RequestItem, TrustLabel, T
 from app.trust.labels import EU14_ALLERGEN_CODES, allergen_name
 
 from .findings import Finding, ordered_codes
+from .mandates import category_allowed
 from .requirements import check_requirements, claim_conflicts, conflict_is_decisive, hard_requirements
 
 SPLIT_PRICE_GUARD_THRESHOLD_PCT = Decimal("10")
@@ -152,7 +153,7 @@ def _conflict_codes(line: LineInput) -> frozenset[str]:
 def evaluate_line(
     line: LineInput, *, item: RequestItem, mandate: Mandate, requested_date: date, now: datetime
 ) -> LineVerdict:
-    """Apply L1–L14 to one line. Pure: `now` is the API's timeNow, never the wall clock."""
+    """Apply L1–L15 to one line. Pure: `now` is the API's timeNow, never the wall clock."""
     if now.tzinfo is None:
         raise ValueError("now must be timezone-aware")
     if line.item_id != item.itemId:
@@ -221,6 +222,12 @@ def evaluate_line(
         add("PRICE_UNAVAILABLE", "EXCLUDE", "L3")
     if any(deposit.unitPriceExclVat is None for deposit in product.deposits):
         add("DEPOSIT_COST_UNVERIFIED", "EXCLUDE", "L3")  # an unpriced deposit makes the total incomplete
+
+    # L15 (T68): the mandate may limit what the agent buys to some catalogue categories. Never approvable.
+    if not category_allowed(mandate, product.category):
+        add("CATEGORY_NOT_ALLOWED", "EXCLUDE", "L15",
+            f"Category {product.category or 'unknown'} is not in the allowed list "
+            f"({', '.join(mandate.allowedCategories)})")
 
     # L4 (+ O2): hard requirements are proven or the line is out. Never approvable.
     requirement_findings = check_requirements(
