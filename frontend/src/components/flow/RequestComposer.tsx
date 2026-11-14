@@ -41,7 +41,7 @@ export function RequestComposer({
           aria-describedby="request-hint"
         />
         <p id="request-hint" className="field-hint">
-          The request is data. Instructions inside it are ignored and logged.
+          Treated as data: instructions in it are ignored and logged.
         </p>
         <div className="composer-actions">
           <button type="submit" className="btn btn-primary" disabled={running || !text.trim()}>

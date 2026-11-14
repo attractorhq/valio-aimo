@@ -159,8 +159,12 @@ export function ExcludedList({
                       ? 'No compliant product'
                       : 'Shortlist evaluated'}
                   {shortlistIds.length > 0 && (
-                    <small className="muted ml-1.5">
-                      Shortlist ({shortlistIds.length}): {shortlistIds.join(', ')}
+                    <small
+                      className="muted ml-1.5"
+                      data-shortlist={shortlistIds.join(', ')}
+                      title={`Shortlist: ${shortlistIds.join(', ')}`}
+                    >
+                      {shortlistIds.length} shortlisted
                     </small>
                   )}
                 </span>
@@ -177,8 +181,15 @@ export function ExcludedList({
           aria-label="Excluded candidates"
         >
           <header className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-xs font-bold tracking-wider text-[var(--muted)] uppercase">
-              {excluded.length} excluded · rejected by hard rules, never offered for approval
+            <h3
+              className="text-xs font-bold tracking-wider text-[var(--muted)] uppercase"
+              title="Rejected by hard rules. Never offered for approval."
+            >
+              {excluded.length} excluded
+              <span className="visually-hidden">
+                {' '}
+                · rejected by hard rules, never offered for approval
+              </span>
             </h3>
             {others.length > 0 && (
               <button

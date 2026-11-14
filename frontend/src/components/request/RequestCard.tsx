@@ -22,7 +22,7 @@ export function RequestCard({
       <figure className="request-text">
         <Quote size={14} aria-hidden />
         <blockquote>{request.requestText}</blockquote>
-        <figcaption>Original request · treated as data</figcaption>
+        <figcaption>Original request</figcaption>
       </figure>
       <table className="data-table">
         <caption className="visually-hidden">Structured request items</caption>
