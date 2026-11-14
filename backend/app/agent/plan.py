@@ -13,7 +13,7 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_FLOOR, ROUND_HALF_UP, Decimal
 from typing import Literal
 
 from pydantic import Field
@@ -37,13 +37,14 @@ from app.catalog.vocab import (
     resolve_query_concepts,
 )
 from app.contracts import (
-     ExcludedProduct,
+    ExcludedProduct,
     GetOfferRequest,
     Mandate,
     OfferItem,
     OfferLine,
     Preference,
     Product,
+    Proposal,
     Quantity,
     ReasonCode,
     RequestItem,
@@ -53,7 +54,7 @@ from app.contracts import (
     format_money,
 )
 from app.contracts.common import Contract
-from app.gateway.offers import PIECE_UNITS, size
+from app.gateway.offers import PIECE_UNITS, VOLUME_UNITS, WEIGHT_UNITS, size
 from app.policy.requirements import check_requirements, hard_requirements
 from app.trust.labels import SOURCE_SUBSTITUTION, allergen_name
 from app.valio.record import BRIEF_PRODUCT_IDS
@@ -1298,8 +1299,100 @@ def good_better_best_alternatives(ranked_candidates: Sequence[RankedCandidate]) 
     ][:4]
 
 
+# ---- T44: a feasible order within the hard limit (information only) -------------------------------------
+
+
+class FeasibleLine(Contract):
+    productId: str
+    name: str
+    quantitySalesUnits: Decimal
+    salesUnitLabel: str
+    deliveredQuantity: Quantity
+    lineTotalExclVat: Decimal
+
+
+class FeasibleOrder(Contract):
+    """What fits under the hard limit when an order is BLOCKed by OVER_HARD_LIMIT. Never created or ordered."""
+
+    hardLimitEur: Decimal
+    totalExclVat: Decimal
+    lines: list[FeasibleLine]
+    text: str
+
+
+def _floor_units(units: Decimal, lot: Decimal) -> Decimal:
+    if lot <= 0:
+        return units
+    return (units / lot).to_integral_value(rounding=ROUND_FLOOR) * lot
+
+
+def _qty_text(value: Decimal, unit: str) -> str:
+    return f"{format(value.normalize(), ',f')} {unit}"
+
+
+def feasible_within_hard_limit(
+    proposal: Proposal, mandate: Mandate, lot_sizes: Mapping[str, Decimal] | None = None
+) -> FeasibleOrder | None:
+    """Scale a hard-limit BLOCK down to the largest order (same lines, same proportions, whole lots) whose
+    total excl. VAT stays within the hard limit. Information for the buyer only: nothing is proposed or
+    ordered, and no other BLOCK reason may be present (e.g. a forbidden allergen)."""
+    if proposal.decision != "BLOCK" or ReasonCode.OVER_HARD_LIMIT not in proposal.reasons:
+        return None
+    if any(r in (ReasonCode.ALLERGEN_CONTAINS,) for r in proposal.reasons) or not proposal.lines:
+        return None
+    total = proposal.totals.exclVat
+    limit = mandate.hardLimitEur
+    if total <= 0 or total <= limit:
+        return None
+    given = lot_sizes or {}
+
+    def lot(ln: OfferLine) -> Decimal:
+        # Countable sales units (bottles, bags, cases) are only sold whole, whatever a fractional lot says.
+        size_ = given.get(ln.productId, Decimal(1))
+        if ln.salesUnit.upper() not in WEIGHT_UNITS | VOLUME_UNITS and size_ < 1:
+            return Decimal(1)
+        return size_
+
+    factor = limit / total
+    lots = {ln.lineId: lot(ln) for ln in proposal.lines}
+    units = {ln.lineId: _floor_units(ln.quantitySalesUnits * factor, lots[ln.lineId]) for ln in proposal.lines}
+
+    def line_total(ln: OfferLine) -> Decimal:
+        return (units[ln.lineId] * ln.unitPriceExclVat).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    # Rounding can never push the sum over the limit, but stay safe: drop whole lots from the largest line.
+    while sum((line_total(ln) for ln in proposal.lines), Decimal(0)) > limit:
+        largest = max(proposal.lines, key=line_total)
+        units[largest.lineId] -= lots[largest.lineId]
+    feasible = [
+        FeasibleLine(
+            productId=ln.productId,
+            name=ln.name,
+            quantitySalesUnits=units[ln.lineId],
+            salesUnitLabel=ln.salesUnitLabel,
+            deliveredQuantity=Quantity(value=units[ln.lineId] * ln.contentPerSalesUnit.value,
+                                       unit=ln.deliveredQuantity.unit),
+            lineTotalExclVat=line_total(ln),
+        )
+        for ln in proposal.lines
+        if units[ln.lineId] > 0
+    ]
+    if not feasible:
+        return None
+    feasible_total = sum((f.lineTotalExclVat for f in feasible), Decimal(0))
+    what = " + ".join(_qty_text(f.deliveredQuantity.value, f.deliveredQuantity.unit) for f in feasible)
+    text = (
+        f"Feasible within your {format_money(limit)} hard limit: {what} for {format_money(feasible_total)} "
+        "excl. VAT. Information only; nothing has been proposed or ordered."
+    )
+    return FeasibleOrder(hardLimitEur=limit, totalExclVat=feasible_total, lines=feasible, text=text)
+
+
 __all__ = [
     "MAX_SHORTLIST_PER_ITEM",
+    "FeasibleLine",
+    "FeasibleOrder",
+    "feasible_within_hard_limit",
     "AgentPlan",
     "CandidateObservation",
     "CandidateTier",

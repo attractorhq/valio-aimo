@@ -26,10 +26,12 @@ from app.agent.plan import (
     MAX_SHORTLIST_PER_ITEM,
     AgentPlan,
     CandidateObservation,
+    FeasibleOrder,
     ItemPlan,
     ValioSubstituteCheck,
     build_shortlist_offer_items,
     check_valio_substitutes,
+    feasible_within_hard_limit,
     normalise_item_for_planning,
     observation_from_offer_line,
     rank_candidates,
@@ -99,6 +101,17 @@ class AgentRunResult(Contract):
     decision: Decision | None = None
     explanation: ExplanationResult
     reasons: list[ReasonCode] = Field(default_factory=list)
+    # T44: on a hard-limit BLOCK, what would fit under the limit. Information only, never ordered.
+    feasibleWithinHardLimit: FeasibleOrder | None = None
+
+
+def feasible_order_for(proposal: Proposal | None, mandate: Mandate, channel: object) -> FeasibleOrder | None:
+    """The T44 suggestion for a BLOCKed proposal, sized in each product's allowed lots when known."""
+    if proposal is None:
+        return None
+    products = getattr(getattr(getattr(channel, "state", None), "gateway", None), "products", None) or {}
+    lots = {ln.productId: products[ln.productId].allowedLotSize for ln in proposal.lines if ln.productId in products}
+    return feasible_within_hard_limit(proposal, mandate, lots)
 
 
 class AgentChannel(Protocol):
@@ -927,6 +940,7 @@ def run_agent(
         decision=last.decision,
         explanation=explanation,
         reasons=list(last.reasons),
+        feasibleWithinHardLimit=feasible_order_for(proposal, mandate, channel),
     )
 
 
@@ -938,6 +952,7 @@ __all__ = [
     "HttpAgentChannel",
     "StepName",
     "StepStatus",
+    "feasible_order_for",
     "iter_agent_steps",
     "run_agent",
 ]

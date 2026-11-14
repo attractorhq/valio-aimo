@@ -17,6 +17,7 @@ from app.agent.run import (
     AgentRunResult,
     AgentStepEvent,
     GatewayAgentChannel,
+    feasible_order_for,
     iter_agent_steps,
     run_agent,
 )
@@ -107,6 +108,7 @@ def _assemble_result_from_steps(
         decision=last.decision,
         explanation=explanation,
         reasons=list(last.reasons),
+        feasibleWithinHardLimit=feasible_order_for(proposal, mandate, channel),
     )
 
 

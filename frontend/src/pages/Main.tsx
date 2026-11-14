@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { AlertCircle, HelpCircle, Pencil } from 'lucide-react'
+import { AlertCircle, HelpCircle, Info, Pencil } from 'lucide-react'
 import type { Proposal } from '../lib/contracts'
 import {
   gateway,
@@ -406,6 +406,12 @@ export function Main() {
             }
           >
             {proposal && <DecisionFooter proposal={proposal} mandate={mandate} />}
+            {proposal?.decision === 'BLOCK' && run.data?.feasibleWithinHardLimit && (
+              <p className="notice small mt-2" role="note">
+                <Info size={16} aria-hidden />
+                <span>{run.data.feasibleWithinHardLimit.text}</span>
+              </p>
+            )}
             {!proposal && step4 && (
               <div className="outcome outcome-block" role="status">
                 <p className="outcome-headline">
