@@ -149,6 +149,7 @@ export function Main() {
 
   const clarificationQuestion =
     run.data?.clarificationQuestion ?? step1?.clarificationQuestion ?? undefined
+  const clarificationOptions = run.data?.clarificationOptions ?? step1?.clarificationOptions ?? []
   const streamError = run.data?.error ?? errorStep?.error ?? undefined
 
   const structuredRequest =
@@ -181,6 +182,13 @@ export function Main() {
     setText(s.requestText)
     setStreamedSteps([])
     run.mutate({ customerId: targetCustomerId, requestText: s.requestText })
+  }
+  /** T97: a suggested request replaces the vague one and runs through the normal flow. */
+  function runSuggestion(requestText: string) {
+    if (!customerId) return
+    setText(requestText)
+    setStreamedSteps([])
+    run.mutate({ customerId, requestText })
   }
   function focusComposerToEdit() {
     const el = document.getElementById('request-text') as HTMLTextAreaElement | null
@@ -384,6 +392,26 @@ export function Main() {
                 </p>
                 {run.data?.explanation?.text && (
                   <p className="mt-1 text-sm">{run.data.explanation.text}</p>
+                )}
+                {clarificationOptions.length > 0 && (
+                  <div
+                    className="clarification-options"
+                    role="group"
+                    aria-label="Suggested requests"
+                  >
+                    <span className="text-xs font-semibold">Try one:</span>
+                    {clarificationOptions.map((option) => (
+                      <button
+                        key={option.requestText}
+                        type="button"
+                        className="btn btn-scenario text-xs font-semibold"
+                        title={option.requestText}
+                        onClick={() => runSuggestion(option.requestText)}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
                 )}
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <button

@@ -217,6 +217,16 @@ test('phone approval via QR (/approve/:token) at 390 px and across separate devi
   await expect(card).toContainText('Synthetic gluten-free macaroni 5 kg')
   await expect(card).toContainText('Single-use approval link')
 
+  // T97: decision first on a phone: one row per line and the Approve button on the first screen; the full
+  // line table one tap away.
+  const lines = card.getByRole('list', { name: 'Lines you are approving' })
+  await expect(lines.getByRole('listitem')).toHaveCount(2)
+  await expect(lines).toContainText('18 bag · Synthetic gluten-free macaroni 5 kg')
+  await expect(card.getByRole('button', { name: 'Approve €506.16' })).toBeInViewport()
+  await expect(card.getByRole('table')).toBeHidden()
+  await card.getByText('Line details').click()
+  await expect(card.getByRole('table')).toBeVisible()
+
   const overflow = await phone.evaluate(
     () => document.documentElement.scrollWidth - window.innerWidth,
   )
@@ -381,4 +391,16 @@ test('T69 split top-up proposal renders both lines, the approval sentence, and t
   const statement = card.getByRole('note', { name: 'Approval statement' })
   await expect(statement).toContainText('Approving means 70 kg of A + 50 kg of B (€0.40/kg more).')
   await expect(statement).toContainText('+20 % per kg')
+})
+
+test('T97: delivery before the requested date is said out loud to the approver', async ({
+  page,
+}) => {
+  await runScenarioB(page)
+  await patchPending(page, { requestedDate: '2026-11-20' })
+  await page.goto('/approver')
+  await page.getByLabel('Signed in as').selectOption('mock-school')
+  const why = page.getByRole('region', { name: 'Why you are asked' })
+  await expect(why).toContainText('Early delivery')
+  await expect(why).toContainText('Arrives Mon 16 Nov, 4 days early')
 })

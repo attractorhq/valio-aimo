@@ -487,6 +487,12 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
       .fill('We need lactose-free milk by Monday.')
     await page.getByRole('button', { name: 'Run request' }).click()
     await expect(step(page, 'Request')).toContainText('Needs one detail')
+    // T97: complete requests to run with one tap, keeping the buyer's "lactose-free" and date.
+    const suggestions = page.getByRole('group', { name: 'Suggested requests' })
+    await expect(suggestions.getByRole('button')).toHaveCount(3)
+    await expect(suggestions.getByRole('button').first()).toHaveText(
+      '20 l lactose-free milk by Monday.',
+    )
     await expect(page.getByRole('button', { name: 'Edit request' })).toBeVisible()
     await page.getByRole('button', { name: 'Edit request' }).click()
     await page

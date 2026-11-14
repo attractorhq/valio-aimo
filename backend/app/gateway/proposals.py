@@ -100,6 +100,9 @@ from app.valio.facts import SENTINEL_METHOD, is_stock_sentinel
 
 # T62: proposal states whose total counts against the same-day limits (the split-order guard).
 COMMITTED_STATES = frozenset({"PENDING_APPROVAL", "APPROVED", "AUTO_APPROVED", "RECHECKED", "CONFIRMED_SIMULATED"})
+# T97: stock is held only by orders that are confirmed or on their way to confirmation. A proposal still waiting
+# for sign-off is not an order yet; it counts against the limits (T62) but holds no stock.
+STOCK_HOLDING_STATES = frozenset({"APPROVED", "AUTO_APPROVED", "RECHECKED", "CONFIRMED_SIMULATED"})
 
 
 def _type_guard_facts(facts: Sequence[TrustLabel]) -> list[TrustLabel]:
@@ -255,7 +258,7 @@ def _inferred_proposal_partial_items(proposal: Proposal) -> frozenset[str]:
             )
         for item in proposal.request.items:
             deliv = delivered_by_item.get(item.itemId, Decimal(0))
-            if Decimal(0) < deliv < item.quantity:
+            if Decimal(0) < deliv < item.quantity and not _split_lines(proposal, item):  # T85: a split names its own
                 partial.add(item.itemId)
     return frozenset(partial)
 
@@ -305,48 +308,67 @@ def split_detail_lines(
     """Detail lines for a split top-up proposal: price guard (> 10 %) and fresh vs. frozen trade-off (T69)."""
     details: list[str] = []
     for item in proposal.request.items:
-        item_lines = [ln for ln in proposal.lines if ln.itemId == item.itemId]
-        deliv_total = sum((ln.deliveredQuantity.value for ln in item_lines), Decimal(0))
-        if len(item_lines) < 2 or deliv_total < item.quantity:
+        item_lines = _split_lines(proposal, item)
+        if not item_lines:
             continue
-        line_a, line_b = item_lines[0], item_lines[1]
+        line_a = item_lines[0]
         price_a = _line_price_per_unit(line_a)
-        price_b = _line_price_per_unit(line_b)
-        guard = split_price_guard_detail(price_a, price_b, line_b.deliveredQuantity.unit)
-        if guard is not None:
-            details.append(guard)
         prod_a = products.get(line_a.productId) if products else None
-        prod_b = products.get(line_b.productId) if products else None
-        state_det = split_state_detail(line_a, line_b, prod_a, prod_b)
-        if state_det is not None:
-            details.append(state_det)
-    return details
+        for number, line_b in enumerate(item_lines[1:], start=2):
+            guard = split_price_guard_detail(price_a, _line_price_per_unit(line_b), line_b.deliveredQuantity.unit)
+            if guard is not None:
+                details.append(guard)
+            prod_b = products.get(line_b.productId) if products else None
+            state_det = split_state_detail(line_a, line_b, prod_a, prod_b)
+            if state_det is not None:
+                details.append(state_det.replace("Line 2", f"Line {number}"))
+    return list(dict.fromkeys(details))
+
+
+def _split_lines(proposal: Proposal, item) -> list[OfferLine]:
+    """The item's lines when it is a split: ≥ 2 lines that cover it, or (T85) top-ups that leave a shortfall."""
+    item_lines = [ln for ln in proposal.lines if ln.itemId == item.itemId]
+    if len(item_lines) < 2:
+        return []
+    deliv_total = sum((ln.deliveredQuantity.value for ln in item_lines), Decimal(0))
+    if deliv_total >= item.quantity or any(ReasonCode.SPLIT in ln.reasons for ln in item_lines[1:]):
+        return item_lines
+    return []
 
 
 def _format_split_clauses(proposal: Proposal) -> list[str]:
     clauses: list[str] = []
     for item in proposal.request.items:
-        item_lines = [ln for ln in proposal.lines if ln.itemId == item.itemId]
-        deliv_total = sum((ln.deliveredQuantity.value for ln in item_lines), Decimal(0))
-        if len(item_lines) < 2 or deliv_total < item.quantity:
+        item_lines = _split_lines(proposal, item)
+        if not item_lines:
             continue
-        line_a, line_b = item_lines[0], item_lines[1]
+        line_a = item_lines[0]
         price_a = _line_price_per_unit(line_a)
-        price_b = _line_price_per_unit(line_b)
-        unit = line_b.deliveredQuantity.unit
-        diff_clause = ""
-        if price_a is not None and price_b is not None:
-            diff = (price_b - price_a).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-            if diff > Decimal(0):
-                diff_clause = f" ({format_money(diff)}/{unit} more)"
-            elif diff < Decimal(0):
-                diff_clause = f" ({format_money(abs(diff))}/{unit} less)"
-        part_a = f"{_format_qty(line_a.deliveredQuantity.value, line_a.deliveredQuantity.unit)} of {line_a.name}"
-        part_b = (
-            f"{_format_qty(line_b.deliveredQuantity.value, line_b.deliveredQuantity.unit)} "
-            f"of {line_b.name}{diff_clause}"
-        )
-        clauses.append(f"{part_a} + {part_b}")
+        parts = [f"{_format_qty(line_a.deliveredQuantity.value, line_a.deliveredQuantity.unit)} of {line_a.name}"]
+        for line_b in item_lines[1:]:
+            price_b = _line_price_per_unit(line_b)
+            unit = line_b.deliveredQuantity.unit
+            diff_clause = ""
+            if price_a is not None and price_b is not None:
+                diff = (price_b - price_a).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                if diff > Decimal(0):
+                    diff_clause = f" ({format_money(diff)}/{unit} more)"
+                elif diff < Decimal(0):
+                    diff_clause = f" ({format_money(abs(diff))}/{unit} less)"
+            parts.append(
+                f"{_format_qty(line_b.deliveredQuantity.value, line_b.deliveredQuantity.unit)} "
+                f"of {line_b.name}{diff_clause}"
+            )
+        clause = " + ".join(parts)
+        deliv_total = sum((ln.deliveredQuantity.value for ln in item_lines), Decimal(0))
+        if deliv_total < item.quantity:
+            # T85: the top-ups still leave a shortfall; name it in the same sentence.
+            clause += (
+                f", {_format_qty(deliv_total, item.unit)} of {_format_qty(item.quantity, item.unit)}; "
+                f"{_format_qty(item.quantity - deliv_total, item.unit)} cannot be met by "
+                f"{format_date(max(ln.deliveryDate for ln in item_lines))}"
+            )
+        clauses.append(clause)
     return clauses
 
 
@@ -377,7 +399,7 @@ def format_approval_statement(
     if ReasonCode.PARTIAL_AVAILABILITY in reasons:
         for item in proposal.request.items:
             deliv = delivered_by_item.get(item.itemId, Decimal(0))
-            if Decimal(0) < deliv < item.quantity:
+            if Decimal(0) < deliv < item.quantity and not _split_lines(proposal, item):  # T85: a split names its own
                 shortfalls.append(
                     f"{_format_qty(deliv, item.unit)} instead of {_format_qty(item.quantity, item.unit)}"
                 )
@@ -402,11 +424,12 @@ def format_approval_statement(
 
     split_clauses = _format_split_clauses(proposal)
     if split_clauses:
+        clauses = [*split_clauses, *shortfalls]  # T85: other items' shortfalls stay in the sentence
         details = split_detail_lines(proposal)
         detail_suffix = (" " + ". ".join(d.rstrip(".") for d in details) + ".") if details else ""
         if date_clause:
-            return f"Approving means {', '.join(split_clauses)}, {date_clause}.{detail_suffix}"
-        return f"Approving means {', '.join(split_clauses)}.{detail_suffix}"
+            return f"Approving means {', '.join(clauses)}, {date_clause}.{detail_suffix}"
+        return f"Approving means {', '.join(clauses)}.{detail_suffix}"
 
     if shortfalls and date_clause:
         return f"Approving means {', '.join(shortfalls)}, {date_clause}."
@@ -747,6 +770,7 @@ class ProposalGateway:
             offer_id=resolved_offer_id,
             offer_version=offer_version,
             force_refresh=force_refresh,
+            committed_units=self.committed_units(request.customerId),
         )
         self.register_offer(result, offer_request=request)
         return result
@@ -847,6 +871,25 @@ class ProposalGateway:
                 if line.deliveryDate in wanted:
                     committed[line.deliveryDate] = committed.get(line.deliveryDate, Decimal(0)) + line.lineTotalExclVat
         return committed
+
+    def committed_units(self, customer_id: str) -> dict[tuple[str, date], Decimal]:
+        """T97: sales units the customer already holds in confirmed orders, per (product, delivery date).
+
+        A new offer takes these off the stock pool, so the buyer's own earlier order is never offered twice.
+        Only confirmed orders and approved ones being confirmed hold stock (`STOCK_HOLDING_STATES`); a proposal
+        waiting for sign-off does not. Re-checks of an existing proposal do not use this: its own lines would
+        otherwise count against itself.
+        """
+        if self._session is not None:
+            self._hydrate_from_session(self._session)
+        held: dict[tuple[str, date], Decimal] = {}
+        for p in self._proposals.values():
+            if p.customerId != customer_id or p.state not in STOCK_HOLDING_STATES:
+                continue
+            for line in p.lines:
+                key = (line.productId, line.deliveryDate)
+                held[key] = held.get(key, Decimal(0)) + line.quantitySalesUnits
+        return held
 
     def committed_total(
         self, customer_id: str, days: date | Iterable[date], *, exclude: Sequence[str] = ()
@@ -1107,6 +1150,11 @@ class ProposalGateway:
             lines=kept_lines,
             excluded=excluded,
             totals=totals,
+            reasonDetails={
+                ReasonCode(f.code): f.detail
+                for f in policy_decision.findings
+                if f.detail and ReasonCode(f.code) in reasons
+            },
         )
         base_summary = decision_summary(
             outcome, reasons, total_excl_vat=totals.exclVat, mandate=mandate,
@@ -1294,6 +1342,9 @@ class ProposalGateway:
     ) -> tuple[list[LineInput], frozenset[str]]:
         """T69: mark compliant top-up lines in a multi-line split with `split_top_up=True` and `AGENT_SUBSTITUTE`.
 
+        T85: up to two top-up lines may still leave a shortfall; they are marked the same way and the item is
+        PARTIAL_AVAILABILITY on the same proposal version.
+
         If a top-up line fails a hard requirement (e.g. `CLAIM_MISSING`), it is excluded by `evaluate_line` and
         there is no split version; the primary partial-stock line falls back to `PARTIAL_AVAILABILITY`.
         """
@@ -1316,7 +1367,14 @@ class ProposalGateway:
                 != "EXCLUDED"
             ]
             covered = sum((updated[idx].covered_quantity() for idx in ok_indices), Decimal(0))
-            if len(ok_indices) >= 2 and covered >= item.quantity and item.itemId not in partial:
+            full_split = covered >= item.quantity and item.itemId not in partial
+            # T85: top-ups that still leave a shortfall are a split too; the rest stays PARTIAL_AVAILABILITY.
+            partial_split = covered < item.quantity and (
+                item.itemId in partial if explicit_partial else covered > 0
+            )
+            if len(ok_indices) >= 2 and (full_split or partial_split):
+                if partial_split:
+                    partial.add(item.itemId)
                 primary_line = updated[ok_indices[0]]
                 primary_ppu = primary_line.price_per_delivered_unit()
                 for top_idx in ok_indices[1:]:
@@ -1555,7 +1613,8 @@ class ProposalGateway:
                 )
             if line.itemId not in primary_by_item:
                 primary_by_item[line.itemId] = (line.productId, probe.price_per_delivered_unit())
-            elif line.itemId not in partial_for_prop:
+            elif line.itemId not in partial_for_prop or ReasonCode.SPLIT in line.reasons:
+                # T85: a partial item can also carry top-up lines (SPLIT); they are re-checked as top-ups.
                 primary_pid, primary_ppu = primary_by_item[line.itemId]
                 probe = replace(
                     probe,

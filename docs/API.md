@@ -80,6 +80,8 @@ Each `OfferLine` fixes product/name, item link, sales-unit count, delivered phys
 
 `Proposal` repeats the frozen lines/totals and binds them to `customerId + mandateVersion + request + offerId + offerVersion + offerHash`. It adds a stable `proposalId`, state, server `decision`, order-level `reasons[]` and optional `approverRole`. `Decision` is the standalone shape `{decision: AUTO|ASK|BLOCK, reasons: ReasonCode[], approverRole?: string|null}`. In a Proposal those fields are **flat**, not a nested object. Excluded candidates and their reasons stay in `excluded[]`; they do not pollute an otherwise valid proposal's ASK reasons.
 
+`reasonDetails` (optional, T97) maps a reason code to the server's own wording where the code alone is not enough. Example: an `OVER_AUTO_LIMIT` caused by the same-day total reads `"€297.96 already committed for delivery on Mon 16 Nov; with this order €595.92 > €500.00 auto-approve limit"`. It is informational; `decision` and `reasons[]` stay authoritative.
+
 After a change, the old proposal remains visible as `SUPERSEDED`, with `supersededBy` pointing to a **new proposal ID**, bound to a new offer version/hash. No prior approval transfers to it. `decision` records the policy outcome; `state` records lifecycle progress. Rejection does not rewrite an ASK outcome into BLOCK.
 
 ### State machine (P1.4)
