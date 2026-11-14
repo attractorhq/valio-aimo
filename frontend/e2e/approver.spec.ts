@@ -226,3 +226,58 @@ test('phone approval via QR (/approve/:token) at 390 px and across separate devi
   )
   await phoneContext.close()
 })
+
+test('B2 partial-delivery proposal shows "Approving means 95 kg instead of 120 kg, on Monday instead of today." in Approver panel and on /approve/:token', async ({
+  page,
+}) => {
+  await runScenarioB(page)
+  await page.evaluate((key) => {
+    const store = JSON.parse(localStorage.getItem(key) ?? '{}')
+    for (const r of Object.values(store) as Array<{
+      proposal: {
+        requestedDate: string
+        createdAt: string
+        reasons: string[]
+        request: {
+          requestText: string
+          requestedDate: string
+          items: Array<{ itemId: string; quantity: string; unit: string }>
+        }
+        lines: Array<{
+          itemId: string
+          quantitySalesUnits: string
+          deliveredQuantity: { value: string; unit: string }
+          deliveryDate: string
+        }>
+      }
+    }>) {
+      r.proposal.requestedDate = '2026-11-13'
+      r.proposal.createdAt = '2026-11-13T21:52:02+02:00'
+      r.proposal.reasons = ['DATE_LATER', 'PARTIAL_AVAILABILITY', 'OVER_AUTO_LIMIT']
+      r.proposal.request.requestText =
+        'Unexpected event: we need 120 kg of gluten-free macaroni and 60 litres of gluten-free oat drink today.'
+      r.proposal.request.requestedDate = '2026-11-13'
+      r.proposal.request.items[0].quantity = '120'
+      r.proposal.lines[0].quantitySalesUnits = '19'
+      r.proposal.lines[0].deliveredQuantity = { value: '95', unit: 'kg' }
+      r.proposal.lines[0].deliveryDate = '2026-11-16'
+    }
+    localStorage.setItem(key, JSON.stringify(store))
+  }, STORE)
+
+  await page.goto('/approver')
+  const card = page.getByRole('article')
+  await expect(card.getByRole('heading')).toHaveText('You are approving version 1 of this proposal')
+  const statement = card.getByRole('note', { name: 'Approval statement' })
+  await expect(statement).toHaveText(
+    'Approving means 95 kg instead of 120 kg, on Monday instead of today.',
+  )
+
+  const mobileHref = await card
+    .getByRole('link', { name: 'Open mobile approval page' })
+    .getAttribute('href')
+  await page.goto(mobileHref!)
+  await expect(page.getByRole('note', { name: 'Approval statement' })).toHaveText(
+    'Approving means 95 kg instead of 120 kg, on Monday instead of today.',
+  )
+})

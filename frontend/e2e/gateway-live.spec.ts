@@ -135,6 +135,16 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     await expect(step(page, 'Approval')).toContainText('Agent decided → Confirmed (simulated)')
     await expect(step(page, 'Order')).toContainText('€1,010.00 excl. VAT')
     await expect(step(page, 'Order')).toContainText('464306')
+    const altsLiveA = step(page, 'Order').getByRole('region', {
+      name: 'Good / Better / Best alternatives',
+    })
+    await expect(altsLiveA).toBeVisible()
+    // Which alternatives exist depends on the data source (live API vs a recorded capture), so assert the
+    // recommendation and the tier structure, not specific alternative product ids.
+    await expect(altsLiveA).toContainText('464306')
+    await expect(altsLiveA).toContainText('Recommended')
+    await expect(altsLiveA).toContainText('Best')
+
     await expect(step(page, 'Lookup')).toContainText('463335')
 
     // 1b. T24: Changing "Any fat %" to "1.5 %" in A re-runs the flow and changes the shortlist
@@ -152,6 +162,19 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     // 2. Scenario B -> ASK -> Approver panel -> Approve -> CONFIRMED_SIMULATED in both views
     await page.getByRole('button', { name: /^Scenario B:/ }).click()
     await expect(step(page, 'Order')).toContainText('€506.16 excl. VAT')
+    const altsLiveB = step(page, 'Order').getByRole('region', {
+      name: 'Good / Better / Best alternatives',
+    })
+    await expect(altsLiveB).toBeVisible()
+    await expect(altsLiveB).toContainText('474235')
+    await expect(altsLiveB).toContainText('468465')
+    await expect(altsLiveB).toContainText('Best')
+    await expect(altsLiveB).not.toContainText('470863')
+    await expect(altsLiveB).not.toContainText('470699')
+    await altsLiveB.getByRole('button', { name: 'Show trade-offs' }).click()
+    await expect(altsLiveB).toContainText('SamMills')
+    await expect(altsLiveB).toContainText('Oddlygood')
+    await expect(altsLiveB).toContainText('in stock (verified)')
     await expect(step(page, 'Approval')).toContainText('Waiting for approver')
     await expect(step(page, 'Approval')).toContainText('Waiting for Head Chef (demo)')
     await expect(page.getByRole('button', { name: /approve/i })).toHaveCount(0)

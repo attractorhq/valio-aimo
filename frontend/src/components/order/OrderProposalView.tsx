@@ -9,20 +9,23 @@ import {
 } from '../../lib/format'
 import { TrustBadge } from '../trust/TrustBadge'
 import { TrustCard } from '../trust/TrustCard'
+import { Alternatives } from './Alternatives'
 
 /**
- * Step 3 Order proposal at fixed price + per-line Agent Trust Labels v0.1 cards (P6 P0-2).
+ * Step 3 Order proposal at fixed price + per-line Agent Trust Labels v0.1 cards (P6 P0-2) + Good/Better/Best alternatives (T22).
  */
 export function OrderProposalView({
   proposal,
   offer,
   request: directRequest,
   mandateVersion,
+  plan,
 }: {
   proposal?: Proposal
   offer?: Proposal | import('../../lib/contracts').Offer
   request?: Proposal['request']
   mandateVersion?: number
+  plan?: unknown[] | null
 }) {
   const source = proposal ?? offer
   if (!source) return null
@@ -115,12 +118,12 @@ export function OrderProposalView({
         </div>
       </dl>
 
-      <p className="muted small">
+      <p className="muted small my-0.5">
         Prices fixed in offer v{source.offerVersion} until {formatClock(source.validUntil)} · bound
         to mandate v{resolvedMandateVer}
       </p>
 
-      <div className="mt-2 grid gap-2" aria-label="Order line trust cards">
+      <div className="mt-0.5 grid gap-0.5" aria-label="Order line trust cards">
         {source.lines.map((line) => {
           const item = itemsById.get(line.itemId)
           const excludedSubstitutes = excluded.filter(
@@ -138,6 +141,8 @@ export function OrderProposalView({
           )
         })}
       </div>
+
+      <Alternatives plan={plan} proposal={proposal} offer={offer} request={req} />
     </div>
   )
 }

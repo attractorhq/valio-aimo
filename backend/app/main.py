@@ -44,7 +44,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in get_settings().frontend_origins.split(",") if o.strip()],
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PATCH"],  # PATCH: buyer-admin mandate change (T21) from the dev UI
     allow_headers=["Content-Type"],
 )
 register_error_handlers(app)

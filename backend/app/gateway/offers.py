@@ -37,6 +37,9 @@ from app.contracts import (
     ReasonCode,
     RequestItem,
     Totals,
+    TrustLabel,
+    TrustSource,
+    format_date,
 )
 from app.policy import ContentBasis, LineInput, LineVerdict, StockKind, evaluate_line
 from app.valio import ProductFacts, ValioSnapshot
@@ -160,6 +163,37 @@ def _line_input(line_id: str, item_id: str, product: Product, facts: ProductFact
 class OfferResult:
     offer: Offer
     verdicts: tuple[LineVerdict, ...]  # the evaluated offer lines, in line order (createProposal re-decides)
+    partial_items: frozenset[str] = frozenset()  # items explicitly offered in part (patch P2.2/P2.5, P8 B2)
+
+
+def _format_qty_amount(value: Decimal) -> str:
+    norm = value.normalize()
+    return str(int(norm)) if norm == norm.to_integral() else format(norm, "f")
+
+
+def _partial_coverage_label(
+    delivered: Quantity,
+    requested: Quantity,
+    delivery_date,
+    *,
+    retrieved_at: datetime | None = None,
+) -> TrustLabel:
+    deliv_str = f"{_format_qty_amount(delivered.value)} {delivered.unit}"
+    req_str = f"{_format_qty_amount(requested.value)} {requested.unit}"
+    date_part = f" on {format_date(delivery_date)}" if delivery_date is not None else ""
+    return TrustLabel(
+        fact="coverage.partial",
+        value=f"{_format_qty_amount(delivered.value)}/{_format_qty_amount(requested.value)} {requested.unit}",
+        display=f"Partial delivery: {deliv_str} of {req_str}{date_part}",
+        level="VERIFIED",
+        source=TrustSource(
+            system="valio-aimo.availability-api",
+            field="scheduleLines[0].availableAmount",
+            retrievedAt=retrieved_at,
+        ),
+        method="partial-delivery allocation (P2.5, P8 B2)",
+        conflict=None,
+    )
 
 
 def _neutral_item(item_id: str, needed: Decimal, unit: str) -> RequestItem:
@@ -221,6 +255,7 @@ def build_offer(
     verdicts: list[LineVerdict] = []
     excluded: list[ExcludedProduct] = []
     valid_tos: list[datetime] = []
+    partial_item_ids: set[str] = set()
     now = snapshot.now
 
     for item_id, candidates in grouped.items():
@@ -228,10 +263,10 @@ def build_offer(
         quantities = {c.quantity for c in candidates}
         if len(units_of) != 1 or len(quantities) != 1:
             raise ValueError(f"item {item_id}: every candidate must carry the same quantity and unit")
-        unit, remaining = candidates[0].unit, candidates[0].quantity
+        unit, requested_qty = candidates[0].unit, candidates[0].quantity
+        remaining = requested_qty
+        item_line_indices: list[int] = []
         for candidate in candidates:
-            if remaining <= 0:
-                break
             product = products.get(candidate.productId)
             facts = snapshot.products.get(candidate.productId)
             if product is None or facts is None:
@@ -239,16 +274,19 @@ def build_offer(
             price = facts.price
             product = apply_price_ratio_content(product, price.unit_price, price.comparison_price,
                                                 price.comparison_unit)
-            sizing = size(product, remaining, unit)
+            sizing = size(product, remaining if remaining > 0 else requested_qty, unit)
             line_id = f"L{len(lines) + 1}"
             probe = _line_input(line_id, item_id, product, facts, sizing)
-            verdict = evaluate_line(probe, item=_neutral_item(item_id, remaining, unit), mandate=mandate,
-                                    requested_date=request.requestedDate, now=now)
+            verdict = evaluate_line(probe, item=_neutral_item(item_id, remaining if remaining > 0 else requested_qty, unit),
+                                    mandate=mandate, requested_date=request.requestedDate, now=now)
             if verdict.status == "EXCLUDED":
                 excluded.append(ExcludedProduct(
                     productId=product.productId, name=product.name, itemId=item_id,
-                    reasons=list(verdict.exclusion_codes), facts=[*facts.facts, *product.facts],
+                    reasons=[ReasonCode(r) for r in verdict.exclusion_codes], facts=[*facts.facts, *product.facts],
                 ))
+                continue
+
+            if remaining <= 0:
                 continue
 
             units = sizing.quantity_sales_units
@@ -274,6 +312,7 @@ def build_offer(
             remaining -= sizing.delivered.value
             if price.valid_to is not None:
                 valid_tos.append(price.valid_to)
+            item_line_indices.append(len(lines))
             lines.append(OfferLine(
                 lineId=line_id,
                 itemId=item_id,
@@ -291,9 +330,33 @@ def build_offer(
                 deliveryDate=facts.availability.delivery_date,
                 closingTime=facts.availability.closing_time,
                 facts=[*facts.facts, *product.facts],
-                reasons=list(verdict.reasons),
+                reasons=[ReasonCode(r) for r in verdict.reasons],
             ))
             verdicts.append(verdict)
+
+        if item_line_indices and remaining > 0:
+            partial_item_ids.add(item_id)
+            delivered_total = sum((lines[idx].deliveredQuantity.value for idx in item_line_indices), Decimal(0))
+            cov_label = _partial_coverage_label(
+                Quantity(value=delivered_total, unit=unit),
+                Quantity(value=requested_qty, unit=unit),
+                lines[item_line_indices[0]].deliveryDate,
+                retrieved_at=snapshot.captured_at,
+            )
+            for idx in item_line_indices:
+                ln = lines[idx]
+                updated_reasons = [ReasonCode(r) for r in ln.reasons]
+                if ReasonCode.PARTIAL_AVAILABILITY not in updated_reasons:
+                    updated_reasons.append(ReasonCode.PARTIAL_AVAILABILITY)
+                lines[idx] = ln.model_copy(update={
+                    "reasons": updated_reasons,
+                    "facts": [*ln.facts, cov_label],
+                })
+                vd = verdicts[idx]
+                verdicts[idx] = replace(
+                    vd,
+                    line=replace(vd.line, facts=(*vd.line.facts, cov_label)),
+                )
 
     created = snapshot.captured_at
     valid_until = min([created + OFFER_VALIDITY, *valid_tos])
@@ -320,7 +383,7 @@ def build_offer(
         excluded=excluded,
         totals=totals,
     )
-    return OfferResult(offer=offer, verdicts=tuple(verdicts))
+    return OfferResult(offer=offer, verdicts=tuple(verdicts), partial_items=frozenset(partial_item_ids))
 
 
 def shortlists(request: GetOfferRequest) -> dict[str, list[str]]:

@@ -20,7 +20,12 @@ import {
   formatQuantity,
   reasonChip,
 } from '../../lib/format'
-import { approvalReasons, contextReasons, plainReason } from './explain'
+import {
+  approvalReasons,
+  contextReasons,
+  formatApprovalStatement,
+  plainReason,
+} from './explain'
 import { QrCode } from './QrCode'
 import { logPath } from '../log/logData'
 
@@ -74,11 +79,13 @@ export function ApprovalCard({
   mandate,
   showQr = true,
   initialToken,
+  initialApprovalStatement,
 }: {
   item: ApproverItem
   mandate?: Mandate
   showQr?: boolean
   initialToken?: string
+  initialApprovalStatement?: string | null
 }) {
   const { proposal } = item
   const queryClient = useQueryClient()
@@ -92,6 +99,10 @@ export function ApprovalCard({
     staleTime: Infinity,
   })
   const activeToken = initialToken ?? view.data?.approvalToken
+  const approvalStatement =
+    view.data?.approvalStatement ??
+    initialApprovalStatement ??
+    formatApprovalStatement(proposal, mandate)
   const decide = useMutation({
     mutationFn: (action: 'APPROVE' | 'REJECT') =>
       approverChannel.decide({
@@ -120,6 +131,15 @@ export function ApprovalCard({
             ? `You are approving version ${proposal.offerVersion} of this proposal`
             : `Version ${proposal.offerVersion} of this proposal`}
         </h2>
+        {approvalStatement && !onlyLimit && (
+          <p
+            className="mt-1.5 rounded-lg border border-[var(--ask)] bg-[var(--ask-bg)] px-3 py-2 text-sm font-semibold text-[var(--ink)]"
+            role="note"
+            aria-label="Approval statement"
+          >
+            {approvalStatement}
+          </p>
+        )}
         <p className="muted small">
           {mandate?.organisationName ?? proposal.customerId} · proposal {proposal.proposalId} ·
           offer {proposal.offerId} v{proposal.offerVersion} · mandate v{proposal.mandateVersion} ·{' '}

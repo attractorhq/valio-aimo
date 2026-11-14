@@ -96,6 +96,48 @@ def _build_synthetic_catalog() -> dict[str, object]:
                 ],
             },
         },
+        # Scenario A BEST alternative: lactose-free skimmed milk drink (€1.10/l)
+        {
+            "id": "464401",
+            "salesUnit": "ST",
+            "baseUnit": "ST",
+            "allowedLotSize": 1,
+            "category": "10400",
+            "deleted": False,
+            "deposits": [],
+            "substitutions": [],
+            "units": [{"unitId": "ST", "sizeInBaseUnits": 1}],
+            "vendorName": "Synthetic Dairy",
+            "synkkaData": {
+                "names": [{"language": "en", "value": "Synthetic Arki Eila skimmed milk drink 1 l lactose free"}],
+                "unitConversions": [{"synkkaPackagingType": "BASE_UNIT_OR_EACH", "volume": {"unit": "LTR", "value": 1}}],
+                "classifications": [
+                    {"name": "allergen", "type": "ENUM", "values": [{"id": "AM", "unit": "CONTAINS"}]},
+                    {"name": "nutritionalClaim", "type": "ENUM", "values": [{"id": "FREE_FROM_LACTOSE"}]},
+                ],
+            },
+        },
+        # Scenario A GOOD alternative: lactose-free UHT semi-skimmed milk (€1.56/l)
+        {
+            "id": "464201",
+            "salesUnit": "ST",
+            "baseUnit": "ST",
+            "allowedLotSize": 1,
+            "category": "10400",
+            "deleted": False,
+            "deposits": [],
+            "substitutions": [],
+            "units": [{"unitId": "ST", "sizeInBaseUnits": 1}],
+            "vendorName": "Synthetic Dairy",
+            "synkkaData": {
+                "names": [{"language": "en", "value": "Synthetic Valio semi skimmed milk 1 l lactose free UHT"}],
+                "unitConversions": [{"synkkaPackagingType": "BASE_UNIT_OR_EACH", "volume": {"unit": "LTR", "value": 1}}],
+                "classifications": [
+                    {"name": "allergen", "type": "ENUM", "values": [{"id": "AM", "unit": "CONTAINS"}]},
+                    {"name": "nutritionalClaim", "type": "ENUM", "values": [{"id": "FREE_FROM_LACTOSE"}]},
+                ],
+            },
+        },
         # Supplier-stock case milk drink with passed cut-off (Row 8)
         {
             "id": "465039",
@@ -241,6 +283,111 @@ def _build_synthetic_catalog() -> dict[str, object]:
                 ],
             },
         },
+        # Scenario B L1 BEST alternative: compliant gluten-free penne 500 g
+        {
+            "id": "462324",
+            "salesUnit": "BAG",
+            "baseUnit": "BAG",
+            "allowedLotSize": 1,
+            "category": "21380",
+            "deleted": False,
+            "deposits": [],
+            "substitutions": [],
+            "units": [{"unitId": "BAG", "sizeInBaseUnits": 1}],
+            "vendorName": "Synthetic Pasta",
+            "synkkaData": {
+                "names": [{"language": "en", "value": "Synthetic SamMills Pasta D'oro 500g Penne naturally glutenfree pasta"}],
+                "unitConversions": [{"synkkaPackagingType": "BASE_UNIT_OR_EACH", "netWeight": {"unit": "GRM", "value": 500}}],
+                "classifications": [
+                    {"name": "nonAllergen", "type": "ENUM", "values": [{"id": "AW", "unit": "FREE_FROM"}]},
+                    {"name": "nutritionalClaim", "type": "ENUM", "values": [{"id": "FREE_FROM_GLUTEN"}, {"id": "VEGAN"}]},
+                ],
+            },
+        },
+        # Scenario B L1 BETTER alternative: compliant gluten-free fettuccine 200 g
+        {
+            "id": "468969",
+            "salesUnit": "ST",
+            "baseUnit": "ST",
+            "allowedLotSize": 1,
+            "category": "21380",
+            "deleted": False,
+            "deposits": [],
+            "substitutions": [],
+            "units": [{"unitId": "ST", "sizeInBaseUnits": 1}],
+            "vendorName": "Synthetic Pasta",
+            "synkkaData": {
+                "names": [{"language": "en", "value": "Synthetic Explore Cuisine Luomu Edamame & mung bean fettucine 200g"}],
+                "unitConversions": [{"synkkaPackagingType": "BASE_UNIT_OR_EACH", "netWeight": {"unit": "GRM", "value": 200}}],
+                "classifications": [
+                    {"name": "nonAllergen", "type": "ENUM", "values": [{"id": "AW", "unit": "FREE_FROM"}]},
+                    {"name": "nutritionalClaim", "type": "ENUM", "values": [{"id": "FREE_FROM_GLUTEN"}, {"id": "VEGAN"}]},
+                ],
+            },
+        },
+        # Scenario B L2 BEST alternative: compliant gluten-free Barista oat drink 1 l
+        {
+            "id": "473609",
+            "salesUnit": "ST",
+            "baseUnit": "ST",
+            "allowedLotSize": 1,
+            "category": "10402",
+            "deleted": False,
+            "deposits": [],
+            "substitutions": [],
+            "units": [{"unitId": "ST", "sizeInBaseUnits": 1}],
+            "vendorName": "Synthetic Oat",
+            "synkkaData": {
+                "names": [{"language": "en", "value": "Synthetic Oddlygood Barista oat drink 1 l UHT gluten free"}],
+                "unitConversions": [{"synkkaPackagingType": "BASE_UNIT_OR_EACH", "volume": {"unit": "LTR", "value": 1}}],
+                "classifications": [
+                    {"name": "allergen", "type": "ENUM", "values": [{"id": "GO", "unit": "CONTAINS"}]},
+                    {"name": "nutritionalClaim", "type": "ENUM", "values": [{"id": "FREE_FROM_GLUTEN"}, {"id": "VEGAN"}]},
+                ],
+            },
+        },
+        # Scenario B L2 BETTER alternative: compliant gluten-free Professional Barista oat drink 1 l
+        {
+            "id": "475224",
+            "salesUnit": "ST",
+            "baseUnit": "ST",
+            "allowedLotSize": 1,
+            "category": "10402",
+            "deleted": False,
+            "deposits": [],
+            "substitutions": [],
+            "units": [{"unitId": "ST", "sizeInBaseUnits": 1}],
+            "vendorName": "Synthetic Oat",
+            "synkkaData": {
+                "names": [{"language": "en", "value": "Synthetic Fazer Aito Professional Barista Oat drink, gluten-free 1L UHT"}],
+                "unitConversions": [{"synkkaPackagingType": "BASE_UNIT_OR_EACH", "volume": {"unit": "LTR", "value": 1}}],
+                "classifications": [
+                    {"name": "allergen", "type": "ENUM", "values": [{"id": "GO", "unit": "CONTAINS"}]},
+                    {"name": "nutritionalClaim", "type": "ENUM", "values": [{"id": "FREE_FROM_GLUTEN"}, {"id": "VEGAN"}]},
+                ],
+            },
+        },
+        # Scenario B L2 GOOD alternative: compliant gluten-free Elovena Barista oat drink 1 l
+        {
+            "id": "469512",
+            "salesUnit": "ST",
+            "baseUnit": "ST",
+            "allowedLotSize": 1,
+            "category": "10402",
+            "deleted": False,
+            "deposits": [],
+            "substitutions": [],
+            "units": [{"unitId": "ST", "sizeInBaseUnits": 1}],
+            "vendorName": "Synthetic Oat",
+            "synkkaData": {
+                "names": [{"language": "en", "value": "Synthetic Elovena 1l oat drink barista"}],
+                "unitConversions": [{"synkkaPackagingType": "BASE_UNIT_OR_EACH", "volume": {"unit": "LTR", "value": 1}}],
+                "classifications": [
+                    {"name": "allergen", "type": "ENUM", "values": [{"id": "GO", "unit": "CONTAINS"}]},
+                    {"name": "nutritionalClaim", "type": "ENUM", "values": [{"id": "FREE_FROM_GLUTEN"}, {"id": "VEGAN"}]},
+                ],
+            },
+        },
     ]
     return {rec["id"]: normalise_product(rec, reliability=1.0, co2=1.1) for rec in specs}
 
@@ -253,10 +400,17 @@ class SyntheticAgentProvider:
         self.recorded_at = now
         self.prices = {
             "464306": (1.01, 1.01, "L"),
+            "464401": (1.10, 1.10, "L"),
             "463335": (1.40, 1.40, "L"),
+            "464201": (1.56, 1.56, "L"),
             "465039": (6.86, 1.37, "L"),
             "474235": (22.92, 4.58, "KG"),
+            "462324": (2.60, 5.20, "KG"),
+            "468969": (3.30, 16.50, "KG"),
             "468465": (1.17, 1.17, "L"),
+            "473609": (1.37, 1.37, "L"),
+            "475224": (1.74, 1.74, "L"),
+            "469512": (2.08, 2.08, "L"),
             "470863": (1.55, 1.55, "L"),
             "470699": (1.95, 7.80, "KG"),
             "473895": (34.79, 7.25, "KG"),
@@ -319,6 +473,37 @@ class SyntheticAgentProvider:
                     {
                         "salesBlock": False,
                         "availableAmount": 19,
+                        "availableDate": MONDAY.isoformat(),
+                        "salesUnit": "ST",
+                    }
+                ],
+            }
+        if code == "462324":
+            return {
+                "productId": code,
+                "closingTime": f"2026-11-15T17:00:00{HEL}",
+                "salesBlock": False,
+                "logisticModel": "Stock",
+                "scheduleLines": [
+                    {
+                        "salesBlock": False,
+                        "availableAmount": 399,
+                        "availableDate": MONDAY.isoformat(),
+                        "salesUnit": "BAG",
+                    }
+                ],
+            }
+        if code in ("468969", "475224", "469512"):
+            amt = {"468969": 4, "475224": 130, "469512": 520}[code]
+            return {
+                "productId": code,
+                "closingTime": f"2026-11-15T17:00:00{HEL}",
+                "salesBlock": False,
+                "logisticModel": "Stock",
+                "scheduleLines": [
+                    {
+                        "salesBlock": False,
+                        "availableAmount": amt,
                         "availableDate": MONDAY.isoformat(),
                         "salesUnit": "ST",
                     }
@@ -409,12 +594,27 @@ def test_scenario_a_auto_ranks_cheapest_milk_and_confirms(synthetic_api):
     assert result.proposal.reasons == []
     assert len(result.proposal.lines) == 1
     line = result.proposal.lines[0]
-    # 464306 (€1.01/l) beats 463335 (€1.40/l) per §7.6 #3 (lowest comparison price)
+    # 464306 (€1.01/l) beats 464401 (€1.10/l), 463335 (€1.40/l) and 464201 (€1.56/l) per §7.6 #3
     assert line.productId == "464306"
     assert line.quantitySalesUnits == Decimal("1000")
     assert line.lineTotalExclVat == Decimal("1010.00")
     assert result.proposal.totals.exclVat == Decimal("1010.00")
     assert 1 <= result.explanation.sentenceCount <= 2
+
+    # T22: Recommended + Good / Better / Best alternatives for Scenario A, all proven-compliant
+    assert result.plan is not None
+    assert len(result.plan.items) == 1
+    a_ranked = result.plan.items[0].rankedCandidates
+    assert [(rc.tier, rc.productId) for rc in a_ranked[:4]] == [
+        ("RECOMMENDED", "464306"),
+        ("BEST", "464401"),
+        ("BETTER", "463335"),
+        ("GOOD", "464201"),
+    ]
+    for rc in a_ranked:
+        assert rc.allRequirementsDeclared is True
+        assert "/l" in rc.tradeoff
+        assert "in stock" in rc.tradeoff
 
 
 def test_scenario_b_ask_over_auto_limit_and_valio_substitute_rejected(synthetic_api):
@@ -443,6 +643,31 @@ def test_scenario_b_ask_over_auto_limit_and_valio_substitute_rejected(synthetic_
         ("474235", Decimal("18"), Decimal("412.56")),
         ("468465", Decimal("80"), Decimal("93.60")),
     ]
+
+    # T22: Recommended + Good / Better / Best alternatives for Scenario B (both items), none violating hard requirements
+    assert result.plan is not None
+    assert len(result.plan.items) == 2
+    b_i1_ranked = result.plan.items[0].rankedCandidates
+    b_i2_ranked = result.plan.items[1].rankedCandidates
+    assert [(rc.tier, rc.productId) for rc in b_i1_ranked] == [
+        ("RECOMMENDED", "474235"),
+        ("BEST", "462324"),
+        ("BETTER", "468969"),
+    ]
+    assert [(rc.tier, rc.productId) for rc in b_i2_ranked[:4]] == [
+        ("RECOMMENDED", "468465"),
+        ("BEST", "473609"),
+        ("BETTER", "475224"),
+        ("GOOD", "469512"),
+    ]
+    ranked_ids = {rc.productId for ip in result.plan.items for rc in ip.rankedCandidates}
+    for non_compliant_id in ("470863", "470699", "473895", "475795"):
+        assert non_compliant_id not in ranked_ids
+    for ip in result.plan.items:
+        for rc in ip.rankedCandidates:
+            assert rc.allRequirementsDeclared is True
+            assert ("/kg" in rc.tradeoff or "/l" in rc.tradeoff)
+            assert "in stock" in rc.tradeoff
 
     # Valio's listed substitute 470863 is rejected with SUBSTITUTE_REJECTED both on L2's trust card and in Excluded (P8 B)
     l2 = result.proposal.lines[1]
