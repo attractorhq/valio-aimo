@@ -205,3 +205,22 @@ PROPOSAL="$(curl -sS -X POST "$API/v0.1/proposals" \
 
 echo "$PROPOSAL" | jq '{decision, reasons, totals, offerHash, state}'
 ```
+
+## MCP agent interface (`/mcp`, Streamable HTTP)
+
+`/mcp` exposes the same public Agent channel over the Model Context Protocol (Streamable HTTP, JSON-RPC 2.0, protocol versions `2025-06-18`, `2025-03-26`, and `2024-11-05`).
+
+- **Exposed tools (`tools/list`):** `listMandates`, `getMandate`, `searchProducts`, `getOffer`, `createProposal`, `getProposal`, `getAuditTrail`.
+- **Forbidden on `/mcp`:** `decideApproval`, `getApproverView`, `listApproverProposals`, `recheckAndConfirm`, and `updateMandate` are never listed in `tools/list` and are rejected with JSON-RPC error `-32601` if invoked via `tools/call`.
+- **Capability isolation (P3, AC15):** MCP responses never contain `approvalToken`, `approvalUrl`, or `qrPayload`.
+
+### Connect Claude Code via `claude mcp add`
+
+```bash
+claude mcp add --transport http valio-aimo http://localhost:8000/mcp
+# or against the deployed Worker URL:
+claude mcp add --transport http valio-aimo https://valio-aimo.<account>.workers.dev/mcp
+```
+
+Asking Claude Code to run Scenario B for `northbay-school-kitchen` ("We need 90 kg of gluten-free macaroni and 80 litres of gluten-free oat drink by Monday, 2026-11-16") invokes `getMandate` → `searchProducts` → `getOffer` → `createProposal` and reaches `state: "PENDING_APPROVAL"` (`decision: "ASK"`, `reasons: ["OVER_AUTO_LIMIT"]`, `totals.exclVat: "506.16"`).
+

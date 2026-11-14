@@ -4,6 +4,7 @@ import { Main } from './pages/Main'
 import { Approver } from './pages/Approver'
 import { ApproveMobile } from './pages/ApproveMobile'
 import { Log } from './pages/Log'
+import { Spec } from './pages/Spec'
 import { ValioView } from './pages/ValioView'
 
 function LogRoute() {
@@ -41,6 +42,7 @@ export default function App() {
           ) : (
             <>
               <Link to="/valio">Valio Aimo readiness</Link>
+              <Link to="/spec">Open spec · Trust Labels v0.1</Link>
               {/* The approver panel is a separate window, like a separate person's device. */}
               <a href="/approver" target="_blank" rel="noopener">
                 Open Approver panel <ExternalLink size={13} aria-hidden />
@@ -58,6 +60,7 @@ export default function App() {
           <Route path="/approve/:token" element={<ApproveMobile />} />
           <Route path="/log" element={<LogRoute />} />
           <Route path="/log/:proposalId" element={<LogRoute />} />
+          <Route path="/spec" element={<Spec />} />
           <Route
             path="*"
             element={

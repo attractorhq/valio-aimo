@@ -46,12 +46,16 @@ from app.gateway.approvals import (
 )
 from app.gateway.log import (
     ALLOWED_TRANSITIONS,
+    GENESIS_HASH,
     PRE_CONFIRMATION_STATES,
     TERMINAL_STATES,
     DecisionLog,
     InvalidStateTransitionError,
+    build_hash_chain,
     can_transition,
+    compute_entry_hash,
     validate_transition,
+    verify_hash_chain,
 )
 from app.gateway.proposals import (
     NoOrderError,
@@ -879,5 +883,245 @@ def test_sqlite_persistence_round_trips_offers_proposals_tokens_and_decision_log
         trail = gw2.get_audit_trail(customer_id=M2.customerId)
         assert AuditTrail.model_validate_json(trail.model_dump_json()) == trail
         assert len(trail.entries) == 6
+
+    engine.dispose()
+
+
+# --------------------------------------------------------------------------- 7. T28: SHA-256 hash-chain tamper evidence
+
+
+def test_hash_chain_verifies_clean_log_and_detects_tampered_entry_in_memory_and_via_endpoint():
+    from fastapi.testclient import TestClient
+
+    from app.api.state import GatewayState, get_state, try_state
+    from app.main import app
+
+    provider = MutableSyntheticProvider()
+    gateway = ProposalGateway(products=PRODUCTS, provider=provider)
+    offer_req, struct_req = request_a()
+    offer = gateway.get_offer(offer_req).offer
+    proposal = gateway.create_proposal(M1.customerId, offer.offerId, offer.offerVersion, struct_req)
+
+    # 1. Clean chain verifies (global, per-proposal, and per-customer)
+    ver_global = gateway.log.verify()
+    assert ver_global.verified is True
+    assert ver_global.chainLength == 5
+    assert ver_global.genesisHash == GENESIS_HASH
+    assert ver_global.tamperedEntryIds == []
+    assert ver_global.firstTamperedIndex is None
+    assert ver_global.links[0].prevHash == GENESIS_HASH
+    for idx in range(1, len(ver_global.links)):
+        assert ver_global.links[idx].prevHash == ver_global.links[idx - 1].entryHash
+        assert ver_global.links[idx].valid is True
+
+    ver_prop = gateway.log.verify(proposal_id=proposal.proposalId)
+    assert ver_prop.verified is True
+    assert ver_prop.chainLength == 5
+
+    # Pure helper verify_hash_chain also detects tampering
+    entries = list(gateway.log.for_proposal(proposal.proposalId).entries)
+    sealed_links = build_hash_chain(entries)
+    assert verify_hash_chain(entries, sealed_links).verified is True
+    assert sealed_links[0].entryHash == compute_entry_hash(entries[0], GENESIS_HASH)
+
+    # 2. Verify HTTP endpoint `/v0.1/audit/verify` before and after tampering
+    state = GatewayState(
+        gateway=gateway,
+        catalog=list(PRODUCTS.values()),
+        mode="RECORDED",
+        clock=lambda: NOW,
+    )
+    app.dependency_overrides[get_state] = lambda: state
+    app.dependency_overrides[try_state] = lambda: state
+    try:
+        with TestClient(app) as client:
+            res_ok = client.get(f"/v0.1/audit/verify?proposalId={proposal.proposalId}")
+            assert res_ok.status_code == 200
+            body_ok = res_ok.json()
+            assert body_ok["verified"] is True
+            assert body_ok["chainLength"] == 5
+            assert body_ok["tamperedEntryIds"] == []
+
+            # Tamper with entry at index 1 in the log without resealing
+            target_entry = gateway.log._entries[1]
+            gateway.log._entries[1] = target_entry.model_copy(
+                update={"summary": "TAMPERED: amount silently altered after sign-off"}
+            )
+
+            ver_tampered = gateway.log.verify(proposal_id=proposal.proposalId)
+            assert ver_tampered.verified is False
+            assert ver_tampered.firstTamperedIndex == 1
+            assert target_entry.entryId in ver_tampered.tamperedEntryIds
+            assert ver_tampered.reason is not None and "mismatch" in ver_tampered.reason.lower()
+            # Subsequent links cascade the hash mismatch
+            assert ver_tampered.links[0].valid is True
+            assert all(not lnk.valid for lnk in ver_tampered.links[1:])
+
+            res_bad = client.get(f"/v0.1/audit/verify?proposalId={proposal.proposalId}")
+            assert res_bad.status_code == 200
+            body_bad = res_bad.json()
+            assert body_bad["verified"] is False
+            assert body_bad["firstTamperedIndex"] == 1
+            assert target_entry.entryId in body_bad["tamperedEntryIds"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_hash_chain_detects_sqlite_row_tampering_and_entry_deletion():
+    from sqlalchemy import select
+
+    from app.db.models import DecisionLogRow
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(engine, expire_on_commit=False)
+    provider = MutableSyntheticProvider()
+    offer_req, struct_req = request_a()
+
+    with factory() as session:
+        gw = ProposalGateway(products=PRODUCTS, provider=provider, session=session, signing_key="test-key")
+        offer = gw.get_offer(offer_req).offer
+        proposal = gw.create_proposal(M1.customerId, offer.offerId, offer.offerVersion, struct_req)
+        assert gw.log.verify(proposal_id=proposal.proposalId).verified is True
+
+        # Directly mutate a persisted SQLite row's summary
+        rows = session.scalars(select(DecisionLogRow).order_by(DecisionLogRow.seq)).all()
+        tampered_row = rows[2]
+        tampered_row.data = {**tampered_row.data, "summary": "TAMPERED IN SQLITE"}
+        session.commit()
+
+        ver = gw.log.verify(proposal_id=proposal.proposalId)
+        assert ver.verified is False
+        assert ver.firstTamperedIndex == 2
+        assert tampered_row.entry_id in ver.tamperedEntryIds
+
+    engine.dispose()
+
+
+def test_tampering_remains_detected_after_subsequent_append_in_memory_and_sqlite():
+    """Architect review repro: appending a new event after tampering must never re-seal earlier links."""
+    from sqlalchemy import select
+
+    from app.db.models import DecisionLogRow
+
+    # 1. In-memory path
+    log = DecisionLog()
+    e0 = log.record_transition(
+        customer_id=M1.customerId,
+        mandate_version=1,
+        timestamp=NOW,
+        actor="gateway:offer",
+        event="OFFER_CREATED",
+        from_state=None,
+        to_state="OFFERED",
+        summary="offer at €100.00",
+        proposal_id="P1",
+    )
+    log.record_transition(
+        customer_id=M1.customerId,
+        mandate_version=1,
+        timestamp=NOW,
+        actor="gateway:proposal",
+        event="PROPOSAL_CREATED",
+        from_state="OFFERED",
+        to_state="PROPOSED",
+        summary="proposal bound",
+        proposal_id="P1",
+    )
+    assert log.verify().verified is True
+    assert log.verify(proposal_id="P1").verified is True
+
+    # Tamper with e0
+    log._entries[0] = e0.model_copy(update={"summary": "offer at €1.00"})
+    assert log.verify().verified is False
+    assert log.verify().firstTamperedIndex == 0
+
+    # Append a subsequent normal transition
+    log.record_transition(
+        customer_id=M1.customerId,
+        mandate_version=1,
+        timestamp=NOW,
+        actor="gateway:policy",
+        event="POLICY_DECIDED",
+        from_state="PROPOSED",
+        to_state="AUTO_APPROVED",
+        summary="policy decided",
+        proposal_id="P1",
+    )
+    ver_mem = log.verify()
+    assert ver_mem.verified is False
+    assert ver_mem.firstTamperedIndex == 0
+    assert e0.entryId in ver_mem.tamperedEntryIds
+
+    ver_mem_prop = log.verify(proposal_id="P1")
+    assert ver_mem_prop.verified is False
+    assert ver_mem_prop.firstTamperedIndex == 0
+    assert e0.entryId in ver_mem_prop.tamperedEntryIds
+
+    ver_mem_cust = log.verify(customer_id=M1.customerId)
+    assert ver_mem_cust.verified is False
+    assert ver_mem_cust.firstTamperedIndex == 0
+
+    # 2. SQLite path
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(engine, expire_on_commit=False)
+
+    with factory() as session:
+        db_log = DecisionLog(session=session)
+        s0 = db_log.record_transition(
+            customer_id=M1.customerId,
+            mandate_version=1,
+            timestamp=NOW,
+            actor="gateway:offer",
+            event="OFFER_CREATED",
+            from_state=None,
+            to_state="OFFERED",
+            summary="offer at €100.00",
+            proposal_id="P-SQL",
+        )
+        db_log.record_transition(
+            customer_id=M1.customerId,
+            mandate_version=1,
+            timestamp=NOW,
+            actor="gateway:proposal",
+            event="PROPOSAL_CREATED",
+            from_state="OFFERED",
+            to_state="PROPOSED",
+            summary="proposal bound",
+            proposal_id="P-SQL",
+        )
+        assert db_log.verify().verified is True
+
+        # Tamper with row 0 in SQLite (and in-memory entry 0)
+        row0 = session.scalars(select(DecisionLogRow).order_by(DecisionLogRow.seq)).first()
+        assert row0 is not None
+        row0.data = {**row0.data, "summary": "offer at €1.00"}
+        session.commit()
+        db_log._entries[0] = s0.model_copy(update={"summary": "offer at €1.00"})
+        assert db_log.verify().verified is False
+        assert db_log.verify().firstTamperedIndex == 0
+
+        # Append one more entry after the tamper
+        db_log.record_transition(
+            customer_id=M1.customerId,
+            mandate_version=1,
+            timestamp=NOW,
+            actor="gateway:policy",
+            event="POLICY_DECIDED",
+            from_state="PROPOSED",
+            to_state="AUTO_APPROVED",
+            summary="policy decided",
+            proposal_id="P-SQL",
+        )
+        ver_sql = db_log.verify()
+        assert ver_sql.verified is False
+        assert ver_sql.firstTamperedIndex == 0
+        assert s0.entryId in ver_sql.tamperedEntryIds
+
+        ver_sql_prop = db_log.verify(proposal_id="P-SQL")
+        assert ver_sql_prop.verified is False
+        assert ver_sql_prop.firstTamperedIndex == 0
+        assert s0.entryId in ver_sql_prop.tamperedEntryIds
 
     engine.dispose()
