@@ -10,6 +10,7 @@ import {
   type AgentStepEvent,
   type DataSource,
   type FlowResult,
+  type RunInput,
   type ScenarioId,
 } from '../lib/gateway'
 import { formatMoney } from '../lib/format'
@@ -17,12 +18,8 @@ import { MandatePanel } from '../components/flow/MandatePanel'
 import { MandateStatus } from '../components/mandate/MandateControls'
 import { RequestComposer } from '../components/flow/RequestComposer'
 import { Step, type StepStatus } from '../components/flow/Step'
-import {
-  NoOrderBanner,
-  RequestCard,
-  ResultBanner,
-  approvalLabel,
-} from '../components/flow/StepContent'
+import { RequestCard, ResultBanner, approvalLabel } from '../components/flow/StepContent'
+import { NoOrderBanner } from '../components/flow/NoOrderBanner'
 import type { ItemPlanSummary } from '../components/request/AssumptionChips'
 import { DecisionFooter } from '../components/order/DecisionFooter'
 import { ExcludedList } from '../components/order/ExcludedList'
@@ -94,7 +91,7 @@ export function Main() {
     return subscribeGatewaySource((next) => setSourceState(next))
   }, [])
 
-  const run = useMutation<FlowResult, Error, { customerId: string; requestText: string }>({
+  const run = useMutation<FlowResult, Error, Pick<RunInput, 'customerId' | 'requestText' | 'lookupDate'>>({
     mutationFn: (input) => {
       setStreamedSteps([])
       return gateway.run({
@@ -292,7 +289,15 @@ export function Main() {
               />
             )}
             {!proposal && step4 && (
-              <NoOrderBanner summary={step4.summary} detail={step4.explanation?.text} />
+              <NoOrderBanner
+                summary={step4.summary}
+                detail={step4.explanation?.text}
+                noOrder={step4.noOrder}
+                hasExclusions={Boolean(step4.excluded?.length)}
+                onRetry={running ? undefined : (lookupDate) => {
+                  if (run.variables) run.mutate({ ...run.variables, lookupDate })
+                }}
+              />
             )}
           </div>
         )}
@@ -453,20 +458,6 @@ export function Main() {
                 <Info size={16} aria-hidden />
                 <span>{run.data.feasibleWithinHardLimit.text}</span>
               </p>
-            )}
-            {!proposal && step4 && (
-              <div className="outcome outcome-block" role="status">
-                <p className="outcome-headline">
-                  <AlertCircle size={20} aria-hidden />
-                  <span>
-                    <span className="outcome-word">NO ORDER</span>
-                    {step4.summary}
-                  </span>
-                </p>
-                {step4.explanation?.text && (
-                  <p className="mt-1 text-sm">{step4.explanation.text}</p>
-                )}
-              </div>
             )}
             {!proposal && errorStep && errorStep.step === 4 && (
               <div className="notice notice-error" role="alert">

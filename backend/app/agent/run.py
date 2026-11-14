@@ -13,21 +13,24 @@ The agent never approves, confirms, or computes the AUTO / ASK / BLOCK decision.
 
 from collections import OrderedDict
 from collections.abc import Iterator, Mapping, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from pydantic import Field
 
-from app.agent.explain import ExplanationResult, LlmExplainer, explain_proposal
+from app.agent.explain import ExplanationResult, LlmExplainer, explain_proposal, no_order_item_reason
 from app.agent.llm import LlmInterpreter
 from app.agent.parse import ParseResult, parse_request
 from app.agent.plan import (
     MAX_SHORTLIST_PER_ITEM,
     AgentPlan,
     CandidateObservation,
+    ClosestMatch,
     FeasibleOrder,
     ItemPlan,
+    NoOrderDetails,
+    NoOrderItem,
     ValioSubstituteCheck,
     build_shortlist_offer_items,
     check_valio_substitutes,
@@ -35,9 +38,16 @@ from app.agent.plan import (
     normalise_item_for_planning,
     observation_from_offer_line,
     rank_candidates,
+    relaxed_name_queries,
+    requirement_display_name,
     select_curated_static_excluded,
 )
-from app.catalog.search import SearchProductsRequest, SearchProductsResult
+from app.catalog.search import (
+    SearchProductsRequest,
+    SearchProductsResult,
+    evaluate_product_static_requirements,
+)
+from app.catalog.vocab import expand_query_tokens, extract_inline_requirements
 from app.contracts import (
     CreateProposalRequest,
     Decision,
@@ -52,14 +62,17 @@ from app.contracts import (
     ReasonCode,
     RequestItem,
     StructuredRequest,
+    format_date,
     format_money,
 )
 from app.contracts.common import Contract
 from app.gateway.offers import get_offer as compute_offer
 from app.gateway.proposals import NoOrderError
+from app.policy.requirements import hard_requirements
 from app.valio import IntegrationError
 from app.valio.errors import ValioRateLimited
 from app.valio.record import BRIEF_PRODUCT_IDS
+from app.valio.vendor import HELSINKI
 
 if TYPE_CHECKING:
     from app.api.state import GatewayState
@@ -85,6 +98,7 @@ class AgentStepEvent(Contract):
     explanation: ExplanationResult | None = None
     reasons: list[ReasonCode] = Field(default_factory=list)
     excluded: list[ExcludedProduct] = Field(default_factory=list)
+    noOrder: NoOrderDetails | None = None
     error: dict[str, Any] | None = None
 
 
@@ -207,6 +221,19 @@ class GatewayAgentChannel:
         return agent_channel.get_proposal(proposal_id, self.state)
 
 
+class HttpNoOrderError(ValueError):
+    """The public proposal endpoint returned a NO_ORDER policy result."""
+
+    def __init__(self, message: str, details: dict):
+        super().__init__(message)
+        self.reasons = [ReasonCode(code) for code in details.get("reasons", [])]
+        self.excluded = [ExcludedProduct.model_validate(entry) for entry in details.get("excluded", [])]
+
+
+class InvalidDeliveryRetry(ValueError):
+    """A delivery retry would not move the original deadline forward."""
+
+
 class HttpAgentChannel:
     """HTTP client adapter that talks strictly to the public `/v0.1/*` REST endpoints."""
 
@@ -236,6 +263,8 @@ class HttpAgentChannel:
                 code, msg = "", response.text
             if code == "VALIO_RATE_LIMITED":
                 raise ValioRateLimited(err["details"]["retryAfterSeconds"])
+            if code == "NO_ORDER":
+                raise HttpNoOrderError(msg, err.get("details") or {})
             if code == "UPSTREAM_ERROR" or response.status_code == 502:
                 raise IntegrationError(msg)
             raise ValueError(f"Agent channel HTTP {response.status_code} ({code}): {msg}")
@@ -364,7 +393,8 @@ def _probe_candidates(
     channel: AgentChannel,
     *,
     customer_id: str,
-    requested_date: Any,
+    requested_date: date,
+    lookup_date: date | None,
     candidates_by_item: Mapping[str, Sequence[Product]],
     items_by_id: Mapping[str, RequestItem],
 ) -> tuple[dict[str, dict[str, CandidateObservation]], dict[str, list[ExcludedProduct]]]:
@@ -393,6 +423,7 @@ def _probe_candidates(
         customerId=customer_id,
         requestedDate=requested_date,
         items=probe_items,
+        lookupDate=lookup_date,
     )
     try:
         probe_offer = channel.probe_offer(probe_req)
@@ -404,13 +435,7 @@ def _probe_candidates(
         narrowed_items = [oi for oi in probe_items if oi.productId in BRIEF_PRODUCT_IDS]
         if not narrowed_items:
             raise
-        probe_offer = channel.probe_offer(
-            GetOfferRequest(
-                customerId=customer_id,
-                requestedDate=requested_date,
-                items=narrowed_items,
-            )
-        )
+        probe_offer = channel.probe_offer(probe_req.model_copy(update={"items": narrowed_items}))
 
     observations: dict[str, dict[str, CandidateObservation]] = {item_id: {} for item_id in candidates_by_item}
     live_excluded: dict[str, list[ExcludedProduct]] = {item_id: [] for item_id in candidates_by_item}
@@ -434,11 +459,161 @@ def _probe_candidates(
     return observations, live_excluded
 
 
+def _closest_matches(
+    channel: AgentChannel,
+    customer_id: str,
+    search: SearchProductsRequest,
+    mandate: Mandate,
+) -> list[ClosestMatch]:
+    _, inline_requirements = extract_inline_requirements(search.query)
+    requirements = list(dict.fromkeys([*search.requirements, *inline_requirements]))
+    matches: dict[str, ClosestMatch] = {}
+    for query in relaxed_name_queries(search.query):
+        tokens, _ = expand_query_tokens(query)
+        if not tokens:
+            continue
+        result = channel.search_products(
+            search.model_copy(update={"query": query, "requirements": requirements, "productId": None}),
+            customer_id=customer_id,
+        )
+        for product in result.candidates:
+            reasons, _ = evaluate_product_static_requirements(product, requirements, mandate)
+            if reasons:
+                continue
+            names = " ".join((product.name, *product.names.values())).lower()
+            if not all(any(token in names for token in group) for group in tokens):
+                continue
+            matches[product.productId] = ClosestMatch(productId=product.productId, name=product.name)
+            if len(matches) == 3:
+                return list(matches.values())
+    return list(matches.values())
+
+
+def _coverage_date(lines: Sequence[OfferLine], item: RequestItem) -> date | None:
+    covered = Decimal(0)
+    for line in sorted(lines, key=lambda line: line.deliveryDate):
+        if line.itemId == item.itemId:
+            covered += line.deliveredQuantity.value
+            if covered >= item.quantity:
+                return line.deliveryDate
+    return None
+
+
+def _compliant_offer_lines(
+    offer: Offer,
+    request: StructuredRequest,
+    products: Mapping[str, Product],
+    mandate: Mandate,
+) -> list[OfferLine]:
+    items = {item.itemId: item for item in request.items}
+    return [
+        line for line in offer.lines
+        if line.productId in products and line.itemId in items and not evaluate_product_static_requirements(
+            products[line.productId],
+            [*items[line.itemId].requirements, *extract_inline_requirements(items[line.itemId].what)[1]],
+            mandate,
+            named=items[line.itemId].productId == line.productId,
+        )[0]
+    ]
+
+
+def _no_order_step(
+    *,
+    channel: AgentChannel,
+    customer_id: str,
+    request: StructuredRequest,
+    mandate: Mandate,
+    item_plans: Sequence[ItemPlan],
+    searches: Mapping[str, SearchProductsRequest],
+    candidates: Mapping[str, Sequence[Product]],
+    observations: Mapping[str, Mapping[str, CandidateObservation]],
+    products: Mapping[str, Product],
+    excluded: list[ExcludedProduct],
+    reasons: Sequence[ReasonCode],
+    offer: Offer | None = None,
+    offer_request: GetOfferRequest | None = None,
+    now: datetime,
+) -> AgentStepEvent:
+    deadline = request.requestedDate
+    effective_lines = _compliant_offer_lines(offer, request, products, mandate) if offer else []
+    dates = [_coverage_date(effective_lines, item) for item in request.items]
+    earliest = max(day for day in dates if day is not None) if all(dates) else None
+    timing_codes = {ReasonCode.CUTOFF_PASSED, ReasonCode.NOT_AVAILABLE}
+    timing_exclusions = [entry for entry in excluded if timing_codes.intersection(entry.reasons)]
+    # A failed cut-off or empty schedule is not evidence of a later delivery. Check one
+    # subsequent date on the same shortlist and only suggest a date confirmed by that quote.
+    if earliest is None and timing_exclusions and offer_request and offer_request.lookupDate is None:
+        expired_dates = [
+            date.fromisoformat(f.value)
+            for entry in timing_exclusions if ReasonCode.CUTOFF_PASSED in entry.reasons
+            for f in entry.facts if f.fact == "delivery.date" and isinstance(f.value, str)
+        ]
+        next_day = max(deadline + timedelta(days=1), now.astimezone(HELSINKI).date(),
+                       *(day + timedelta(days=1) for day in expired_dates))
+        try:
+            later = channel.probe_offer(offer_request.model_copy(update={"lookupDate": next_day}))
+        except IntegrationError:
+            later = None  # The original result is still usable if a later quote is unavailable.
+        if later is not None:
+            verified_lines = _compliant_offer_lines(later, request, products, mandate)
+            later_dates = [_coverage_date(verified_lines, item) for item in request.items]
+            dates = [before or after for before, after in zip(dates, later_dates, strict=True)]
+            if all(later_dates):
+                earliest = max(day for day in later_dates if day is not None)
+
+    items = []
+    for plan, delivery in zip(item_plans, dates, strict=True):
+        item = plan.item
+        if delivery is None:
+            delivery = min(
+                (candidate.deliveryDate for candidate in plan.rankedCandidates
+                 if candidate.deliveryDate is not None and candidate.productId in observations.get(item.itemId, {})),
+                default=None,
+            )
+        search = searches[item.itemId]
+        _, inline_requirements = extract_inline_requirements(search.query)
+        requirements = hard_requirements(
+            [*search.requirements, *inline_requirements], mandate
+        )
+        labels = [requirement_display_name(req) for req in requirements]
+        searched = search.query + (f" · {', '.join(labels)}" if labels else "")
+        item_excluded = [entry for entry in excluded if entry.itemId == item.itemId]
+        items.append(NoOrderItem(
+            itemId=item.itemId,
+            searched=searched,
+            why=no_order_item_reason(
+                has_candidates=bool(candidates[item.itemId]),
+                deadline_label=format_date(deadline),
+                delivery_label=format_date(delivery) if delivery and delivery > deadline else None,
+                delivered=delivery is not None,
+                excluded=item_excluded,
+                requirements=requirements,
+            ),
+            closestMatches=(
+                _closest_matches(channel, customer_id, search, mandate)
+                if not candidates[item.itemId] else []
+            ),
+        ))
+    retry_date = offer_request.lookupDate if offer_request else None
+    next_date = earliest if earliest and earliest > deadline and earliest != retry_date else None
+    no_order_reasons = list(dict.fromkeys([ReasonCode.NO_CANDIDATE, *reasons]))
+    return AgentStepEvent(
+        step=4, name="APPROVAL", title="Approval", status="blocked",
+        summary="The full request could not be fulfilled",
+        request=request,
+        explanation=explain_proposal(reasons=no_order_reasons, excluded=excluded, mandate=mandate),
+        reasons=no_order_reasons,
+        excluded=excluded,
+        noOrder=NoOrderDetails(items=items, earliestDelivery=next_date),
+    )
+
+
 def iter_agent_steps(
     customer_id: str,
     request_text: str,
     *,
     channel: AgentChannel,
+    lookup_date: date | None = None,
     now: datetime | None = None,
     interpreter: LlmInterpreter | None = None,
     explainer: LlmExplainer | None = None,
@@ -450,9 +625,17 @@ def iter_agent_steps(
             customer_id,
             request_text,
             channel=channel,
+            lookup_date=lookup_date,
             now=now,
             interpreter=interpreter,
             explainer=explainer,
+        )
+    except InvalidDeliveryRetry as exc:
+        if not catch_stream_errors:
+            raise
+        yield AgentStepEvent(
+            step=1, name="ERROR", title="Error", status="blocked", summary=str(exc),
+            error={"code": "INVALID_DELIVERY_RETRY", "message": str(exc)},
         )
     except IntegrationError as exc:
         if not catch_stream_errors:
@@ -493,6 +676,7 @@ def _iter_agent_steps_inner(
     request_text: str,
     *,
     channel: AgentChannel,
+    lookup_date: date | None,
     now: datetime | None = None,
     interpreter: LlmInterpreter | None = None,
     explainer: LlmExplainer | None = None,
@@ -523,9 +707,12 @@ def _iter_agent_steps_inner(
         return
 
     raw_request = parse_res.request
+    if lookup_date is not None and lookup_date <= raw_request.requestedDate:
+        raise InvalidDeliveryRetry("The retry date must be later than the original deadline.")
 
     # ------------------------------------------------------------------ Static Lookup per item
     search_results: dict[str, SearchProductsResult] = {}
+    searches: dict[str, SearchProductsRequest] = {}
     products_by_id: dict[str, Product] = dict(getattr(channel, "products_by_id", {}) or {})
 
     for item in raw_request.items:
@@ -539,6 +726,7 @@ def _iter_agent_steps_inner(
             productId=item.productId,
         )
         s_res = channel.search_products(s_req, customer_id=customer_id)
+        searches[item.itemId] = s_req
         search_results[item.itemId] = s_res
         for cand in s_res.candidates:
             products_by_id[cand.productId] = cand
@@ -594,6 +782,7 @@ def _iter_agent_steps_inner(
         channel,
         customer_id=customer_id,
         requested_date=planned_request.requestedDate,
+        lookup_date=lookup_date,
         candidates_by_item=candidates_by_item,
         items_by_id=items_by_id,
     )
@@ -736,24 +925,22 @@ def _iter_agent_steps_inner(
         excluded=all_lookup_excluded,
     )
 
-    if not final_offer_items:
-        exp = explain_proposal(
-            reasons=[ReasonCode.NO_CANDIDATE, *parse_res.reasons],
-            excluded=all_lookup_excluded,
-            mandate=mandate,
-            explainer=explainer,
+    def no_order(
+        offer: Offer | None = None,
+        offer_request: GetOfferRequest | None = None,
+        reasons: Sequence[ReasonCode] = (),
+        policy_excluded: Sequence[ExcludedProduct] = (),
+    ) -> AgentStepEvent:
+        return _no_order_step(
+            channel=channel, customer_id=customer_id, request=planned_request, mandate=mandate,
+            item_plans=item_plans, searches=searches, candidates=candidates_by_item, products=products_by_id,
+            observations=observations_by_item,
+            excluded=_merge_excluded_reasons(policy_excluded, offer.excluded if offer else [], all_lookup_excluded),
+            reasons=[*reasons, *parse_res.reasons], offer=offer, offer_request=offer_request, now=eval_now,
         )
-        yield AgentStepEvent(
-            step=4,
-            name="APPROVAL",
-            title="Approval",
-            status="blocked",
-            summary="No compliant product available",
-            request=planned_request,
-            explanation=exp,
-            reasons=[ReasonCode.NO_CANDIDATE, *parse_res.reasons],
-            excluded=all_lookup_excluded,
-        )
+
+    if not final_offer_items or any(not cands for cands in candidates_by_item.values()):
+        yield no_order()
         return
 
     # ------------------------------------------------------------------ Step 3: ORDER (`getOffer`)
@@ -761,6 +948,7 @@ def _iter_agent_steps_inner(
         customerId=customer_id,
         requestedDate=planned_request.requestedDate,
         items=final_offer_items,
+        lookupDate=lookup_date,
     )
     try:
         offer = channel.get_offer(offer_request)
@@ -768,14 +956,30 @@ def _iter_agent_steps_inner(
         if "No recorded batch" not in str(exc):
             raise
         narrowed_offer_items = [oi for oi in final_offer_items if oi.productId in BRIEF_PRODUCT_IDS]
-        offer_request = GetOfferRequest(
-            customerId=customer_id,
-            requestedDate=planned_request.requestedDate,
-            items=narrowed_offer_items,
-        )
+        if not narrowed_offer_items:
+            raise
+        offer_request = offer_request.model_copy(update={"items": narrowed_offer_items})
         offer = channel.get_offer(offer_request)
 
-    yield AgentStepEvent(
+    compliant_lines = _compliant_offer_lines(offer, planned_request, products_by_id, mandate)
+    deadline = planned_request.requestedDate
+    coverage = [_coverage_date(compliant_lines, item) for item in planned_request.items]
+    # Keep the existing partial-availability approval flow. When the whole request can
+    # be fulfilled but an item has no on-time delivery, let the buyer choose to retry.
+    misses_deadline = any(
+        not any(line.itemId == item.itemId and line.deliveryDate <= deadline for line in compliant_lines)
+        for item in planned_request.items
+    )
+    if lookup_date is None and all(coverage) and misses_deadline:
+        yield no_order(offer, offer_request)
+        return
+    if lookup_date is not None and (
+        not all(coverage) or not any(line.deliveryDate > deadline for line in compliant_lines)
+    ):
+        yield no_order(offer, offer_request)
+        return
+
+    order_step = AgentStepEvent(
         step=3,
         name="ORDER",
         title="Order",
@@ -799,28 +1003,15 @@ def _iter_agent_steps_inner(
     try:
         created = channel.create_proposal(create_req)
         proposal = channel.get_proposal(created.proposalId)
-    except (NoOrderError, ValueError):
-        reasons_no_order = [ReasonCode.NO_CANDIDATE, *parse_res.reasons]
-        merged_ex = _merge_excluded_reasons(offer.excluded, all_lookup_excluded)
-        exp = explain_proposal(
-            reasons=reasons_no_order,
-            excluded=merged_ex,
-            mandate=mandate,
-            explainer=explainer,
-        )
-        yield AgentStepEvent(
-            step=4,
-            name="APPROVAL",
-            title="Approval",
-            status="blocked",
-            summary="No confirmable order",
-            request=planned_request,
-            offer=offer,
-            explanation=exp,
-            reasons=reasons_no_order,
-            excluded=merged_ex,
-        )
+    except NoOrderError as exc:
+        decision = exc.policy_decision
+        yield no_order(offer, offer_request, decision.reasons, decision.excluded_products())
         return
+    except HttpNoOrderError as exc:
+        yield no_order(offer, offer_request, exc.reasons, exc.excluded)
+        return
+
+    yield order_step
 
     enriched_proposal = _enrich_proposal_for_display(
         proposal,
@@ -865,6 +1056,7 @@ def run_agent(
     request_text: str,
     *,
     channel: AgentChannel,
+    lookup_date: date | None = None,
     now: datetime | None = None,
     interpreter: LlmInterpreter | None = None,
     explainer: LlmExplainer | None = None,
@@ -875,6 +1067,7 @@ def run_agent(
             customer_id,
             request_text,
             channel=channel,
+            lookup_date=lookup_date,
             now=now,
             interpreter=interpreter,
             explainer=explainer,
@@ -921,6 +1114,7 @@ def run_agent(
                     customerId=customer_id,
                     requestedDate=req.requestedDate,
                     items=all_offer_items,
+                    lookupDate=lookup_date,
                 ),
             )
 

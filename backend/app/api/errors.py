@@ -106,7 +106,7 @@ def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(NoOrderError)
     async def no_order(_: Request, exc: NoOrderError):
         # O5/O6: nothing to confirm or approve. The reasons say why; no proposal is created.
-        decision = exc.decision
+        decision = exc.policy_decision
         return error(422, "NO_ORDER", _message(exc), {
             "reasons": [str(code) for code in decision.reasons],
             "excluded": [e.model_dump(mode="json") for e in decision.excluded_products()],
