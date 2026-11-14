@@ -15,6 +15,13 @@ fail() { echo "deploy: $*" >&2; exit 1; }
 command -v docker >/dev/null || fail "Docker is required to build the container image."
 docker info >/dev/null 2>&1 || fail "the Docker daemon is not running."
 
+# The wrangler login can see several Cloudflare accounts; pin the team account from .env (not a secret).
+if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ] && [ -f .env ]; then
+  CLOUDFLARE_ACCOUNT_ID="$(sed -n 's/^CLOUDFLARE_ACCOUNT_ID=//p' .env | tail -1 | tr -d '"'"'"' \r')"
+  [ -n "$CLOUDFLARE_ACCOUNT_ID" ] && export CLOUDFLARE_ACCOUNT_ID
+fi
+[ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] || fail "set CLOUDFLARE_ACCOUNT_ID (in .env or the environment): wrangler sees more than one account."
+
 bash scripts/guard
 scripts/build-catalog
 [ -s data/catalog/catalog.json ] || fail "the catalogue artifact was not built (data/catalog/catalog.json)."
