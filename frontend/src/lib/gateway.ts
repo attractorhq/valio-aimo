@@ -200,12 +200,10 @@ function mockPlanForProposal(proposal: Proposal) {
       const allCandidates = [
         {
           productId: 'MOCK-MILK',
-          name: 'Synthetic lactose-free semi skimmed milk drink 1.5 % 1 l',
           fat: '1.5',
         },
         {
           productId: 'MOCK-MILK-3PCT',
-          name: 'Synthetic lactose-free 3 % milk drink 1 l',
           fat: '3',
         },
       ]
@@ -215,14 +213,12 @@ function mockPlanForProposal(proposal: Proposal) {
       return {
         item,
         shortlistIds: candidates.map((c) => c.productId),
-        rankedCandidates: candidates.map(({ productId, name }) => ({ productId, name })),
       }
     }
     const chosen = proposal.lines.filter((l) => l.itemId === item.itemId)
     return {
       item,
       shortlistIds: chosen.map((l) => l.productId),
-      rankedCandidates: chosen.map((l) => ({ productId: l.productId, name: l.name })),
     }
   })
 }

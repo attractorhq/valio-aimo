@@ -53,7 +53,7 @@ export function ExcludedList({
                       ? 'No compliant product'
                       : 'Shortlist evaluated'}
                   {shortlistIds.length > 0 && (
-                    <small className="muted block">
+                    <small className="muted ml-1.5">
                       Shortlist ({shortlistIds.length}): {shortlistIds.join(', ')}
                     </small>
                   )}

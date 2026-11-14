@@ -1240,11 +1240,8 @@ def build_shortlist_offer_items(
     # Per §7.7 ("same product type first"), if non-substitute candidates exist (substitutionSource is None),
     # do not mix different-product-type agent substitutes into the same item allocation.
     has_direct_candidates = any(rc.substitutionSource is None for rc in ranked_candidates)
-    has_priced_candidates = any(rc.unitPriceExclVat is not None for rc in ranked_candidates)
     for rc in ranked_candidates:
         if has_direct_candidates and rc.substitutionSource == "AGENT" and item.productId is None:
-            continue
-        if has_priced_candidates and rc.unitPriceExclVat is None:
             continue
         add_id(rc.productId)
 
