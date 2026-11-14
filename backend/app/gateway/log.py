@@ -11,10 +11,14 @@ No approval token, URL or QR payload may ever be stored in a decision-log entry 
 
 import hashlib
 import json
+import re
+from collections import OrderedDict, deque
 from collections.abc import Iterable, Sequence
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
+from threading import Lock
 from types import MappingProxyType
+from typing import Literal
 
 from pydantic import Field
 from sqlalchemy import select
@@ -41,6 +45,134 @@ from app.policy import Finding
 from app.policy.limits import format_days
 
 GENESIS_HASH: str = "0" * 64
+
+AgentAccess = Literal["READ", "WRITE"]
+AgentOutcome = Literal["OK", "REFUSED", "ERROR"]
+_REFUSAL_WINDOW = timedelta(minutes=10)
+_MAX_ACTIVITY_ENTRIES = 50
+_CLIENT_LABEL = re.compile(r"[\w .:/()_+;,-]{1,120}\Z")
+_PRIVATE_LABEL = re.compile(r"bearer\s|demo-(?:agent-|admin)|(?:atk|tk)-[\w-]+|/approve/", re.I)
+
+
+def agent_client_label(value: object) -> str:
+    """Store only a bounded plain-text client label, with credential-looking input discarded."""
+    label = " ".join(value.split())[:120] if isinstance(value, str) else ""
+    return label if _CLIENT_LABEL.fullmatch(label) and not _PRIVATE_LABEL.search(label) else "unknown"
+
+
+class AgentActivityEntry(Contract):
+    id: int
+    timestamp: datetime
+    client: str
+    operation: str
+    access: AgentAccess
+    outcome: AgentOutcome
+    durationMs: int
+    reason: str | None = None
+
+
+class SuspendedAgent(Contract):
+    clientId: str
+    client: str
+    customerId: str
+
+
+class AgentActivitySnapshot(Contract):
+    paused: bool
+    suspended: list[SuspendedAgent]
+    entries: list[AgentActivityEntry]
+
+
+class AgentActivity:
+    """A sandbox-local activity feed. Control events are separate from proposal state transitions."""
+
+    def __init__(self):
+        self._lock = Lock()
+        self._paused = False
+        self._last_id = 0
+        self._entries: deque[AgentActivityEntry] = deque(maxlen=_MAX_ACTIVITY_ENTRIES)
+        self._refusals: dict[str, list[datetime]] = {}
+        self._suspended: dict[str, SuspendedAgent] = {}
+        self._mcp_clients: OrderedDict[tuple[str, str], str] = OrderedDict()
+
+    @staticmethod
+    def _client_id(customer: str, client: str) -> str:
+        return hashlib.sha256(f"{customer}\0{client.casefold()}".encode()).hexdigest()
+
+    def remember_mcp_client(self, session: str, customer: str, client: str) -> None:
+        with self._lock:
+            key = (session, customer)
+            self._mcp_clients.setdefault(key, client)
+            self._mcp_clients.move_to_end(key)
+            if len(self._mcp_clients) > 200:
+                self._mcp_clients.popitem(last=False)
+
+    def mcp_client(self, session: str | None, customer: str, fallback: str) -> str:
+        if session is None:
+            return fallback
+        with self._lock:
+            key = (session, customer)
+            if key in self._mcp_clients:
+                self._mcp_clients.move_to_end(key)
+            return self._mcp_clients.get(key, fallback)
+
+    def block(self, customer: str | None, client: str, access: AgentAccess) -> tuple[str, str] | None:
+        with self._lock:
+            if customer and self._client_id(customer, client) in self._suspended:
+                return "AGENT_SUSPENDED", "This agent client is suspended. Ask the Valio admin to resume it."
+            if access == "WRITE" and self._paused:
+                return "AGENTS_PAUSED", "Agent writes are paused by the Valio admin."
+        return None
+
+    def _append(self, timestamp: datetime, client: str, operation: str, access: AgentAccess,
+                outcome: AgentOutcome, duration_ms: int = 0, reason: str | None = None) -> None:
+        self._last_id += 1
+        self._entries.appendleft(AgentActivityEntry(
+            id=self._last_id, timestamp=timestamp, client=client, operation=operation,
+            access=access, outcome=outcome, durationMs=duration_ms, reason=reason,
+        ))
+
+    def record(self, *, customer: str | None, client: str, operation: str, access: AgentAccess,
+               outcome: AgentOutcome, timestamp: datetime, duration_ms: int,
+               reason: str | None = None, count_refusal: bool = False) -> None:
+        with self._lock:
+            self._append(timestamp, client, operation, access, outcome, duration_ms, reason)
+            if outcome != "REFUSED" or not count_refusal or customer is None:
+                return
+            client_id = self._client_id(customer, client)
+            if client_id in self._suspended:
+                return
+            cutoff = timestamp - _REFUSAL_WINDOW
+            self._refusals = {key: times for key, times in self._refusals.items() if max(times) > cutoff}
+            times = [time for time in self._refusals.get(client_id, ()) if time > cutoff]
+            times.append(timestamp)
+            if len(times) < 3:
+                self._refusals[client_id] = times
+                return
+            self._refusals.pop(client_id, None)
+            self._suspended[client_id] = SuspendedAgent(clientId=client_id, client=client, customerId=customer)
+            self._append(timestamp, client, "Agent suspended", "WRITE", "OK", reason="3 refusals within 10 minutes.")
+
+    def set_paused(self, paused: bool, timestamp: datetime) -> None:
+        with self._lock:
+            if self._paused != paused:
+                self._paused = paused
+                self._append(timestamp, "Valio admin", "Agent writes paused" if paused else "Agent writes resumed",
+                             "WRITE", "OK")
+
+    def resume(self, client_id: str, timestamp: datetime) -> bool:
+        with self._lock:
+            suspended = self._suspended.pop(client_id, None)
+            if suspended is None:
+                return False
+            self._append(timestamp, "Valio admin", "Agent resumed", "WRITE", "OK", reason=suspended.client)
+            return True
+
+    def snapshot(self) -> AgentActivitySnapshot:
+        with self._lock:
+            return AgentActivitySnapshot(
+                paused=self._paused, suspended=list(self._suspended.values()), entries=list(self._entries),
+            )
 
 
 class AuditChainLink(Contract):
@@ -480,6 +612,7 @@ class DecisionLog:
 
     def __init__(self, session: Session | None = None):
         self._session = session
+        self.agent_activity = AgentActivity()
         self._entries: list[AuditEntry] = []
         self._forbidden_tokens: set[str] = set()
         self._sealed_global: list[AuditChainLink] = []
