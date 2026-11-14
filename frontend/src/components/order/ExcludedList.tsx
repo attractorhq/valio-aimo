@@ -1,10 +1,7 @@
 import { Ban, ShieldAlert } from 'lucide-react'
 import type { Proposal, ReasonCode, RequestItem } from '../../lib/contracts'
 import { reasonChip, requirementLabel } from '../../lib/format'
-import {
-  filterShortlistForItem,
-  type ItemPlanSummary,
-} from '../request/AssumptionChips'
+import type { ItemPlanSummary } from '../request/AssumptionChips'
 import { TrustBadge, TrustSourceMeta, formatFactDisplay } from '../trust/TrustBadge'
 
 function formatExcludedReasonChip(code: ReasonCode, item?: RequestItem): string {
@@ -45,9 +42,7 @@ export function ExcludedList({
             const chosen = lines.filter((l) => l.itemId === item.itemId)
             const out = excluded.filter((e) => e.itemId === item.itemId).length
             const itemPlan = plansByItemId.get(item.itemId)
-            const shortlistIds = itemPlan
-              ? filterShortlistForItem(item, itemPlan.shortlistIds, itemPlan.rankedCandidates)
-              : []
+            const shortlistIds = itemPlan?.shortlistIds ?? []
             return (
               <li key={item.itemId}>
                 <strong>{item.what}</strong>

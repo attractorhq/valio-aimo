@@ -194,20 +194,27 @@ function mockPlanForProposal(proposal: Proposal) {
   return proposal.request.items.map((item) => {
     const isMilk = item.what.toLowerCase().includes('milk')
     if (isMilk) {
-      const candidates = [
+      const fatPref = (item.preferences ?? []).find((p) => p.kind === 'FAT_PERCENT')
+      const normFat = fatPref?.value.replace(',', '.').replace(/%/g, '').trim()
+      const allCandidates = [
         {
           productId: 'MOCK-MILK',
           name: 'Synthetic lactose-free semi skimmed milk drink 1.5 % 1 l',
+          fat: '1.5',
         },
         {
           productId: 'MOCK-MILK-3PCT',
           name: 'Synthetic lactose-free 3 % milk drink 1 l',
+          fat: '3',
         },
       ]
+      const candidates = normFat
+        ? allCandidates.filter((c) => c.fat === normFat)
+        : allCandidates
       return {
         item,
         shortlistIds: candidates.map((c) => c.productId),
-        rankedCandidates: candidates,
+        rankedCandidates: candidates.map(({ productId, name }) => ({ productId, name })),
       }
     }
     const chosen = proposal.lines.filter((l) => l.itemId === item.itemId)

@@ -9,7 +9,7 @@ import pytest
 from app.catalog.build import DEFAULT_ARTIFACT_PATH, DEFAULT_RAW_DIR, load_catalog
 from app.catalog.normalise import normalise_product
 from app.catalog.search import SearchProductsRequest, search_products
-from app.contracts import ReasonCode, RequestItem, Requirement
+from app.contracts import Preference, ReasonCode, RequestItem, Requirement
 from app.policy import M1, M2
 from tests.synthetic.catalog_records import synthetic_product_record
 
@@ -466,3 +466,89 @@ def test_t34_real_catalog_gluten_free_macaroni_ranks_macaroni_before_fusilli():
     for r in ranked:
         if "fusilli" in r.name.lower():
             assert r.substitutionSource == "AGENT"
+
+
+# ---- T24: fat % preference narrowing -----------------------------------------------------------------
+
+
+def _milk_variant(product_id: str, en: str, fi: str, claims: list[str] | None = None):
+    return normalise_product(
+        synthetic_product_record(
+            product_id=product_id,
+            category="10400",
+            names={"en": en, "fi": fi},
+            allergens=[("AM", "CONTAINS")],
+            claims=claims if claims is not None else ["FREE_FROM_LACTOSE"],
+            unit_conversions=[{"synkkaPackagingType": "BASE_UNIT_OR_EACH", "volume": {"unit": "LTR", "value": 1}}],
+        )
+    )
+
+
+def test_t24_synthetic_fat_percent_preference_drops_proven_different_and_ranks_unknown_after_matches():
+    pool = [
+        _milk_variant("SYN-MILK-3PCT", "Synthetic 3 % milk drink 1 l lactose free", "Synteettinen 3 % maitojuoma 1 l"),
+        _milk_variant("SYN-MILK-WHOLE", "Synthetic whole milk 1 l lactose free", "Synteettinen täysmaito 1 l"),
+        _milk_variant(
+            "SYN-MILK-SKIM",
+            "Synthetic skimmed milk drink 1 l lactose free",
+            "Synteettinen rasvaton maitojuoma 1 l",
+            claims=["FREE_FROM_LACTOSE", "FREE_FROM_FAT"],
+        ),
+        _milk_variant(
+            "SYN-MILK-SEMI",
+            "Synthetic semi skimmed milk drink 1 l lactose free",
+            "Synteettinen kevytmaitojuoma 1 l laktoositon",
+        ),
+        _milk_variant(
+            "SYN-MILK-15",
+            "Synthetic milk drink 1.5 % 1 l lactose free",
+            "Synteettinen maitojuoma 1,5 % 1 l laktoositon",
+        ),
+        _milk_variant(
+            "SYN-MILK-UNK",
+            "Synthetic milk drink 1 l lactose free",
+            "Synteettinen maitojuoma 1 l laktoositon",
+        ),
+    ]
+
+    item_any = RequestItem(
+        itemId="I1",
+        what="milk",
+        quantity="1000",
+        unit="l",
+        requirements=[Requirement(kind="CLAIM", code="FREE_FROM_LACTOSE")],
+    )
+    res_any = search_products(item_any, mandate=M1, products=pool)
+    assert "SYN-MILK-3PCT" in [c.productId for c in res_any.candidates]
+
+    item_15 = item_any.model_copy(update={"preferences": [Preference(kind="FAT_PERCENT", value="1.5")]})
+    res_15 = search_products(item_15, mandate=M1, products=pool)
+    cand_ids = [c.productId for c in res_15.candidates]
+    assert cand_ids == ["SYN-MILK-15", "SYN-MILK-SEMI", "SYN-MILK-UNK"]
+    assert "SYN-MILK-3PCT" not in cand_ids
+    assert "SYN-MILK-WHOLE" not in cand_ids
+    assert "SYN-MILK-SKIM" not in cand_ids
+
+
+def test_t24_real_catalog_fat_percent_1_5_drops_463335_and_keeps_464306():
+    catalog = _real_catalog_or_skip()
+    item_any = RequestItem(
+        itemId="I1",
+        what="milk",
+        quantity="1000",
+        unit="l",
+        requirements=[Requirement(kind="CLAIM", code="FREE_FROM_LACTOSE")],
+    )
+    res_any = search_products(item_any, mandate=M1, products=catalog)
+    any_ids = [c.productId for c in res_any.candidates]
+    assert "464306" in any_ids
+    assert "463335" in any_ids
+
+    item_15 = item_any.model_copy(update={"preferences": [Preference(kind="FAT_PERCENT", value="1.5")]})
+    res_15 = search_products(item_15, mandate=M1, products=catalog)
+    ids_15 = [c.productId for c in res_15.candidates]
+    assert "464306" in ids_15
+    assert "465039" in ids_15
+    assert "463335" not in ids_15
+    assert "464401" not in ids_15
+    assert "464073" not in ids_15

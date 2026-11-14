@@ -2,15 +2,9 @@ import { useState, type FormEvent } from 'react'
 import { Check, Pencil, X } from 'lucide-react'
 import type { Preference, RequestItem, StructuredRequest } from '../../lib/contracts'
 
-export type RankedCandidateSummary = {
-  productId: string
-  name: string
-}
-
 export type ItemPlanSummary = {
   item: RequestItem
   shortlistIds: string[]
-  rankedCandidates?: RankedCandidateSummary[]
 }
 
 const FAT_ASSUMPTION_RE = /^(?:any\s+fat(?:\s*(?:%|percent(?:age)?))?|\d+(?:[.,]\d+)?\s*%(?:\s*fat)?)$/i
@@ -70,9 +64,6 @@ function toRequestQualifier(oldChip: string, newChip: string): string | null {
   if (fatMatch || FAT_ASSUMPTION_RE.test(oldChip.trim())) {
     if (fatMatch) {
       const num = fatMatch[1].replace(',', '.')
-      if (num === '1.5') return '1.5 % semi skimmed'
-      if (num === '0') return '0 % skimmed'
-      if (num === '3.5') return '3.5 % whole'
       return `${num} %`
     }
   }
@@ -104,83 +95,6 @@ export function applyAssumptionEdit(
     return `${stem} (${qualifier})${rest}`
   }
   return `${base} (${qualifier})`
-}
-
-function candidateMatchesFatPreference(name: string, normFat: string): boolean {
-  const lower = name.toLowerCase()
-  if (normFat === '1.5') {
-    if (
-      lower.includes('1.5%') ||
-      lower.includes('1,5%') ||
-      lower.includes('1.5 %') ||
-      lower.includes('1,5 %') ||
-      lower.includes('semi skimmed') ||
-      lower.includes('semi-skimmed') ||
-      lower.includes('low fat') ||
-      lower.includes('kevytmaito') ||
-      lower.includes('lättmjölk')
-    ) {
-      return true
-    }
-    if (
-      /\b3\s*%/.test(lower) ||
-      /\b1\s*%/.test(lower) ||
-      /\b0\s*%/.test(lower) ||
-      lower.includes('whole milk') ||
-      lower.includes('täysmaito') ||
-      lower.includes('fat free') ||
-      lower.includes('fatfree') ||
-      lower.includes('rasvaton') ||
-      /\bskimmed\b/.test(lower)
-    ) {
-      return false
-    }
-    return true
-  }
-  if (normFat === '0') {
-    return (
-      /\b0\s*%/.test(lower) ||
-      lower.includes('fat free') ||
-      lower.includes('fatfree') ||
-      lower.includes('rasvaton') ||
-      (!lower.includes('semi') && /\bskimmed\b/.test(lower))
-    )
-  }
-  if (normFat === '3.5') {
-    return (
-      lower.includes('3.5%') ||
-      lower.includes('3,5%') ||
-      lower.includes('3.5 %') ||
-      lower.includes('3,5 %') ||
-      lower.includes('whole') ||
-      lower.includes('täysmaito')
-    )
-  }
-  const escaped = normFat.replace('.', '[.,]')
-  const explicitRe = new RegExp(`\\b${escaped}\\s*%`, 'i')
-  return explicitRe.test(lower)
-}
-
-/**
- * Filter an item's shortlist IDs according to any active fat % preference on the item.
- */
-export function filterShortlistForItem(
-  item: RequestItem,
-  shortlistIds: string[],
-  rankedCandidates?: RankedCandidateSummary[],
-): string[] {
-  const fatPref = (item.preferences ?? []).find((p) => p.kind === 'FAT_PERCENT')
-  if (!fatPref || !rankedCandidates?.length) {
-    return shortlistIds
-  }
-  const normFat = fatPref.value.replace(',', '.').replace(/%/g, '').trim()
-  const nameById = new Map(rankedCandidates.map((c) => [c.productId, c.name]))
-  const filtered = shortlistIds.filter((id) => {
-    const name = nameById.get(id)
-    if (!name) return true
-    return candidateMatchesFatPreference(name, normFat)
-  })
-  return filtered.length > 0 ? filtered : shortlistIds
 }
 
 export function AssumptionChips({
