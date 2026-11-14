@@ -6,12 +6,12 @@ export function DecisionLog({ entries }: { entries: AuditEntry[] }) {
   if (entries.length === 0) {
     return <p className="notice">No log entries yet for this proposal.</p>
   }
-  const ordered = [...entries].sort(
-    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
-  )
+  // The audit log is append-only, so the gateway's order is the true sequence. Do not re-sort by
+  // timestamp: in recorded mode, entries stamped with the capture time and with the API's own
+  // `timeNow` can be a second apart in the wrong direction.
   return (
     <ol className="grid gap-3" aria-label="Decision log">
-      {ordered.map((entry) => (
+      {entries.map((entry) => (
         <LogEntry key={entry.entryId} entry={entry} />
       ))}
     </ol>

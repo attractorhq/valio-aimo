@@ -60,7 +60,7 @@ export function ExcludedList({
 
       {excluded.length > 0 && (
         <section
-          className="rounded-xl border border-[var(--line)] bg-[var(--bg)] px-2.5 py-2"
+          className="min-w-0 rounded-xl border border-[var(--line)] bg-[var(--bg)] px-2.5 py-2 [overflow-wrap:anywhere]"
           aria-label="Excluded candidates"
         >
           <header className="mb-1 flex flex-wrap items-center justify-between gap-2">
@@ -73,9 +73,10 @@ export function ExcludedList({
               const item = entry.itemId ? itemsById.get(entry.itemId) : undefined
               const isValioSub =
                 Boolean(entry.substituteFor) || entry.reasons.includes('SUBSTITUTE_REJECTED')
+              // Name only requirements the request actually carries; never assume one.
               const reqNames =
                 item?.requirements?.map((r) => requirementLabel(r).toLowerCase()).join(', ') ||
-                'gluten-free'
+                'a hard requirement'
 
               return (
                 <li

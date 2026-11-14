@@ -615,6 +615,12 @@ main {
 .lookup-list {
   display: grid;
   gap: 8px;
+  /* Real product names and codes are long: let the list shrink inside grid parents at phone width. */
+  min-width: 0;
+}
+.lookup-list li > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .lookup-list li {
   display: grid;
