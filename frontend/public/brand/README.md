@@ -1,5 +1,5 @@
-# Brand assets (`frontend/public/brand/`)
+# Brand assets
 
-- `valio-aimo-logo-white.svg`: the official Valio Aimo logo (white version for dark backgrounds), as published by Valio Aimo on valioaimo.fi. Self-hosted and unmodified; never hotlinked or traced.
-- It is used only in this prototype for the Valio Aimo "Trusted Trade Agents" challenge at Junction 2026. The header shows a "Prototype" tag next to it, and the footer says "not an official Valio service".
+- `valio-aimo-logo-white.svg` (header) and `../favicon-32.png`, `../favicon-192.png`, `../apple-touch-icon.png` (the Valio Aimo "A" icon): official Valio Aimo artwork as published on valioaimo.fi. Self-hosted and unmodified; never hotlinked or traced.
+- Used only in Team Attractor's entry to the Valio Aimo "Trusted Trade Agents" challenge at Junction 2026.
 - Never commit proprietary font files.

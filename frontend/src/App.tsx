@@ -22,10 +22,8 @@ export default function App() {
         {approver ? 'Skip to proposals for approval' : 'Skip to the purchasing flow'}
       </a>
       <header className="app-header">
-        {/* Logo only; the "not an official Valio service" disclaimer lives in the footer. */}
-        <Link to="/" className="brand" aria-label="Valio Aimo · Trusted Trade Gateway (prototype)">
+        <Link to="/" className="brand" aria-label="Valio Aimo · Trusted Trade Gateway">
           <img src="/brand/valio-aimo-logo-white.svg" alt="Valio Aimo" className="brand-logo" />
-          <span className="brand-proto">Prototype</span>
         </Link>
         <nav className="app-nav" aria-label="Views">
           <Link
@@ -93,12 +91,6 @@ export default function App() {
           />
         </Routes>
       </main>
-      <footer className="app-footer">
-        <span>Simulated orders only — mock environment.</span>
-        <span>
-          Prototype for the Valio Aimo Junction 2026 challenge · not an official Valio service
-        </span>
-      </footer>
     </div>
   )
 }
