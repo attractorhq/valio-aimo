@@ -4,6 +4,7 @@ import { Main } from './pages/Main'
 import { Approver } from './pages/Approver'
 import { ApproveMobile } from './pages/ApproveMobile'
 import { Log } from './pages/Log'
+import { ValioView } from './pages/ValioView'
 
 function LogRoute() {
   const { proposalId } = useParams()
@@ -38,16 +39,21 @@ export default function App() {
           {approver ? (
             <Link to="/">Buyer view</Link>
           ) : (
-            // The approver panel is a separate window, like a separate person's device.
-            <a href="/approver" target="_blank" rel="noopener">
-              Open Approver panel <ExternalLink size={13} aria-hidden />
-            </a>
+            <>
+              <Link to="/valio">Valio Aimo readiness</Link>
+              {/* The approver panel is a separate window, like a separate person's device. */}
+              <a href="/approver" target="_blank" rel="noopener">
+                Open Approver panel <ExternalLink size={13} aria-hidden />
+              </a>
+            </>
           )}
         </nav>
       </header>
       <main id="main">
         <Routes>
           <Route path="/" element={<Main />} />
+          <Route path="/valio" element={<ValioView />} />
+          <Route path="/readiness" element={<ValioView />} />
           <Route path="/approver" element={<Approver />} />
           <Route path="/approve/:token" element={<ApproveMobile />} />
           <Route path="/log" element={<LogRoute />} />
