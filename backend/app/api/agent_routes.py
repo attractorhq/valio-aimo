@@ -7,11 +7,12 @@ token or QR payload (patch P3, AC15).
 import json
 from collections.abc import Iterator
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Literal
+from urllib.parse import quote
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
-from pydantic import Field
+from pydantic import AwareDatetime, Field
 
 from app.agent.explain import explain_proposal
 from app.agent.run import (
@@ -23,8 +24,16 @@ from app.agent.run import (
     iter_agent_steps,
     run_agent,
 )
-from app.contracts import GetOfferRequest, OfferItem
-from app.contracts.common import Contract, Identifier
+from app.contracts import GetOfferRequest, OfferItem, ReasonCode, Totals
+from app.contracts.common import (
+    Contract,
+    DecisionOutcome,
+    Identifier,
+    Money,
+    NonNegativeDecimal,
+    PositiveDecimal,
+    ProposalState,
+)
 
 from . import agent_channel
 from .auth import AgentCustomer, bind_customer
@@ -42,6 +51,71 @@ class AgentRunRequest(Contract):
     requestText: str = Field(min_length=1, max_length=4000)
     stream: bool = False
     lookupDate: date | None = None
+
+
+class CompactAgentLine(Contract):
+    productId: Identifier
+    name: str
+    quantitySalesUnits: PositiveDecimal
+    salesUnit: str
+    unitPriceExclVat: NonNegativeDecimal
+    lineTotalExclVat: Money
+
+
+class CompactAgentLinks(Contract):
+    proposal: str
+    audit: str
+
+
+class CompactAgentRunResult(Contract):
+    """Allow-listed decision summary, without candidate facts or approval capabilities."""
+
+    customerId: str
+    mode: Literal["LIVE", "RECORDED"]
+    recordedAt: AwareDatetime | None
+    proposalId: Identifier | None
+    decision: DecisionOutcome | None
+    state: ProposalState | None
+    reasons: list[ReasonCode]
+    totals: Totals | None
+    lines: list[CompactAgentLine]
+    approverRole: str | None
+    clarificationQuestion: str | None
+    links: CompactAgentLinks | None
+
+
+def _compact_result(result: AgentRunResult) -> CompactAgentRunResult:
+    proposal = result.proposal
+    snapshot = proposal or result.offer
+    pid = quote(proposal.proposalId, safe="") if proposal else None
+    return CompactAgentRunResult(
+        customerId=result.customerId,
+        mode=result.mode,
+        recordedAt=snapshot.recordedAt if snapshot else None,
+        proposalId=proposal.proposalId if proposal else None,
+        decision=proposal.decision if proposal else None,
+        state=proposal.state if proposal else None,
+        reasons=list(proposal.reasons if proposal else result.reasons),
+        totals=proposal.totals if proposal else None,
+        lines=[CompactAgentLine(**{
+            field: getattr(line, field) for field in CompactAgentLine.model_fields
+        }) for line in proposal.lines] if proposal else [],
+        approverRole=proposal.approverRole if proposal else None,
+        clarificationQuestion=result.clarificationQuestion,
+        links=CompactAgentLinks(
+            proposal=f"/v0.1/proposals/{pid}", audit=f"/v0.1/audit?proposalId={pid}",
+        ) if proposal else None,
+    )
+
+
+RUN_DESCRIPTION = (
+    "Defaults to the full AgentRunResult. Set view=compact for a JSON decision summary with "
+    "totals, selected product quantities/prices, and links to the full proposal and audit. "
+    "Compact responses contain no facts or approval capabilities. If no proposal is created, "
+    "decision/state/proposalId/totals/links are null and lines is empty; reasons and any "
+    "clarificationQuestion explain why. Compact view cannot be combined with SSE/NDJSON "
+    "streaming (HTTP 422)."
+)
 
 
 def _assemble_result_from_steps(
@@ -172,9 +246,10 @@ def _stream_ndjson(
 
 @router.post(
     "/agent/run",
-    response_model=AgentRunResult,
+    response_model=AgentRunResult | CompactAgentRunResult,
     operation_id="runAgent",
     summary="Run the purchasing agent across the four steps (Request, Lookup, Order, Decision)",
+    description=RUN_DESCRIPTION,
 )
 def run_agent_route(
     body: Annotated[AgentRunRequest, Body(openapi_examples={
@@ -200,12 +275,17 @@ def run_agent_route(
     state: State,
     customer: AgentCustomer,
     stream: Annotated[bool, Query(description="Stream Server-Sent Events for the four steps")] = False,
-) -> AgentRunResult | StreamingResponse:
+    view: Annotated[Literal["full", "compact"], Query(description="JSON response detail; compact is non-streaming only")] = "full",
+) -> AgentRunResult | CompactAgentRunResult | StreamingResponse:
     bind_customer(customer, body.customerId)
-    # The authenticated buyer is the only authority for the request's customer.
+    # The authenticated buyer is the only authority for the request's customer; unknown customers return 404.
     state.gateway.mandates.get(body.customerId)
     channel = GatewayAgentChannel(state)
     accept = (request.headers.get("accept") or "").lower()
+    if view == "compact" and (
+        body.stream or stream or "text/event-stream" in accept or "application/x-ndjson" in accept
+    ):
+        raise HTTPException(status_code=422, detail="view=compact cannot be combined with streaming.")
 
     if body.stream or stream or "text/event-stream" in accept:
         return StreamingResponse(
@@ -220,7 +300,8 @@ def run_agent_route(
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
     try:
-        return run_agent(body.customerId, body.requestText, channel=channel, lookup_date=body.lookupDate)
+        result = run_agent(body.customerId, body.requestText, channel=channel, lookup_date=body.lookupDate)
+        return _compact_result(result) if view == "compact" else result
     except InvalidDeliveryRetry as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -231,9 +312,10 @@ if not any( getattr(r, "path", None) == "/v0.1/agent/run" for r in agent_channel
         "/agent/run",
         run_agent_route,
         methods=["POST"],
-        response_model=AgentRunResult,
+        response_model=AgentRunResult | CompactAgentRunResult,
         operation_id="runAgent",
         summary="Run the purchasing agent across the four steps (Request, Lookup, Order, Decision)",
+        description=RUN_DESCRIPTION,
     )
 
 __all__ = ["AgentRunRequest", "router", "run_agent_route"]

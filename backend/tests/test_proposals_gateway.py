@@ -105,6 +105,8 @@ def syn_product(
     claims: tuple[str, ...] = (),
     allergens: tuple[AllergenDeclaration, ...] = (_decl("AE", "FREE_FROM"),),
     substitutions: tuple[str, ...] = (),
+    name: str | None = None,
+    category: str = "synthetic",
 ) -> Product:
     cps = ContentPerSalesUnit(value=Decimal(content[0]), unit=content[1], level=level, method=method)
     claim_facts = [
@@ -119,9 +121,9 @@ def syn_product(
     ]
     return Product(
         productId=code,
-        name=f"Synthetic {code}",
+        name=name or f"Synthetic {code}",
         names={"fi": f"Synteettinen {code}"},
-        category="synthetic",
+        category=category,
         isFood=True,
         salesUnit=sales_unit,
         baseUnit=sales_unit,
@@ -135,9 +137,11 @@ def syn_product(
     )
 
 
-MILK = syn_product("SYN-MILK", claims=("FREE_FROM_LACTOSE",), allergens=(_decl("AM", "CONTAINS"),))
+MILK = syn_product("SYN-MILK", name="Synthetic milk drink", category="10400",
+                   claims=("FREE_FROM_LACTOSE",), allergens=(_decl("AM", "CONTAINS"),))
 PASTA = syn_product(
     "SYN-PASTA",
+    name="Synthetic gluten-free macaroni", category="21380",
     sales_unit="PSS",
     content=("5", "kg"),
     method="unitConversions.BASE_UNIT_OR_EACH.netWeight x units.PSS.sizeInBaseUnits",
@@ -145,12 +149,14 @@ PASTA = syn_product(
 )
 OAT = syn_product(
     "SYN-OAT",
+    name="Synthetic gluten-free oat drink", category="10402",
     claims=("FREE_FROM_GLUTEN",),
     allergens=(_decl("GO", "CONTAINS"),),
     substitutions=("SYN-REJECTED-SUB",),
 )
 REJECTED_SUB = syn_product(
     "SYN-REJECTED-SUB",
+    name="Synthetic oat drink", category="10402",
     claims=(),
     allergens=(_decl("AW", "CONTAINS"), _decl("GO", "CONTAINS")),
 )

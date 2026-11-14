@@ -795,6 +795,105 @@ def test_clarification_needed_stops_at_step_1_without_creating_proposal(syntheti
     assert 1 <= result.explanation.sentenceCount <= 2
 
 
+@pytest.mark.parametrize("customer_id,text", [
+    (M1.customerId, A_TEXT), (M2.customerId, B_TEXT), (M1.customerId, C_TEXT),
+])
+def test_compact_agent_run_matches_full_proposal_without_facts_or_capabilities(synthetic_api, customer_id, text):
+    client, _ = synthetic_api
+    response = client.post(
+        "/v0.1/agent/run?view=compact", json={"customerId": customer_id, "requestText": text},
+    )
+    assert response.status_code == 200, response.text
+    compact = response.json()
+    assert set(compact) == {
+        "customerId", "mode", "recordedAt", "proposalId", "decision", "state", "reasons", "totals",
+        "lines", "approverRole", "clarificationQuestion", "links",
+    }
+    proposal_response = client.get(compact["links"]["proposal"])
+    assert proposal_response.status_code == 200
+    proposal = proposal_response.json()
+    for field in ("customerId", "mode", "recordedAt", "proposalId", "decision", "state", "reasons", "totals", "approverRole"):
+        assert compact[field] == proposal[field]
+    fields = {"productId", "name", "quantitySalesUnits", "salesUnit", "unitPriceExclVat", "lineTotalExclVat"}
+    assert compact["lines"] == [{field: line[field] for field in fields} for line in proposal["lines"]]
+    assert all(isinstance(line["quantitySalesUnits"], str) for line in compact["lines"])
+    assert compact["clarificationQuestion"] is None
+    audit_response = client.get(compact["links"]["audit"])
+    assert audit_response.status_code == 200
+    assert audit_response.json()["entries"]
+    lower = response.text.lower()
+    for forbidden in ("facts", "approvaltoken", "approvalurl", "qrpayload", "/approver", "steps", "candidates"):
+        assert forbidden not in lower
+    if proposal["state"] == "PENDING_APPROVAL":
+        assert compact["decision"] == "ASK"
+        assert compact["reasons"] == ["OVER_AUTO_LIMIT"]
+        assert compact["totals"]["exclVat"] == "506.16"
+        assert compact["approverRole"] == "Head Chef"
+        assert len(json.dumps(compact, indent=2).splitlines()) < 60
+        view = client.get(f"/v0.1/approver/proposals/{proposal['proposalId']}").json()
+        assert view["approvalToken"] not in response.text
+
+
+@pytest.mark.parametrize("text,reason", [
+    ("We need lactose-free milk by Monday.", "CLARIFICATION_NEEDED"),
+    ("We need 5 kg of unobtainium by Monday.", "NO_CANDIDATE"),
+])
+def test_compact_agent_run_without_proposal_does_not_invent_a_decision(synthetic_api, text, reason):
+    client, _ = synthetic_api
+    response = client.post(
+        "/v0.1/agent/run?view=compact", json={"customerId": M1.customerId, "requestText": text},
+    )
+    assert response.status_code == 200, response.text
+    compact = response.json()
+    assert reason in compact["reasons"]
+    for field in ("proposalId", "decision", "state", "totals", "links", "approverRole"):
+        assert compact[field] is None
+    assert compact["lines"] == []
+    if reason == "CLARIFICATION_NEEDED":
+        assert compact["clarificationQuestion"].endswith("?")
+
+
+@pytest.mark.parametrize("query,body_extra,headers", [
+    ("&stream=true", {}, {}),
+    ("", {"stream": True}, {}),
+    ("", {}, {"Accept": "text/event-stream"}),
+    ("", {}, {"Accept": "application/x-ndjson"}),
+])
+def test_compact_stream_combinations_fail_before_creating_proposals(synthetic_api, query, body_extra, headers):
+    client, state = synthetic_api
+    response = client.post(
+        f"/v0.1/agent/run?view=compact{query}",
+        json={"customerId": M2.customerId, "requestText": B_TEXT, **body_extra}, headers=headers,
+    )
+    assert response.status_code == 422
+    assert "streaming" in response.text
+    assert not state.proposal_ids
+
+
+def test_compact_view_documented_in_openapi_and_invalid_view_rejected(synthetic_api):
+    client, _ = synthetic_api
+    schema = client.get("/openapi.json").json()
+    operation = schema["paths"]["/v0.1/agent/run"]["post"]
+    view = next(param for param in operation["parameters"] if param["name"] == "view")
+    assert view["schema"]["enum"] == ["full", "compact"]
+    assert view["schema"]["default"] == "full"
+    variants = operation["responses"]["200"]["content"]["application/json"]["schema"]["anyOf"]
+    assert {variant["$ref"].rsplit("/", 1)[-1] for variant in variants} == {
+        "AgentRunResult", "CompactAgentRunResult",
+    }
+    for name in ("CompactAgentRunResult", "CompactAgentLine", "CompactAgentLinks"):
+        assert "facts" not in schema["components"]["schemas"][name]["properties"]
+    response = client.post(
+        "/v0.1/agent/run?view=invalid", json={"customerId": M2.customerId, "requestText": B_TEXT},
+    )
+    assert response.status_code == 422
+    full = client.post(
+        "/v0.1/agent/run?view=full", json={"customerId": M2.customerId, "requestText": B_TEXT},
+    )
+    assert full.status_code == 200
+    assert AgentRunResult.model_validate(full.json()).proposal is not None
+
+
 # --------------------------------------------------------------------------- 2. Streaming (SSE & NDJSON) + HTTP channel
 
 
