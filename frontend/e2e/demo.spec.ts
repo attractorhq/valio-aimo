@@ -8,46 +8,17 @@ const E2E_SESSION = `e2e-demo-${Date.now().toString(36)}`
 function sfetch(url: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers)
   headers.set('X-Demo-Sandbox', E2E_SESSION)
+  if (url.includes('/v0.1/admin/') || url.includes('/v0.1/approver/proposals?pendingOnly')) {
+    headers.set('X-Demo-Admin-Key', 'demo-admin')
+  }
   return fetch(url, { ...init, headers })
 }
 
 const step = (page: Page, name: string) => page.getByRole('listitem', { name: new RegExp(name) })
 
-type DefaultMandateSpec = {
-  customerId: string
-  autoApproveLimitEur: string
-  hardLimitEur: string
-  allergenMode: 'STANDARD' | 'STRICT'
-  autoAcceptValioSubstitutes: boolean
-  autoAcceptSupplierStock: boolean
-  minReliability: string
-}
-
-const DEFAULT_MANDATES: readonly DefaultMandateSpec[] = [
-  {
-    customerId: 'nordic-harbour-hotels',
-    autoApproveLimitEur: '1500.00',
-    hardLimitEur: '5000.00',
-    allergenMode: 'STANDARD',
-    autoAcceptValioSubstitutes: true,
-    autoAcceptSupplierStock: false,
-    minReliability: '0.80',
-  },
-  {
-    customerId: 'northbay-school-kitchen',
-    autoApproveLimitEur: '500.00',
-    hardLimitEur: '3000.00',
-    allergenMode: 'STRICT',
-    autoAcceptValioSubstitutes: false,
-    autoAcceptSupplierStock: false,
-    minReliability: '0.80',
-  },
-]
-
 /**
  * Reset the gateway and browser demo state before a presentation or test run:
- * 1. Restore buyer mandates M1 and M2 to their shipped defaults via `/v0.1/admin/mandates/{id}` if changed.
- * 2. Clear any pending proposals on `/v0.1/approver/proposals?pendingOnly=true` so the Approver queue starts at 0.
+ * 1. Reset the caller's sandbox through the admin-key gate (mandates, proposals, approvals and audit).
  * 3. Clear browser localStorage keys used by the demo UI.
  */
 async function resetDemoState(
@@ -68,79 +39,8 @@ async function resetDemoState(
   expect(health.ready).toBe(true)
   const mode = health.mode ?? 'RECORDED'
 
-  // 1. Restore M1 and M2 mandates if any buyer-admin toggle modified them
-  for (const spec of DEFAULT_MANDATES) {
-    const mRes = await sfetch(`${cleanApi}/v0.1/mandates/${encodeURIComponent(spec.customerId)}`, {
-      headers: { Accept: 'application/json' },
-    })
-    if (!mRes.ok) continue
-    const current = (await mRes.json()) as Record<string, unknown>
-    const patch: Record<string, unknown> = {}
-    if (String(current.autoApproveLimitEur) !== spec.autoApproveLimitEur) {
-      patch.autoApproveLimitEur = spec.autoApproveLimitEur
-    }
-    if (String(current.hardLimitEur) !== spec.hardLimitEur) {
-      patch.hardLimitEur = spec.hardLimitEur
-    }
-    if (current.allergenMode !== spec.allergenMode) {
-      patch.allergenMode = spec.allergenMode
-    }
-    if (current.autoAcceptValioSubstitutes !== spec.autoAcceptValioSubstitutes) {
-      patch.autoAcceptValioSubstitutes = spec.autoAcceptValioSubstitutes
-    }
-    if (current.autoAcceptSupplierStock !== spec.autoAcceptSupplierStock) {
-      patch.autoAcceptSupplierStock = spec.autoAcceptSupplierStock
-    }
-    if (Number(current.minReliability) !== Number(spec.minReliability)) {
-      patch.minReliability = spec.minReliability
-    }
-    if (Object.keys(patch).length > 0) {
-      const pRes = await sfetch(
-        `${cleanApi}/v0.1/admin/mandates/${encodeURIComponent(spec.customerId)}`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify(patch),
-        },
-      )
-      expect(pRes.ok).toBeTruthy()
-    }
-  }
-
-  // 2. Clear any stale PENDING_APPROVAL proposals from the Approver queue
-  const pendingRes = await sfetch(`${cleanApi}/v0.1/approver/proposals?pendingOnly=true`, {
-    headers: { Accept: 'application/json' },
-  })
-  if (pendingRes.ok) {
-    const pendingList = (await pendingRes.json()) as Array<{
-      proposalId: string
-      offerVersion: number
-    }>
-    for (const p of pendingList) {
-      const viewRes = await sfetch(
-        `${cleanApi}/v0.1/approver/proposals/${encodeURIComponent(p.proposalId)}`,
-        { headers: { Accept: 'application/json' } },
-      )
-      if (!viewRes.ok) continue
-      const viewData = (await viewRes.json()) as {
-        approvalToken: string
-        proposal: { offerVersion: number }
-      }
-      await sfetch(
-        `${cleanApi}/v0.1/approver/proposals/${encodeURIComponent(p.proposalId)}/decision`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify({
-            offerVersion: viewData.proposal.offerVersion,
-            approvalToken: viewData.approvalToken,
-            action: 'REJECT',
-            comment: 'Demo state reset before presentation',
-          }),
-        },
-      )
-    }
-  }
+  const reset = await sfetch(`${cleanApi}/v0.1/admin/demo/reset`, { method: 'POST' })
+  expect(reset.ok).toBeTruthy()
 
   // 3. Clear browser storage if a page is active on the origin
   if (page && page.url().startsWith('http')) {
@@ -351,6 +251,8 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     // Separate Approver panel signs off version 1
     const approverPage = await context.newPage()
     await approverPage.goto(`${baseURL}/approver`)
+    await expect(approverPage.getByText('Sign-in: role only, no password')).toBeVisible()
+    await approverPage.getByRole('combobox').selectOption('northbay-school-kitchen')
     await expect(approverPage.getByRole('heading', { name: 'Approver — Head Chef' })).toBeVisible()
     await expect(
       approverPage.getByRole('heading', { name: /Proposals for you \(1 waiting\)/ }),

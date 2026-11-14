@@ -897,7 +897,7 @@ def test_sqlite_persistence_round_trips_offers_proposals_tokens_and_decision_log
 
 
 def test_hash_chain_verifies_clean_log_and_detects_tampered_entry_in_memory_and_via_endpoint():
-    from fastapi.testclient import TestClient
+    from synthetic.demo_client import DemoTestClient as TestClient
 
     from app.api.state import GatewayState, get_state, try_state
     from app.main import app

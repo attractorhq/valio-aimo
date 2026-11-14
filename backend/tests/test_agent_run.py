@@ -16,7 +16,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 import pytest
-from fastapi.testclient import TestClient
+from synthetic.demo_client import DemoTestClient as TestClient
 
 from app.agent.run import (
     AgentRunResult,

@@ -1,5 +1,6 @@
 // Buyer-admin channel (T21): PATCH /v0.1/admin/mandates/{customerId}. Humans only; the agent view never calls it.
 import type { AuditEntry, Mandate, Proposal } from '../../lib/contracts'
+import { adminHeaders } from '../../lib/demoAccess'
 
 export type MandateChange = {
   autoApproveLimitEur?: string
@@ -24,7 +25,7 @@ export async function changeMandate(
   try {
     response = await fetch(`/v0.1/admin/mandates/${encodeURIComponent(customerId)}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...adminHeaders() },
       body: JSON.stringify(change),
     })
   } catch {
@@ -40,7 +41,7 @@ export async function changeMandate(
 async function adminCall<T>(path: string, init: RequestInit = {}): Promise<T> {
   let response: Response
   try {
-    response = await fetch(`/v0.1/admin/mandates/${path}`, init)
+    response = await fetch(`/v0.1/admin/mandates/${path}`, { ...init, headers: adminHeaders() })
   } catch {
     throw new AdminError('Could not reach the gateway.')
   }

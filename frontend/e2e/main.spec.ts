@@ -333,6 +333,8 @@ test('T46: /admin holds buyer-admin controls and reset; buyer page shows mandate
   await page.getByRole('link', { name: 'Buyer admin', exact: true }).click()
   await expect(page).toHaveURL(/\/admin$/)
   await expect(page.getByRole('heading', { name: 'Buyer admin', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Apply policy change' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Enter admin key', exact: true }).click()
 
   const limitInput = page.getByLabel('Auto-approve limit (€, excl. VAT)')
   await expect(limitInput).toBeEnabled()

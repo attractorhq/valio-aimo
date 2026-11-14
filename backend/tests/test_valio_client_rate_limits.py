@@ -9,7 +9,7 @@ from threading import Event, Lock
 import httpx
 import pytest
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
+from synthetic.demo_client import DemoTestClient as TestClient
 from synthetic.valio import DAY, NOW
 from test_valio_client import FakeTime, client_for, successful_handler
 

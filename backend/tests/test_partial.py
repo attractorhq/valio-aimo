@@ -23,7 +23,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 import pytest
-from fastapi.testclient import TestClient
+from synthetic.demo_client import DemoTestClient as TestClient
 
 from app.agent.run import GatewayAgentChannel, HttpAgentChannel, run_agent
 from app.api.state import GatewayState, get_state, try_state

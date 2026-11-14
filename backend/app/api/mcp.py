@@ -18,7 +18,7 @@ import uuid
 from collections.abc import Iterator
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
 
@@ -47,6 +47,7 @@ from app.valio import IntegrationError
 from app.valio.errors import ValioRateLimited
 from app.valio.record import BRIEF_PRODUCT_IDS
 
+from .auth import AgentCustomer, bind_customer
 from .state import GatewayState, GatewayUnavailable, try_state
 
 router = APIRouter(tags=["Operations"])
@@ -65,6 +66,8 @@ _DEMO_CUSTOMERS = f"'{M1.customerId}' (M1) and '{M2.customerId}' (M2)"
 
 SERVER_INSTRUCTIONS = (
     "Verified or Ask · Trusted Trade Gateway (Agent Trust Labels v0.1). "
+    "The Authorization Bearer key selects your buyer. customerId is optional on tools and, if supplied, "
+    "must match that key; you cannot switch buyers through tool input. "
     "Use these agent-channel tools to run the four-step purchasing flow: "
     "(1) Read the buyer's mandate with `getMandate` or `listMandates` "
     f"(customers: {_DEMO_CUSTOMERS}). "
@@ -94,7 +97,7 @@ AGENT_TOOLS: list[dict[str, Any]] = [
     {
         "name": "listMandates",
         "description": (
-            "List all buyer mandates (read-only). Returns customerId, version, organisationName, "
+            "Read the authenticated buyer's mandate (read-only). Returns customerId, version, organisationName, "
             "allergenMode (STANDARD | STRICT), autoApproveLimitEur, hardLimitEur, forbiddenAllergens, "
             f"and named approver role. Customers: {_DEMO_CUSTOMERS}."
         ),
@@ -113,7 +116,7 @@ AGENT_TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "getMandate",
-        "description": "Read one buyer's current mandate by customerId (read-only; agents can never change it).",
+        "description": "Read your key's buyer mandate; optional customerId must match the key (read-only).",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -122,7 +125,6 @@ AGENT_TOOLS: list[dict[str, Any]] = [
                     "description": f"Buyer customer ID, e.g. {_DEMO_CUSTOMERS}.",
                 },
             },
-            "required": ["customerId"],
             "additionalProperties": False,
         },
         "annotations": {
@@ -267,7 +269,7 @@ AGENT_TOOLS: list[dict[str, Any]] = [
                     },
                 },
             },
-            "required": ["customerId", "requestedDate", "items"],
+            "required": ["requestedDate", "items"],
             "additionalProperties": False,
         },
         "annotations": {
@@ -396,7 +398,7 @@ AGENT_TOOLS: list[dict[str, Any]] = [
                     "additionalProperties": False,
                 },
             },
-            "required": ["customerId", "offerId", "offerVersion", "request"],
+            "required": ["offerId", "offerVersion", "request"],
             "additionalProperties": False,
         },
         "annotations": {
@@ -530,12 +532,17 @@ def _default_missing_item_ids(raw_items: Any) -> Any:
     return out
 
 
-def _execute_tool(name: str, arguments: dict[str, Any], state: GatewayState) -> dict[str, Any]:
+def _execute_tool(name: str, arguments: dict[str, Any], state: GatewayState,
+                  customer: str) -> dict[str, Any]:
+    if name in {"getMandate", "searchProducts", "getOffer", "createProposal"}:
+        arguments = {**arguments, "customerId": bind_customer(customer, arguments.get("customerId"))}
+    if name == "getAuditTrail" and "proposalId" not in arguments and "customerId" not in arguments:
+        arguments = {**arguments, "customerId": customer}
     if name == "listMandates":
         if arguments:
             raise ValueError("listMandates does not accept any arguments.")
         book = state.gateway.mandates
-        mandates = [book.get(c).model_dump(mode="json") for c in book.customers()]
+        mandates = [book.get(customer).model_dump(mode="json")]
         return {"mandates": mandates}
 
     if name == "getMandate":
@@ -596,6 +603,7 @@ def _execute_tool(name: str, arguments: dict[str, Any], state: GatewayState) -> 
     if name == "getProposal":
         req = GetProposalRequest.model_validate(arguments)
         current = state.gateway.get_proposal(req.proposalId)
+        bind_customer(customer, current.customerId)
         proposal = state.gateway.get_proposal(req.proposalId, now=state.now_for(current.mode))
         return proposal.model_dump(mode="json")
 
@@ -603,6 +611,10 @@ def _execute_tool(name: str, arguments: dict[str, Any], state: GatewayState) -> 
         req = GetAuditTrailRequest.model_validate(arguments)
         if (req.proposalId is None) == (req.customerId is None):
             raise ValueError("Pass exactly one of proposalId or customerId.")
+        if req.proposalId is not None:
+            bind_customer(customer, state.gateway.get_proposal(req.proposalId).customerId)
+        else:
+            bind_customer(customer, req.customerId)
         trail = state.gateway.get_audit_trail(proposal_id=req.proposalId, customer_id=req.customerId)
         return trail.model_dump(mode="json")
 
@@ -610,6 +622,8 @@ def _execute_tool(name: str, arguments: dict[str, Any], state: GatewayState) -> 
 
 
 def _format_domain_error(exc: Exception) -> dict[str, Any]:
+    if isinstance(exc, HTTPException):
+        return {"error": {"code": "FORBIDDEN" if exc.status_code == 403 else "UNAUTHORIZED", "message": exc.detail}}
     if isinstance(exc, ValidationError):
         return {
             "error": {
@@ -669,6 +683,7 @@ def _jsonrpc_error(req_id: Any, code: int, message: str, data: Any = None) -> di
 def _handle_rpc_message(
     msg: Any,
     state: GatewayState | GatewayUnavailable,
+    customer: str,
 ) -> tuple[dict[str, Any] | None, str | None]:
     """Process one JSON-RPC 2.0 message. Returns `(response_dict_or_None, new_session_id_or_None)`."""
     if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0":
@@ -767,7 +782,7 @@ def _handle_rpc_message(
             )
 
         try:
-            output = _execute_tool(tool_name, arguments, state)
+            output = _execute_tool(tool_name, arguments, state, customer)
             _assert_no_approval_capabilities(output)
             return (
                 _jsonrpc_result(
@@ -781,6 +796,7 @@ def _handle_rpc_message(
                 None,
             )
         except (
+            HTTPException,
             ValidationError,
             NoOrderError,
             ProposalNotFoundError,
@@ -818,7 +834,7 @@ def _sse_messages(payloads: list[dict[str, Any]]) -> Iterator[str]:
 
 @router.post("/mcp", operation_id="mcpPost", summary="MCP Streamable HTTP endpoint (agent-channel tools only)")
 @router.post("/mcp/", include_in_schema=False)
-async def mcp_post(request: Request, state: TryState) -> Response:
+async def mcp_post(request: Request, state: TryState, customer: AgentCustomer) -> Response:
     incoming_session = getattr(request.state, "mcp_session_id", None) or request.headers.get("mcp-session-id")
     accept = (request.headers.get("accept") or "").lower()
     raw_body = await request.body()
@@ -842,7 +858,7 @@ async def mcp_post(request: Request, state: TryState) -> Response:
     responses: list[dict[str, Any]] = []
     session_id = incoming_session
     for msg in messages:
-        resp_obj, new_session = _handle_rpc_message(msg, state)
+        resp_obj, new_session = _handle_rpc_message(msg, state, customer)
         if new_session and not session_id:
             session_id = new_session
         if resp_obj is not None:
@@ -873,7 +889,7 @@ async def mcp_post(request: Request, state: TryState) -> Response:
 
 @router.get("/mcp", operation_id="mcpGet", summary="MCP Streamable HTTP SSE stream / discovery")
 @router.get("/mcp/", include_in_schema=False)
-def mcp_get(request: Request) -> Response:
+def mcp_get(request: Request, customer: AgentCustomer) -> Response:
     accept = (request.headers.get("accept") or "").lower()
     session_id = request.headers.get("mcp-session-id")
     headers: dict[str, str] = {"Cache-Control": "no-cache"}
@@ -905,7 +921,7 @@ def mcp_get(request: Request) -> Response:
 
 @router.delete("/mcp", operation_id="mcpDelete", summary="Close an MCP Streamable HTTP session")
 @router.delete("/mcp/", include_in_schema=False)
-def mcp_delete() -> Response:
+def mcp_delete(customer: AgentCustomer) -> Response:
     return Response(status_code=204)
 
 

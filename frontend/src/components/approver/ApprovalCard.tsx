@@ -94,7 +94,7 @@ export function ApprovalCard({
   const view = useQuery({
     queryKey: ['approver-view', proposal.proposalId],
     queryFn: () => approverChannel.view(proposal.proposalId),
-    enabled: proposal.state === 'PENDING_APPROVAL',
+    enabled: proposal.state === 'PENDING_APPROVAL' && !initialToken,
     staleTime: Infinity,
   })
   const activeToken = initialToken ?? view.data?.approvalToken

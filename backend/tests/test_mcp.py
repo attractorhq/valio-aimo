@@ -18,7 +18,7 @@ import re
 from datetime import timedelta
 
 import pytest
-from fastapi.testclient import TestClient
+from synthetic.demo_client import DemoTestClient as TestClient
 from test_proposals_gateway import MONDAY, NOW, PRODUCTS, MutableSyntheticProvider
 
 from app.api import GatewayState, get_state
@@ -200,7 +200,7 @@ def test_mcp_scenario_b_reaches_pending_approval_and_never_leaks_token(mcp_env):
 
     # 1. Inspect mandates
     all_mandates = mcp.call_tool("listMandates")
-    assert {m["customerId"] for m in all_mandates["mandates"]} == {M1.customerId, M2.customerId}
+    assert {m["customerId"] for m in all_mandates["mandates"]} == {M1.customerId}  # key-scoped discovery
 
     mandate = mcp.call_tool("getMandate", {"customerId": M2.customerId})
     assert mandate["customerId"] == M2.customerId

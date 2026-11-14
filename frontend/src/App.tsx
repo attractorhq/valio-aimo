@@ -9,6 +9,7 @@ import { Log } from './pages/Log'
 import { Spec } from './pages/Spec'
 import { ValioView } from './pages/ValioView'
 import { gateway, MOCK_STORE_KEY } from './lib/gateway'
+import { adminHeaders, DEMO_ADMIN_STORAGE } from './lib/demoAccess'
 
 function LogRoute() {
   const { proposalId } = useParams()
@@ -27,7 +28,10 @@ export default function App() {
     try {
       await gateway.checkHealth()
       if (gateway.source === 'GATEWAY') {
-        const response = await fetch('/v0.1/admin/demo/reset', { method: 'POST' })
+        if (!sessionStorage.getItem(DEMO_ADMIN_STORAGE)) {
+          throw new Error('Enter the admin key on the Buyer admin page before resetting.')
+        }
+        const response = await fetch('/v0.1/admin/demo/reset', { method: 'POST', headers: adminHeaders() })
         if (!response.ok) throw new Error('Could not reset your session. Please try again.')
       }
       localStorage.removeItem(MOCK_STORE_KEY)

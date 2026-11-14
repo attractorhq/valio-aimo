@@ -71,6 +71,7 @@ test('the approver panel links to the decision log', async ({ page }) => {
     'Waiting for approver',
   )
   await page.goto('/approver')
+  await page.getByLabel('Signed in as').selectOption('mock-school')
   await page.getByRole('link', { name: 'Decision log' }).first().click()
   await expect(page).toHaveURL(/\/log\/MOCK-P-B/)
   await expect(entries(page).filter({ hasText: 'Gateway decision' })).toContainText(
