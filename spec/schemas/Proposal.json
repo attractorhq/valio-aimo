@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:verified-or-ask:v0.1:Proposal",
+  "$id": "urn:aimo-connect:v0.1:Proposal",
   "x-contract-version": "0.1",
   "$defs": {
     "Conflict": {

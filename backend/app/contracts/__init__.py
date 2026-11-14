@@ -1,4 +1,4 @@
-"""Verified or Ask v0.1. Legacy app.schemas is unchanged until the API migration."""
+"""Aimo Connect v0.1. Legacy app.schemas is unchanged until the API migration."""
 
 from .common import (
     VERSION,

@@ -3,7 +3,7 @@
 
 Reads `/openapi.json` to discover the public Agent channel operations and runs Scenario B
 ("We need 90 kg of gluten-free macaroni and 80 litres of gluten-free oat drink by Monday.")
-against a local or deployed Verified or Ask gateway URL.
+against a local or deployed Aimo Connect gateway URL.
 
 Usage:
   scripts/second-client                                      # http://localhost:8000
@@ -34,7 +34,7 @@ def http_json(
 ) -> dict | list:
     data = json.dumps(body).encode("utf-8") if body is not None else None
     # Cloudflare answers the default "Python-urllib" User-Agent with 403 on the deployed origin.
-    headers = {"Accept": "application/json", "User-Agent": "verified-or-ask-second-client/0.1"}
+    headers = {"Accept": "application/json", "User-Agent": "aimo-connect-second-client/0.1"}
     headers["Authorization"] = f"Bearer demo-agent-{CUSTOMER_ID}"
     if data is not None:
         headers["Content-Type"] = "application/json"

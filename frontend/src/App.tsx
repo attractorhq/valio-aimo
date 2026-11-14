@@ -48,7 +48,7 @@ export default function App() {
         {approver ? 'Skip to proposals for approval' : 'Skip to the purchasing flow'}
       </a>
       <header className="app-header">
-        <Link to="/" className="brand" aria-label="Valio Aimo · Trusted Trade Gateway">
+        <Link to="/" className="brand" aria-label="Aimo Connect · Valio Aimo">
           <img src="/brand/valio-aimo-logo-white.svg" alt="Valio Aimo" className="brand-logo" />
         </Link>
         <nav className="app-nav" aria-label="Views">

@@ -1,4 +1,4 @@
-# Verified or Ask: toteutussuunnitelma (v2)
+# Aimo Connect: toteutussuunnitelma (v2)
 
 Päivitetty pe 13.11.2026 klo ~23. Lähteet ovat seuraavat. Jos ne ovat ristiriidassa, myöhempi voittaa.
 

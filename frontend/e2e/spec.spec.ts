@@ -40,5 +40,5 @@ test('the open spec is linked from the main view and explains labels, reasons an
   await expect(schemas.getByText('Proposal', { exact: true })).toBeVisible()
   await expect(schemas.getByText('TrustLabel', { exact: true })).toBeVisible()
   await schemas.getByText('TrustLabel', { exact: true }).click()
-  await expect(schemas).toContainText('urn:verified-or-ask:v0.1:TrustLabel')
+  await expect(schemas).toContainText('urn:aimo-connect:v0.1:TrustLabel')
 })
