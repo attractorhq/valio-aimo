@@ -56,19 +56,8 @@
   --space-5: 24px;
 
   /* Typography: open look-alikes from Google Fonts (Figtree + Barlow Condensed) */
-  --font-sans:
-    'Figtree',
-    'Nunito Sans',
-    'Segoe UI',
-    system-ui,
-    -apple-system,
-    Arial,
-    sans-serif;
-  --font-condensed:
-    'Barlow Condensed',
-    'Arial Narrow',
-    system-ui,
-    sans-serif;
+  --font-sans: 'Figtree', 'Nunito Sans', 'Segoe UI', system-ui, -apple-system, Arial, sans-serif;
+  --font-condensed: 'Barlow Condensed', 'Arial Narrow', system-ui, sans-serif;
 
   font-family: var(--font-sans);
   color: var(--ink);
@@ -154,6 +143,170 @@ select {
 }
 .spin {
   animation: spin 1s linear infinite;
+}
+
+/* T84: shaped, non-numeric placeholders. Containers keep their loaded footprint. */
+.skeleton {
+  display: block;
+  min-height: 14px;
+  width: 100%;
+  border-radius: 8px;
+  background: var(--line);
+}
+.skeleton-heading {
+  width: 55%;
+  height: 20px;
+  margin-bottom: 14px;
+}
+.skeleton-short {
+  width: 65%;
+}
+.skeleton-inline {
+  display: inline-block;
+  width: 180px;
+  height: 18px;
+  vertical-align: middle;
+}
+.skeleton-status {
+  height: 19px;
+  width: 75%;
+}
+.skeleton-select {
+  height: 38px;
+}
+.skeleton-picker {
+  display: flex;
+  gap: 8px;
+  margin: 14px 0;
+}
+.skeleton-picker .skeleton {
+  height: 68px;
+}
+.skeleton-limits {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 12px 0;
+}
+.skeleton-limits > div {
+  display: grid;
+  gap: 6px;
+}
+.skeleton-limits > div:last-child {
+  grid-column: 1 / -1;
+}
+.skeleton-rows {
+  display: grid;
+  gap: 16px;
+}
+.skeleton-row {
+  display: grid;
+  gap: 10px;
+}
+.loading-list {
+  min-height: 240px;
+}
+.loading-approval,
+.approval-card {
+  min-height: 560px;
+}
+.loading-admin {
+  min-height: 350px;
+}
+.loading-status {
+  min-height: 104px;
+}
+.loading-table {
+  min-height: 340px;
+}
+.loading-stats {
+  min-height: 148px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+}
+.loading-stats .skeleton-stats {
+  display: grid;
+  gap: 8px;
+}
+.loading-stats .skeleton-row:not(:first-child) {
+  display: none;
+}
+.mandate-panel {
+  min-height: 312px;
+}
+.approver-header {
+  min-height: 96px;
+}
+.approver-grid > .panel {
+  min-height: 300px;
+}
+.approver-detail {
+  min-height: 560px;
+}
+.flow-header {
+  min-height: 32px;
+}
+.readiness-toolbar {
+  height: 36px;
+  display: flex;
+  align-items: center;
+}
+.readiness-toolbar .skeleton {
+  max-width: 180px;
+  margin: 0;
+}
+.valio-catalogue-panel {
+  min-height: 275px;
+}
+.valio-catalogue-panel [aria-label='Catalogue readiness summary'] > div {
+  min-height: 148px;
+}
+.valio-decisions-panel {
+  min-height: 300px;
+}
+.step-reveal {
+  min-width: 0;
+}
+
+@media (max-width: 639px) {
+  .buyer-line {
+    min-height: 38px;
+  }
+  .mandate-panel {
+    min-height: 332px;
+  }
+  .valio-catalogue-panel {
+    min-height: 850px;
+  }
+  .valio-decisions-panel {
+    min-height: 670px;
+  }
+}
+
+@keyframes skeleton-pulse {
+  to {
+    opacity: 0.45;
+  }
+}
+@keyframes content-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
 }
 @keyframes spin {
   to {
@@ -1710,4 +1863,46 @@ main {
 }
 .main-primary .scenario-text strong {
   white-space: nowrap;
+}
+
+/* Motion follows base interaction styles so older transition durations cannot override it. */
+@media (prefers-reduced-motion: no-preference) {
+  .skeleton {
+    animation: skeleton-pulse 1.4s ease-in-out infinite alternate;
+  }
+  .step-content,
+  .primary-result,
+  .approval-state {
+    animation: content-enter 200ms ease-out;
+  }
+  .step-reveal {
+    transition: height 200ms ease-out;
+  }
+  .step-number,
+  .status-pill {
+    transition:
+      background-color 180ms ease-out,
+      color 180ms ease-out,
+      border-color 180ms ease-out;
+  }
+  .step-done .status-pill svg {
+    animation: content-enter 180ms ease-out;
+  }
+  .btn,
+  .chip,
+  .segment,
+  .queue-item {
+    transition:
+      background-color 180ms ease-out,
+      color 180ms ease-out,
+      border-color 180ms ease-out,
+      box-shadow 180ms ease-out,
+      transform 180ms ease-out;
+  }
+  .btn:active:not(:disabled),
+  button.chip:active:not(:disabled),
+  .segment:active,
+  .queue-item:active {
+    transform: translateY(1px);
+  }
 }

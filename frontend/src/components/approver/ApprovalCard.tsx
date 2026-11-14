@@ -7,6 +7,7 @@ import {
   Clock,
   Info,
   KeyRound,
+  LoaderCircle,
   Smartphone,
   XCircle,
 } from 'lucide-react'
@@ -23,6 +24,7 @@ import {
 import { approvalReasons, contextReasons, formatApprovalStatement, plainReason } from './explain'
 import { QrCode } from './QrCode'
 import { logPath } from '../log/logData'
+import { LoadingSection } from '../Loading'
 
 /** What happened to this proposal version, in one line. */
 export function ApprovalState({ item }: { item: ApproverItem }) {
@@ -116,6 +118,10 @@ export function ApprovalCard({
   const total = formatMoney(proposal.totals.exclVat)
   const error = decide.error instanceof GatewayError ? decide.error : undefined
 
+  if (pending && !initialToken && view.isPending) {
+    return <LoadingSection label="approval details" variant="approval" className="panel" />
+  }
+
   return (
     <article className="approval-card" aria-labelledby={`approve-${proposal.proposalId}`}>
       <header className="approval-card-header">
@@ -125,7 +131,10 @@ export function ApprovalCard({
               ? `You are approving version ${proposal.offerVersion} of this proposal`
               : `Version ${proposal.offerVersion} of this proposal`}
           </h2>
-          <a href={logPath(proposal.proposalId)} className="text-xs font-semibold text-[var(--green)] underline">
+          <a
+            href={logPath(proposal.proposalId)}
+            className="text-xs font-semibold text-[var(--green)] underline"
+          >
             Decision log
           </a>
         </div>
@@ -236,9 +245,14 @@ export function ApprovalCard({
                 type="button"
                 className="btn btn-approve"
                 disabled={!activeToken || decide.isPending}
+                aria-busy={decide.isPending && decide.variables === 'APPROVE'}
                 onClick={() => decide.mutate('APPROVE')}
               >
-                <CheckCircle2 size={16} aria-hidden />
+                {decide.isPending && decide.variables === 'APPROVE' ? (
+                  <LoaderCircle size={16} className="spin" aria-hidden />
+                ) : (
+                  <CheckCircle2 size={16} aria-hidden />
+                )}
                 Approve {total}
               </button>
               <button
@@ -247,7 +261,11 @@ export function ApprovalCard({
                 disabled={!activeToken || decide.isPending}
                 onClick={() => decide.mutate('REJECT')}
               >
-                <Ban size={15} aria-hidden />
+                {decide.isPending && decide.variables === 'REJECT' ? (
+                  <LoaderCircle size={15} className="spin" aria-hidden />
+                ) : (
+                  <Ban size={15} aria-hidden />
+                )}
                 Reject
               </button>
             </div>
@@ -270,10 +288,7 @@ export function ApprovalCard({
             </p>
           )}
           {showQr && activeToken && (
-            <aside
-              className="approval-qr-box"
-              aria-label="Phone approval QR code"
-            >
+            <aside className="approval-qr-box" aria-label="Phone approval QR code">
               <QrCode
                 size={96}
                 value={`${window.location.origin}/approve/${encodeURIComponent(activeToken)}?proposalId=${encodeURIComponent(proposal.proposalId)}`}
