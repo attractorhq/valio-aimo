@@ -60,8 +60,8 @@ PAIRS = {
                 ["100 litraa luomumaitoa maanantaiksi"]),
     "explicit-date": ("50 kg of gluten-free macaroni by 20 Nov",
                       ["50 kiloa gluteenitonta makaronia 20. marraskuuta mennessä"]),
-    # "pähkinä" is peanuts as well as tree nuts (T40).
-    "allergens": ("50 kg of pasta, no nuts, no peanuts, without eggs, by Monday",
+    # General "nuts" / Finnish "pähkinä" covers peanuts as well as tree nuts (T40, T99).
+    "allergens": ("50 kg of pasta, no nuts, without eggs, by Monday",
                   ["50 kiloa pastaa ilman pähkinöitä, ilman kananmunaa, maanantaiksi"]),
     "milk-free-cheese": ("200 l of light milk and 30 kg of milk-free cheese by Friday",
                          ["200 l kevytmaitoa ja 30 kg maidotonta juustoa perjantaiksi"]),
