@@ -21,7 +21,7 @@ import json
 from collections import OrderedDict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP, Decimal
 from typing import Protocol
 
@@ -214,6 +214,17 @@ def _partial_stock_pack_explanation(
     )
 
 
+def _with_committed_display(facts: Sequence[TrustLabel], held: Decimal, stock: Decimal) -> list[TrustLabel]:
+    """T97: say that part of the stock is already held by the buyer's own committed orders."""
+    free = max(stock - held, Decimal(0))
+    note = f"{_format_qty_amount(held)} already in your orders, {_format_qty_amount(free)} left"
+    return [
+        f.model_copy(update={"display": f"{f.display} · {note}" if f.display else note})
+        if f.fact == "stock.quantity" else f
+        for f in facts
+    ]
+
+
 def _with_stock_display(facts: Sequence[TrustLabel], display: str) -> list[TrustLabel]:
     return [
         f.model_copy(update={"display": display}) if f.fact == "stock.quantity" else f
@@ -358,8 +369,14 @@ def build_offer(
     mandate: Mandate,
     offer_id: str | None = None,
     offer_version: int = 1,
+    committed_units: Mapping[tuple[str, date], Decimal] | None = None,
 ) -> OfferResult:
-    """Size, allocate and price the shortlist from one snapshot. Deterministic for the same inputs."""
+    """Size, allocate and price the shortlist from one snapshot. Deterministic for the same inputs.
+
+    `committed_units` (T97) are the sales units this customer already has in committed orders, per product and
+    delivery date. They come off the stock pool first, so a second order the same day never quotes stock the
+    buyer's own earlier order already holds.
+    """
     if snapshot.customer_id != request.customerId or mandate.customerId != request.customerId:
         raise ValueError("snapshot, mandate and request must belong to the same customer")
     if snapshot.requested_date != (request.lookupDate or request.requestedDate):
@@ -395,6 +412,9 @@ def build_offer(
                                                 price.comparison_unit)
             sizing = size(product, remaining if remaining > 0 else requested_qty, unit)
             line_id = f"L{len(lines) + 1}"
+            held = (committed_units or {}).get((product.productId, facts.availability.delivery_date), Decimal(0))
+            if held > 0 and product.productId not in used:
+                used[product.productId] = held
             probe = _line_input(line_id, item_id, product, facts, sizing)
             verdict = evaluate_line(probe, item=_neutral_item(item_id, remaining if remaining > 0 else requested_qty, unit),
                                     mandate=mandate, requested_date=request.requestedDate, now=now)
@@ -439,6 +459,8 @@ def build_offer(
             line_facts = [*facts.facts, *product.facts]
             if pack_explanation is not None:
                 line_facts = _with_stock_display(line_facts, pack_explanation)
+            if held > 0 and probe.stock is StockKind.EXACT:
+                line_facts = _with_committed_display(line_facts, held, probe.stock_amount)
             lines.append(OfferLine(
                 lineId=line_id,
                 itemId=item_id,
@@ -556,6 +578,7 @@ def get_offer(
     offer_id: str | None = None,
     offer_version: int = 1,
     force_refresh: bool = False,
+    committed_units: Mapping[tuple[str, date], Decimal] | None = None,
 ) -> OfferResult:
     """One batched price + one batched availability read for the whole shortlist, then `build_offer`."""
     lists = shortlists(request)
@@ -566,4 +589,4 @@ def get_offer(
     snapshot = provider.lookup(lists, request.lookupDate or request.requestedDate, request.customerId,
                                products={code: products[code] for code in wanted}, force_refresh=force_refresh)
     return build_offer(request, products=products, snapshot=snapshot, mandate=mandate,
-                       offer_id=offer_id, offer_version=offer_version)
+                       offer_id=offer_id, offer_version=offer_version, committed_units=committed_units)

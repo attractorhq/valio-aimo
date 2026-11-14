@@ -182,6 +182,7 @@ def _assemble_result_from_steps(
         steps=steps,
         request=req,
         clarificationQuestion=last.clarificationQuestion,
+        clarificationOptions=last.clarificationOptions,
         plan=plan_obj,
         offer=offer,
         proposal=proposal,

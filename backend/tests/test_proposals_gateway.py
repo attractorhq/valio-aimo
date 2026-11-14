@@ -492,6 +492,8 @@ def test_idempotent_create_proposal_returns_existing_without_duplicate_logs():
 def test_two_identical_get_offer_and_create_proposal_flows_for_b_give_distinct_proposals():
     """Repeat getOffer -> createProposal flows for B must create distinct proposals so a prior approval is not reused."""
     provider = MutableSyntheticProvider()
+    # Enough pasta for both: since T97 the confirmed first order's bags come off the stock pool of the second.
+    provider.stocks["SYN-PASTA"] = stock_row("SYN-PASTA", 100, sales_unit="PSS")
     gateway = ProposalGateway(products=PRODUCTS, provider=provider)
     offer_req, struct_req = request_b()
 
@@ -508,7 +510,10 @@ def test_two_identical_get_offer_and_create_proposal_flows_for_b_give_distinct_p
     p2 = gateway.create_proposal(M2.customerId, offer2.offerId, offer2.offerVersion, struct_req)
 
     assert offer2.offerId != offer1.offerId
-    assert offer2.offerHash == offer1.offerHash
+    # Same products, quantities and prices; the stock fact now also says what the first order holds (T97).
+    assert [(ln.productId, ln.quantitySalesUnits, ln.unitPriceExclVat) for ln in offer2.lines] == [
+        (ln.productId, ln.quantitySalesUnits, ln.unitPriceExclVat) for ln in offer1.lines
+    ]
     assert p2.proposalId != p1.proposalId
     assert p2.offerId == offer2.offerId
     assert p2.decision == "ASK"

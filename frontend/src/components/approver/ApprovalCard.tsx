@@ -14,6 +14,7 @@ import {
 import type { Mandate } from '../../lib/contracts'
 import { approverChannel, GatewayError, type ApproverItem } from '../../lib/gateway'
 import {
+  earlyDeliveryNote,
   formatClock,
   formatDate,
   formatMoney,
@@ -77,6 +78,7 @@ export function ApprovalCard({
   item,
   mandate,
   showQr = true,
+  compact = false,
   initialToken,
   initialApprovalStatement,
   onDecisionStart,
@@ -84,6 +86,8 @@ export function ApprovalCard({
   item: ApproverItem
   mandate?: Mandate
   showQr?: boolean
+  /** Phone page (T97): decision, lines in one row each, total and buttons first; the full line table on demand. */
+  compact?: boolean
   initialToken?: string
   initialApprovalStatement?: string | null
   onDecisionStart?: () => void
@@ -148,6 +152,56 @@ export function ApprovalCard({
     return <LoadingSection label="approval details" variant="approval" className="panel" />
   }
 
+  const earlyNote = earlyDeliveryNote(proposal.lines, proposal.requestedDate)
+
+  const lineTable = (
+    <div className="table-scroll">
+      <table className="data-table stack-on-mobile">
+        <caption className="visually-hidden">Exact lines you are approving</caption>
+        <thead>
+          <tr>
+            <th scope="col">Product</th>
+            <th scope="col" className="num">
+              Quantity
+            </th>
+            <th scope="col" className="num">
+              Unit price
+            </th>
+            <th scope="col" className="num">
+              Line total
+            </th>
+            <th scope="col">Delivery</th>
+          </tr>
+        </thead>
+        <tbody>
+          {proposal.lines.map((line) => (
+            <tr key={line.lineId}>
+              <th scope="row">
+                {line.name}
+                <small className="muted"> · {line.productId}</small>
+              </th>
+              <td className="num" data-label="Quantity">
+                <span>
+                  {formatNumber(line.quantitySalesUnits)} {line.salesUnitLabel}
+                  <small className="muted block">
+                    = {formatQuantity(line.deliveredQuantity.value, line.deliveredQuantity.unit)}
+                  </small>
+                </span>
+              </td>
+              <td className="num" data-label="Unit price">
+                {formatMoney(line.unitPriceExclVat)}
+              </td>
+              <td className="num" data-label="Line total">
+                {formatMoney(line.lineTotalExclVat)}
+              </td>
+              <td data-label="Delivery">{formatDate(line.deliveryDate)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+
   return (
     <article className="approval-card" aria-labelledby={`approve-${proposal.proposalId}`}>
       <header className="approval-card-header">
@@ -188,6 +242,15 @@ export function ApprovalCard({
             <span>{limitTradeoff ?? plainReason(code, proposal, mandate)}</span>
           </p>
         ))}
+        {earlyNote && (
+          <p className="approval-reason approval-reason-info">
+            <span className="chip">
+              <Info size={13} aria-hidden />
+              Early delivery
+            </span>
+            <span>{earlyNote}</span>
+          </p>
+        )}
         {context.map((code) => {
           const text = plainReason(code, proposal, mandate)
           return (
@@ -202,51 +265,22 @@ export function ApprovalCard({
         })}
       </section>
 
-      <div className="table-scroll">
-        <table className="data-table stack-on-mobile">
-          <caption className="visually-hidden">Exact lines you are approving</caption>
-          <thead>
-            <tr>
-              <th scope="col">Product</th>
-              <th scope="col" className="num">
-                Quantity
-              </th>
-              <th scope="col" className="num">
-                Unit price
-              </th>
-              <th scope="col" className="num">
-                Line total
-              </th>
-              <th scope="col">Delivery</th>
-            </tr>
-          </thead>
-          <tbody>
-            {proposal.lines.map((line) => (
-              <tr key={line.lineId}>
-                <th scope="row">
-                  {line.name}
-                  <small className="muted"> · {line.productId}</small>
-                </th>
-                <td className="num" data-label="Quantity">
-                  <span>
-                    {formatNumber(line.quantitySalesUnits)} {line.salesUnitLabel}
-                    <small className="muted block">
-                      = {formatQuantity(line.deliveredQuantity.value, line.deliveredQuantity.unit)}
-                    </small>
-                  </span>
-                </td>
-                <td className="num" data-label="Unit price">
-                  {formatMoney(line.unitPriceExclVat)}
-                </td>
-                <td className="num" data-label="Line total">
-                  {formatMoney(line.lineTotalExclVat)}
-                </td>
-                <td data-label="Delivery">{formatDate(line.deliveryDate)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {compact ? (
+        <ul className="approval-lines-compact" aria-label="Lines you are approving">
+          {proposal.lines.map((line) => (
+            <li key={line.lineId}>
+              <span className="approval-line-name">
+                {formatNumber(line.quantitySalesUnits)} {line.salesUnitLabel} · {line.name}
+              </span>
+              <span className="approval-line-meta">
+                {formatMoney(line.lineTotalExclVat)} · {formatDate(line.deliveryDate)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        lineTable
+      )}
       <dl className="totals">
         <div>
           <dt>Total excl. VAT</dt>
@@ -350,6 +384,15 @@ export function ApprovalCard({
           <AlertTriangle size={16} aria-hidden />
           {view.error.message}
         </p>
+      )}
+
+      {compact && (
+        <details className="more approval-line-details">
+          <summary>
+            <span>Line details</span>
+          </summary>
+          {lineTable}
+        </details>
       )}
 
       <p className="permission-notice">

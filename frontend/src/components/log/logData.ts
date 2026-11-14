@@ -38,12 +38,6 @@ export function findMockLog(proposalId: string): LogSource | undefined {
   )
 }
 
-export async function loadAuditTrail(proposalId: string): Promise<AuditTrail> {
-  const found = findMockLog(proposalId)
-  if (!found) throw new LogNotFound(`No decision log for proposal ${proposalId}.`)
-  return found.trail
-}
-
 export function logPath(proposalId: string): string {
   return `/log/${encodeURIComponent(proposalId)}`
 }

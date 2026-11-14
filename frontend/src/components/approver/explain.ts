@@ -5,6 +5,12 @@ import {
   formatSplitDetailLines,
 } from '../proposal/SplitProposalSummary'
 
+/** 'a', 'a and b', 'a, b and c'. */
+function joinAnd(items: string[]): string {
+  if (items.length <= 1) return items.join('')
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
+}
+
 const WEEKDAY_NAMES = [
   'Sunday',
   'Monday',
@@ -243,7 +249,8 @@ export function formatApprovalStatement(proposal: Proposal, mandate?: Mandate): 
  * so the approver sees the product-type difference (e.g. a frozen fillet for "fresh salmon fillet").
  */
 export function substituteStatement(proposal: Proposal): string | null {
-  const parts: string[] = []
+  // One clause per requested item, listing every substitute line for it (T97: never repeat "you asked for").
+  const byItem = new Map<string, { what: string; names: string[] }>()
   for (const line of proposal.lines) {
     const item = proposal.request.items.find((i) => i.itemId === line.itemId)
     if (!item) continue
@@ -253,8 +260,16 @@ export function substituteStatement(proposal: Proposal): string | null {
       (item.productId != null &&
         item.productId !== line.productId &&
         line.substitutionSource !== 'VALIO')
-    if (isAgentSubstitute) parts.push(`you asked for “${item.what}”; this line is ${line.name}`)
+    if (!isAgentSubstitute) continue
+    const group = byItem.get(item.itemId) ?? { what: item.what, names: [] }
+    if (!group.names.includes(line.name)) group.names.push(line.name)
+    byItem.set(item.itemId, group)
   }
+  const parts = [...byItem.values()].map(({ what, names }) =>
+    names.length === 1
+      ? `you asked for “${what}”; this line is ${names[0]}`
+      : `you asked for “${what}”; these lines are ${joinAnd(names)}`,
+  )
   return parts.length ? `Not exactly what you asked for: ${parts.join('; ')}.` : null
 }
 
