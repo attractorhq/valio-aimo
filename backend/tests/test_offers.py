@@ -244,6 +244,36 @@ def test_partial_stock_floors_to_whole_sales_units_when_lot_is_fractional():
                         products=products, snapshot=snap, mandate=M1).offer
     (line,) = offer.lines
     assert (line.quantitySalesUnits, line.deliveredQuantity.value) == (Decimal(7), Decimal("12.25"))
+    stock_fact = next(f for f in line.facts if f.fact == "stock.quantity")
+    assert "12.25 l = 7 × 1.75 l packs; 7.43 in stock" in (stock_fact.display or "")
+
+
+def test_t51_partial_quantity_below_shown_stock_explains_pack_lot_and_shortfall():
+    salmon = product(
+        "SYN-SALMON-5KG",
+        sales_unit="KG",
+        content=("1", "kg"),
+        method="salesUnit.KG",
+        lot="5",
+    )
+    products = {"SYN-SALMON-5KG": salmon}
+    snap = snapshot(
+        M1.customerId,
+        [price_row("SYN-SALMON-5KG", 14.11)],
+        [stock_row("SYN-SALMON-5KG", 43.0, sales_unit="KG")],
+        products,
+    )
+    offer = build_offer(
+        offer_request(M1.customerId, ("I1", "SYN-SALMON-5KG", "400", "kg")),
+        products=products,
+        snapshot=snap,
+        mandate=M1,
+    ).offer
+    (line,) = offer.lines
+    assert (line.quantitySalesUnits, line.deliveredQuantity.value) == (Decimal(40), Decimal(40))
+    stock_fact = next(f for f in line.facts if f.fact == "stock.quantity")
+    assert "40 kg = 8 × 5 kg packs; 43 kg in stock" in (stock_fact.display or "")
+    assert "40 kg now; 360 kg cannot be met by Mon 16 Nov" in (stock_fact.display or "")
 
 
 def test_unorderable_candidates_are_excluded_with_reasons():

@@ -5,6 +5,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
+from app.catalog.vocab import (
+    CONCEPTS_BY_ID,
+    QUERY_STOPWORDS,
+    expand_query_tokens,
+    extract_inline_requirements,
+    match_concept_in_text,
+)
 from app.contracts.common import Contract, RequestUnit
 
 
@@ -659,6 +666,8 @@ def matching_categories_for_type(query: str) -> tuple[str, ...]:
         if any(needle == term.lower() or needle in term.lower() or term.lower() in needle for term in all_terms):
             if profile.codePrefix not in matched:
                 matched.append(profile.codePrefix)
+    if "187" in matched and "41720" not in matched:
+        matched.append("41720")
     return tuple(matched)
 
 
@@ -725,7 +734,7 @@ TYPE_QUALIFIER_GROUPS: tuple[TypeQualifierGroup, ...] = (
             TypeVariant(
                 "whipping", "whipping cream",
                 (r"\bwhipp(ing|ed)\b", r"\b(vispi|kuohu)\w*", r"\bvispgrädde\w*"),
-                product_terms=("whipping", "vispi", "kuohu", "vispgrädde"),
+                product_terms=("whipping", "vispi", "kuohu", "vispgrädde", "whippable", "vaahtoutuva", "vispautuva", "visp "),
             ),
             TypeVariant(
                 "cooking", "cooking cream",
@@ -896,6 +905,20 @@ def asked_for_alternative(query: str, requirement_codes: tuple[str, ...] = ()) -
     return bool(_ASKED_FOR_ALTERNATIVE.search(query)) or "VEGAN" in requirement_codes or "AM" in requirement_codes
 
 
+_CREAM_FAT_PCT_RE = re.compile(
+    r"(?:(?<![\w.,])(\d+(?:[.,]\d+)?)\s*%|\b(?:cooking|ruokakerm\w*|ruoka|matlagningsgrädde\w*|mat)\s+(10|13|14|15|18|20)\b)",
+    re.IGNORECASE,
+)
+
+
+def _extract_cream_fat_pct(text: str) -> str | None:
+    m = _CREAM_FAT_PCT_RE.search(text)
+    if not m:
+        return None
+    raw = (m.group(1) or m.group(2) or "").replace(",", ".")
+    return raw or None
+
+
 def product_type_match(
     query: str,
     product_names: tuple[str, ...],
@@ -923,6 +946,13 @@ def product_type_match(
             differences.append(f"{variant.forbid_label}, not {variant.label}")
         else:
             differences.append(f"not {variant.label}")
+        if group.group_id == "cream_use" and variant.variant_id == "whipping" and not proves:
+            fat_pct = _extract_cream_fat_pct(text)
+            fat_part = f" {fat_pct} %" if fat_pct else ""
+            if other is not None:
+                differences.append(f"{other.label}{fat_part} does not whip")
+            else:
+                differences.append(f"{fat_pct} % cream does not whip" if fat_pct else "does not whip")
     if (
         concept_id in DAIRY_CONCEPTS
         and not asked_for_alternative(query, requirement_codes)
@@ -941,3 +971,237 @@ def strip_type_qualifiers(query: str) -> str:
             for pattern in variant.query_patterns:
                 q = re.sub(pattern, " ", q)
     return " ".join(q.split())
+
+
+# ---- Product family guard (T51) -------------------------------------------------------------------
+# A candidate may be offered (even as AGENT_SUBSTITUTE) only if it is in the same product family as
+# the requested item (salmon -> fish fillet of salmon; cream -> cream; butter -> butter).
+
+_FAMILY_WORD_RE = re.compile(r"[\wåäöÅÄÖ%-]+", re.UNICODE)
+
+_NON_FAMILY_QUERY_WORDS: frozenset[str] = frozenset({
+    # Time of day & delivery words
+    "morning", "afternoon", "evening", "night", "noon", "midday", "midnight", "tonight",
+    "breakfast", "lunch", "dinner", "supper",
+    "delivered", "delivery", "deliver", "shipping", "ship", "arriving", "arrive",
+    "asap", "urgent", "immediately", "soon", "fast", "quick", "early", "late",
+    "aamulla", "aamuksi", "aamu", "iltapäivällä", "iltapäiväksi", "illalla", "illaksi",
+    "lounaaksi", "lounas", "päivälliseksi", "toimitettuna", "toimitus", "toimita", "heti", "pikaisesti",
+    "morgon", "morgonen", "eftermiddag", "kväll", "leverans", "levereras",
+    # Preference / certification / origin / fat / salt / preparation adjectives
+    "organic", "luomu", "luomua", "ekologisk", "ekologiskt", "krav", "msc", "asc", "fairtrade",
+    "domestic", "finnish", "kotimainen", "kotimaista", "suomalainen", "suomalaista", "suomi",
+    "natural", "naturell", "maustamaton", "plain", "original", "regular", "normal", "standard",
+    "light", "kevyt", "lätt", "low", "high", "rich", "extra", "super", "premium", "classic",
+    "salted", "unsalted", "suolattu", "suolaamaton", "vähäsuolainen",
+    "skinless", "nahaton", "nahallinen", "skin", "with", "without", "ilman", "utan",
+    "boneless", "deboned", "ruodoton", "luuton", "hand", "cut", "leikattu", "scaled", "suomustettu",
+    "raw", "raaka", "cooked", "kypsä", "boiled", "keitetty", "fried", "paistettu",
+    "sliced", "slices", "viipaloitu", "viipale", "siivu", "siivutettu",
+    "grated", "shredded", "raaste", "raastettu",
+    "cubed", "cubes", "diced", "kuutio", "kuutiot", "kuutioitu",
+    "strip", "strips", "suikale", "suikaleet", "suikaloitu",
+    "piece", "pieces", "portion", "portions", "pala", "annospala",
+    "whole", "kokonainen", "halves", "puolikas",
+    "large", "medium", "small", "big", "mini", "iso", "pieni",
+    "approx", "apx", "about", "ca", "noin", "synthetic", "synteettinen", "syntetisk",
+})
+
+_BRAND_QUERY_WORDS: frozenset[str] = frozenset({
+    "valio", "arla", "oatly", "oddlygood", "fazer", "aito", "elovena", "urtekram",
+    "sammills", "semper", "rummo", "barilla", "myllyn", "paras", "paulig", "meira",
+    "raisio", "atria", "snellman", "saarioinen", "apetit", "vaasan", "pirkka",
+    "kalavapriikki", "kalaneuvos", "kalaonni", "benella", "hätälä", "findus",
+    "feelia", "kokkikartano", "lagerblad", "keiju", "oivariini", "eila", "arki",
+})
+
+_SALMON_GROUP: tuple[str, ...] = ("salmon", "lohi", "lohta", "lohen", "lax")
+_FILLET_GROUP: tuple[str, ...] = ("fillet", "fillets", "filee", "file", "filé", "filebit", "toploin", "selkäfilee", "seläke", "salmonslice")
+_TROUT_GROUP: tuple[str, ...] = ("trout", "rainbow trout", "kirjolohi", "regnbågslax", "forelli")
+_FLOUNDER_GROUP: tuple[str, ...] = ("flounder", "plaice", "kampela", "punakampela", "rödspätta")
+_HERRING_GROUP: tuple[str, ...] = ("herring", "silli", "silakka", "strömming")
+_COD_GROUP: tuple[str, ...] = ("cod", "turska", "torsk")
+_SHRIMP_GROUP: tuple[str, ...] = ("shrimp", "prawn", "prawns", "katkarapu", "räkor")
+_FISH_GROUP: tuple[str, ...] = ("fish", "kala", "fisk")
+_CHICKEN_GROUP: tuple[str, ...] = ("chicken", "broiler", "broileri", "kana", "kyckling")
+_TURKEY_GROUP: tuple[str, ...] = ("turkey", "kalkkuna", "kalkon")
+_BEEF_GROUP: tuple[str, ...] = ("beef", "nauta", "naudan", "nötkött")
+_PORK_GROUP: tuple[str, ...] = ("pork", "porsas", "porsaan", "fläsk")
+
+_SALMON_RE = re.compile(r"\b(?:salmon\w*|lohi\w*|lohta\w*|lohen\w*|lax\w*|\w*savuloh\w*)\b", re.IGNORECASE)
+_FILLET_RE = re.compile(
+    r"\b(?:\w*fillet\w*|\w*filee\w*|\w*file\b|\w*filé\w*|\w*filebit\w*|toploin\w*|\w*selkäfile\w*|\w*seläke\w*|salmonslice\w*)\b",
+    re.IGNORECASE,
+)
+_FAKE_SALMON_TERMS: tuple[str, ...] = ("shoemaker's salmon", "shoemakers salmon", "shoemaker", "suutarinlohi", "skomakarlax")
+_TROUT_STRIP_RE = re.compile(r"\b(?:\w*kirjoloh\w*|salmon\s+trout\w*|laxforell\w*)\b", re.IGNORECASE)
+
+_COMPOSITE_DISH_RE = re.compile(
+    r"\b(?:"
+    r"pie|pies|tart|tarts|pasty|pasties|soup|soups|casserole|casseroles|sandwich|sandwiches|salad|salads|"
+    r"cream\s+cheese|cheese\s+sauce|babyfood|baby\s+food|burger|burgers|salmonburger\w*|patty|patties|"
+    r"ball|balls|nugget|nuggets|schnitzel\w*|timbale\w*|terrine\w*|puree|purée|paste|pasta|lasagne|ravioli|pizza|slicer\w*|"
+    r"\w*piirakka\w*|\w*piiras\w*|\w*torttu\w*|\w*pasteija\w*|\w*keitto\w*|\w*kiusaus\w*|\w*laatikko\w*|\w*vuoka\b|"
+    r"\w*leipä\w*|\w*salaatti\w*|\w*tuorejuusto\w*|juustomestarin|\w*lastenateria\w*|\w*lastenruoka\w*|"
+    r"\w*hampurilainen\w*|\w*biffi\w*|\w*pihvi\w*|\w*mureke\w*|\w*pyörykkä\w*|\w*nugetti\w*|\w*leike\w*|"
+    r"\w*timbaali\w*|\w*terriini\w*|\w*pyree\w*|\w*lohimassa\w*|\w*kirjolohimassa\w*|\w*veitsi\w*|"
+    r"\w*paj\b|\w*soppa\w*|\w*låda\b|\w*smörgås\w*|\w*bröd\w*|\w*sallad\w*|\w*färskost\w*|\w*burgare\w*|\bloaf\b"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _token_to_family_groups(token: str) -> list[tuple[str, ...]]:
+    w = token.lower().strip("-_%")
+    if not w or w.isdigit() or len(w) <= 1 or w in QUERY_STOPWORDS or w in _NON_FAMILY_QUERY_WORDS:
+        return []
+    groups: list[tuple[str, ...]] = []
+    # Check compound fish/meat words first (e.g. "lohifilee", "lohifileetä", "kirjolohifilee", "punakampelafile")
+    has_trout = any(t in w for t in ("kirjoloh", "trout", "regnbågslax", "forell"))
+    has_salmon = not has_trout and any(t in w for t in ("salmon", "lohi", "lohta", "lohen", "lax"))
+    has_flounder = any(t in w for t in ("flounder", "plaice", "kampela", "rödspätt"))
+    has_herring = any(t in w for t in ("herring", "silli", "silakka", "strömming"))
+    has_cod = w in ("cod", "turska", "torsk") or w.startswith(("turska", "torsk"))
+    has_shrimp = any(t in w for t in ("shrimp", "prawn", "katkarapu", "räkor"))
+    has_chicken = any(t in w for t in ("chicken", "broiler", "kana", "kyckling"))
+    has_turkey = any(t in w for t in ("turkey", "kalkkuna", "kalkon"))
+    has_beef = any(t in w for t in ("beef", "nauta", "naudan", "nötkött"))
+    has_pork = any(t in w for t in ("pork", "porsas", "porsaan", "fläsk"))
+    has_fillet = bool(_FILLET_RE.search(w))
+
+    if has_trout:
+        groups.append(_TROUT_GROUP)
+    if has_salmon:
+        groups.append(_SALMON_GROUP)
+    if has_flounder:
+        groups.append(_FLOUNDER_GROUP)
+    if has_herring:
+        groups.append(_HERRING_GROUP)
+    if has_cod:
+        groups.append(_COD_GROUP)
+    if has_shrimp:
+        groups.append(_SHRIMP_GROUP)
+    if has_chicken:
+        groups.append(_CHICKEN_GROUP)
+    if has_turkey:
+        groups.append(_TURKEY_GROUP)
+    if has_beef:
+        groups.append(_BEEF_GROUP)
+    if has_pork:
+        groups.append(_PORK_GROUP)
+    if has_fillet:
+        groups.append(_FILLET_GROUP)
+    if groups:
+        return groups
+    if w in ("fish", "kala", "kalaa", "fisk"):
+        return [_FISH_GROUP]
+
+    expanded, _ = expand_query_tokens(w)
+    if not expanded:
+        return [(w,)]
+    cleaned_syns = tuple(s for s in expanded[0] if s not in ("fille", "salmo"))
+    return [cleaned_syns or (w,)]
+
+
+def query_family_noun_groups(query: str) -> tuple[tuple[str, ...], ...]:
+    """Extract the canonical product-family noun groups from a buyer query (qualifiers and stopwords removed)."""
+    cleaned, _ = extract_inline_requirements(query or "")
+    stripped = strip_type_qualifiers(cleaned)
+    raw_tokens = [t.lower() for t in _FAMILY_WORD_RE.findall(stripped)]
+    non_brand = [t for t in raw_tokens if t not in _BRAND_QUERY_WORDS]
+    active_tokens = non_brand if non_brand else raw_tokens
+    groups: list[tuple[str, ...]] = []
+    for tok in active_tokens:
+        for grp in _token_to_family_groups(tok):
+            if grp not in groups:
+                groups.append(grp)
+    return tuple(groups)
+
+
+def family_group_matches(group: tuple[str, ...], text_lower: str, words: frozenset[str] | None = None) -> bool:
+    """Return True if a product's combined multilingual text satisfies `group`."""
+    if words is None:
+        words = frozenset(_FAMILY_WORD_RE.findall(text_lower))
+    if group == _SALMON_GROUP:
+        if any(fake in text_lower for fake in _FAKE_SALMON_TERMS):
+            return False
+        without_trout = _TROUT_STRIP_RE.sub(" ", text_lower)
+        return bool(_SALMON_RE.search(without_trout))
+    if group == _FILLET_GROUP:
+        return bool(_FILLET_RE.search(text_lower))
+    for term in group:
+        if " " in term:
+            if term in text_lower:
+                return True
+        elif term in words or f"{term}s" in words:
+            return True
+        elif len(term) >= 5 and term not in ("fille", "salmo") and term in text_lower:
+            return True
+    return False
+
+
+def missing_family_nouns(query: str, text_lower: str) -> list[str]:
+    """Return the primary display words of any product-family noun groups from `query` missing in `text_lower`."""
+    words = frozenset(_FAMILY_WORD_RE.findall(text_lower))
+    missing: list[str] = []
+    for group in query_family_noun_groups(query):
+        if not family_group_matches(group, text_lower, words):
+            missing.append(group[0])
+    return missing
+
+
+def same_product_family(
+    query: str,
+    product_names: tuple[str, ...],
+    *,
+    concept_id: str | None = None,
+    parent_concept_id: str | None = None,
+    category: str = "",
+    requirement_codes: tuple[str, ...] = (),
+) -> bool:
+    """Product family guard (T51): True only if the product belongs to the same product family as the request item."""
+    text_lower = " ".join(n for n in product_names if n).lower()
+    if not text_lower.strip():
+        return False
+    # Synthetic ID-named test records (e.g. "Synthetic SYN-PENNE-A", "Synthetic SYN-MILK")
+    if category == "synthetic" and re.match(r"^synthetic\s+syn-[\w-]+$", (product_names[0] or "").strip(), re.IGNORECASE):
+        return True
+
+    words = frozenset(_FAMILY_WORD_RE.findall(text_lower))
+    q_lower = (query or "").lower()
+
+    if concept_id is not None:
+        primary = CONCEPTS_BY_ID.get(concept_id)
+        parent = CONCEPTS_BY_ID.get(parent_concept_id) if parent_concept_id else None
+        matches_concept = (
+            (primary is not None and match_concept_in_text(primary, text_lower, words))
+            or (parent is not None and match_concept_in_text(parent, text_lower, words))
+        )
+        if not matches_concept:
+            return False
+        if concept_id == "cream":
+            if not any(c in q_lower for c in ("coconut", "kookos", "kokos")) and any(
+                c in text_lower for c in ("coconut", "kookos", "kokos")
+            ):
+                return False
+            if not any(p in q_lower for p in ("powder", "jauhe", "pulver")) and any(
+                p in text_lower for p in ("powder", "jauhe", "pulver")
+            ):
+                return False
+            if any(bad in text_lower for bad in ("quark", "rahka", "kvarg", "mousse", "yoghurt", "yogurt", "jogurt")):
+                return False
+        elif concept_id == "butter":
+            asked_spread = any(t in q_lower for t in ("margarin", "margariin", "levite", "rasvaseos", "spread"))
+            if not asked_spread and not asked_for_alternative(query, requirement_codes):
+                has_butter_word = any(b in text_lower for b in ("butter", "voi", "smör"))
+                if any(s in text_lower for s in _SPREAD_TERMS) and not has_butter_word:
+                    return False
+        return True
+
+    # No known ProductConcept (e.g. salmon fillet, flounder, meat, produce):
+    if not _COMPOSITE_DISH_RE.search(q_lower) and _COMPOSITE_DISH_RE.search(text_lower):
+        return False
+    groups = query_family_noun_groups(query)
+    if not groups:
+        return True
+    return all(family_group_matches(grp, text_lower, words) for grp in groups)

@@ -138,3 +138,27 @@ def test_countable_sales_units_are_suggested_whole_even_with_a_fractional_lot():
     proposal = _blocked(10000)
     feasible = feasible_within_hard_limit(proposal, M1, {"SYN-PENNE-A": Decimal("0.01")})
     assert feasible is not None and feasible.lines[0].quantitySalesUnits == Decimal(500)
+
+
+def test_t51_feasible_within_hard_limit_drops_unrelated_or_invalid_lines():
+    """T51: feasible-within-limit hint uses only valid, same-family lines and never suggests cheese/bread for salmon."""
+    proposal = _blocked(10000)
+    salmon_item = RequestItem(itemId="I1", what="fresh salmon fillet", quantity=Decimal(3000), unit="kg")
+    unrelated_line = proposal.lines[0].model_copy(
+        update={
+            "productId": "472275",
+            "name": "Filled bread Falafel 170g, filled whole grain rye bread",
+            "nameFi": "Eväsleipä Falafel 170g",
+        }
+    )
+    bad_proposal = proposal.model_copy(
+        update={
+            "request": proposal.request.model_copy(update={"items": [salmon_item]}),
+            "lines": [unrelated_line],
+        }
+    )
+    assert feasible_within_hard_limit(bad_proposal, M1) is None
+
+    # A line with a non-orderable code (CLAIM_MISSING) is also excluded from feasible_within_hard_limit.
+    non_compliant_line = proposal.lines[0].model_copy(update={"reasons": [ReasonCode.CLAIM_MISSING]})
+    assert feasible_within_hard_limit(proposal.model_copy(update={"lines": [non_compliant_line]}), M1) is None

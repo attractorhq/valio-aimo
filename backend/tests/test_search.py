@@ -639,3 +639,82 @@ def test_t39_real_catalog_fresh_salmon_emmental_and_butter():
         top = by_id[ranked[0].productId]
         top_text = " ".join((top.name, *top.names.values())).lower()
         assert ranked[0].exactType and "margari" not in top_text, query
+
+
+# ---- T51: product family guard and functional consequences -------------------------------------------
+
+from app.catalog.categories import same_product_family  # noqa: E402
+
+
+def test_t51_product_family_guard_rejects_unrelated_products():
+    """T51: salmon never matches cheese, falafel bread, flounder, herring, or composite dishes."""
+    assert same_product_family("fresh salmon fillet morning", ("Synthetic salmon fillet C, ASC, apx. 10 kg",))
+    assert same_product_family("tuoretta lohifileetä", ("Synteettinen lohifilee C 10 kg",))
+    assert not same_product_family(
+        "fresh salmon fillet",
+        ("Synthetic 1,5 kg 16% lactose free natural fresh cheese", "Synteettinen laktoositon tuorejuusto"),
+    )
+    assert not same_product_family(
+        "fresh salmon fillet",
+        ("Synthetic Filled bread Falafel 170g, filled whole grain rye bread", "Synteettinen Eväsleipä Falafel"),
+    )
+    assert not same_product_family(
+        "fresh salmon fillet",
+        ("Synthetic Nordvågs restaurant fillet 850/500g", "Synteettinen ravintolafilee"),
+    )
+    assert not same_product_family(
+        "fresh salmon fillet",
+        ("Synthetic flounder fillet fresh 5 kg", "Synteettinen punakampelafile tuore"),
+    )
+    assert not same_product_family(
+        "salmon",
+        ("Synthetic shoemaker's salmon 1,5 kg", "Synteettinen suutarinlohi"),
+    )
+    assert not same_product_family(
+        "salmon",
+        ("Synthetic Salmon pie 1400 g", "Synteettinen Lohipiirakka"),
+    )
+    assert not same_product_family(
+        "salmon",
+        ("Synthetic smoked salmon cream cheese 200 g", "Synteettinen kylmäsavulohi tuorejuusto"),
+    )
+    assert not same_product_family(
+        "butter",
+        ("Synthetic catering margarine 60 400 g", "Synteettinen margariini"),
+        concept_id="butter",
+    )
+    assert not same_product_family(
+        "whipping cream",
+        ("Synthetic coconut cream 23% 1L", "Synteettinen kookoskerma"),
+        concept_id="cream",
+    )
+
+
+def test_t51_whipping_cream_states_cooking_cream_does_not_whip():
+    """T51: cooking cream against a whipping-cream request always states 'does not whip'."""
+    m1 = product_type_match("whipping cream", ("Synthetic cooking cream 15 % 1 l",), concept_id="cream")
+    assert not m1.exact
+    assert "cooking cream 15 % does not whip" in m1.differences
+
+    m2 = product_type_match(
+        "whipping cream",
+        ("Synthetic Cooking 15 1L blend of buttermilk, vegetable fat and cream UHT",),
+        concept_id="cream",
+    )
+    assert not m2.exact
+    assert "cooking cream 15 % does not whip" in m2.differences
+
+
+def test_t51_real_catalog_3000kg_lactose_free_salmon_never_returns_cheese_or_bread():
+    catalog = _real_catalog_or_skip()
+    res = search_products(
+        "fresh salmon fillet morning",
+        requirements=[Requirement(kind="CLAIM", code="FREE_FROM_LACTOSE")],
+        preferences=[Preference(kind="ORGANIC", value="organic")],
+        mandate=M1,
+        products=catalog,
+    )
+    for cand in res.candidates:
+        txt = " ".join((cand.name, *cand.names.values())).lower()
+        assert "salmon" in txt or "lohi" in txt
+        assert "cheese" not in txt and "bread" not in txt and "falafel" not in txt and "nordvågs" not in txt

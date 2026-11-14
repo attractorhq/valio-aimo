@@ -666,3 +666,136 @@ def test_t39_split_lines_never_mix_in_a_different_product_type():
     ranked = rank_candidates([cooking], item=_cream_item(), mandate=M1, requested_date=MONDAY,
                              observations={"SYN-COOK": _obs("SYN-COOK")})
     assert [o.productId for o in build_shortlist_offer_items(_cream_item(), ranked_candidates=ranked)] == ["SYN-COOK"]
+
+
+def test_t51_rank_candidates_excludes_unrelated_families_and_limits_to_one_substitute():
+    """T51: rank_candidates drops unrelated product families (cheese/bread for salmon), ranks whippable
+    cream substitutes ahead of non-whipping cooking cream, and offers at most one substitute when no
+    exact-type product is deliverable."""
+    salmon_fresh = normalise_product(
+        synthetic_product_record(
+            product_id="SYN-SAL-FRESH",
+            category="18701",
+            sales_unit="KG",
+            base_unit="KG",
+            units=[{"unitId": "KG", "sizeInBaseUnits": 1}],
+            unit_conversions=[],
+            names={"en": "Synthetic salmon fillet C, ASC, 10 kg", "fi": "Synteettinen lohifilee C 10 kg"},
+            allergens=[("AF", "CONTAINS")],
+            claims=[],
+        )
+    )
+    salmon_smoked_lf = normalise_product(
+        synthetic_product_record(
+            product_id="SYN-SAL-SMOKED",
+            category="18708",
+            sales_unit="KG",
+            base_unit="KG",
+            units=[{"unitId": "KG", "sizeInBaseUnits": 1}],
+            unit_conversions=[],
+            names={"en": "Synthetic cold smoked salmon fillet sliced 1 kg", "fi": "Synteettinen kylmäsavulohifilee 1 kg"},
+            allergens=[("AF", "CONTAINS")],
+            claims=["FREE_FROM_LACTOSE"],
+        )
+    )
+    salmon_frozen_lf = normalise_product(
+        synthetic_product_record(
+            product_id="SYN-SAL-FROZEN",
+            category="41720",
+            sales_unit="KG",
+            base_unit="KG",
+            units=[{"unitId": "KG", "sizeInBaseUnits": 1}],
+            unit_conversions=[],
+            names={"en": "Synthetic salmon fillet frozen 1 kg", "fi": "Synteettinen lohifilee pakaste 1 kg"},
+            allergens=[("AF", "CONTAINS")],
+            claims=["FREE_FROM_LACTOSE"],
+        )
+    )
+    fresh_cheese = normalise_product(
+        synthetic_product_record(
+            product_id="SYN-CHEESE",
+            category="10635",
+            sales_unit="KG",
+            base_unit="KG",
+            units=[{"unitId": "KG", "sizeInBaseUnits": 1}],
+            unit_conversions=[],
+            names={"en": "Synthetic lactose free natural fresh cheese 1.5 kg"},
+            allergens=[("AM", "CONTAINS")],
+            claims=["FREE_FROM_LACTOSE"],
+        )
+    )
+    falafel_bread = normalise_product(
+        synthetic_product_record(
+            product_id="SYN-FALAFEL",
+            category="17303",
+            sales_unit="KG",
+            base_unit="KG",
+            units=[{"unitId": "KG", "sizeInBaseUnits": 1}],
+            unit_conversions=[],
+            names={"en": "Synthetic Filled bread Falafel 170g rye bread"},
+            allergens=[("AW", "CONTAINS")],
+            claims=["FREE_FROM_LACTOSE"],
+        )
+    )
+
+    item_lf = RequestItem(
+        itemId="I1",
+        what="fresh salmon fillet morning",
+        quantity=Decimal("3000"),
+        unit="kg",
+        requirements=[LACTOSE_FREE],
+    )
+    obs = {
+        p.productId: CandidateObservation(
+            product_id=p.productId,
+            unit_price_excl_vat=Decimal("10.00"),
+            comparison_price=Decimal("10.00"),
+            comparison_unit="kg",
+            vat_rate=Decimal("14"),
+            stock_tier="EXACT",
+            available_quantity=Decimal("500"),
+            delivery_date=MONDAY,
+        )
+        for p in (salmon_fresh, salmon_smoked_lf, salmon_frozen_lf, fresh_cheese, falafel_bread)
+    }
+    ranked = rank_candidates(
+        [fresh_cheese, falafel_bread, salmon_fresh, salmon_smoked_lf, salmon_frozen_lf],
+        item=item_lf,
+        mandate=M1,
+        requested_date=MONDAY,
+        observations=obs,
+    )
+    ranked_ids = [r.productId for r in ranked]
+    assert "SYN-CHEESE" not in ranked_ids
+    assert "SYN-FALAFEL" not in ranked_ids
+    assert set(ranked_ids) == {"SYN-SAL-SMOKED", "SYN-SAL-FROZEN"}
+
+    # Shortfall with no exact-type candidate offers at most ONE same-family substitute (never pads with a second).
+    shortlist = build_shortlist_offer_items(item_lf, ranked_candidates=ranked)
+    assert len(shortlist) == 1
+    assert shortlist[0].productId in {"SYN-SAL-SMOKED", "SYN-SAL-FROZEN"}
+
+
+def test_t51_whippable_substitute_outranks_cooking_cream_and_states_does_not_whip():
+    cook_15 = _make_cream(
+        "SYN-MILLAC-15",
+        "Synthetic Cooking 15 1L blend of lactose free buttermilk, vegetable fat and cream UHT",
+        "Synteettinen Ruoka 15 1L kasvirasvan ja kerman sekoitus",
+    )
+    whip_33 = _make_cream(
+        "SYN-MILLAC-33",
+        "Synthetic Gold Cooking & Whipping 33 lactose-free blend of vegetable fat and cream UHT 1L",
+        "Synteettinen Ruoka & Vispi 33 laktoositon kasvirasvan ja kerman sekoitus 1L",
+    )
+    ranked = rank_candidates(
+        [cook_15, whip_33],
+        item=_cream_item("whipping cream"),
+        mandate=M2,
+        requested_date=MONDAY,
+        observations={
+            "SYN-MILLAC-15": _obs("SYN-MILLAC-15", "2.86"),
+            "SYN-MILLAC-33": _obs("SYN-MILLAC-33", "5.30"),
+        },
+    )
+    assert [r.productId for r in ranked] == ["SYN-MILLAC-33", "SYN-MILLAC-15"]
+    assert "cooking cream 15 % does not whip" in ranked[1].tradeoff
