@@ -24,7 +24,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from app.agent.injection import IgnoredInstruction, detect_instructions
 from app.agent.llm import LlmInterpreter, call_with_deadline
-from app.catalog.vocab import FI_SV_TO_EN_SYNONYMS
+from app.catalog.vocab import FI_SV_TO_EN_SYNONYMS, KNOWN_BRANDS
 from app.contracts import (
     Preference,
     ReasonCode,
@@ -157,6 +157,34 @@ _BENIGN_NEGATION_RE = re.compile(
     r"\b(?:no|without|ilman)\s+(?:" + "|".join(sorted(_BENIGN_NEGATED, key=len, reverse=True)) + r")\b(?:\s+than)?",
     re.IGNORECASE,
 )
+# T74: a brand or product name is a name ("Oatly No Sugars", "Coca-Cola Zero"): a known brand followed by its
+# capitalised product-line words, or a capitalised name mid-sentence followed by "No"/"Zero" and a capitalised
+# word. Words inside it are never exclusions; the name stays in the item for the search.
+_BRAND_PHRASE_RE = re.compile(
+    r"(?<![\w-])(?i:" + "|".join(re.escape(b) for b in sorted(KNOWN_BRANDS, key=len, reverse=True)) + r")(?![\w-])"
+    r"(?:[ \t]+[A-ZÅÄÖ][\w'’®™&+-]*)*"
+    # Mid-sentence, or first in an item fragment (" Planto No Added Sugar …"), never a sentence's first word.
+    r"|(?:(?<=[^\W\d_][ \t])|(?<=^[ \t]))[A-ZÅÄÖ][\w'’®™-]+[ \t]+(?:No|Zero)[ \t]+[A-ZÅÄÖ][\w'’®™-]*"
+)
+# T74: certifications are wishes about the label, not part of the product name. Until they are checked as
+# requirements they are kept as a LABEL preference (labelled products rank first) and said in the assumptions.
+_CERTIFICATIONS: tuple[tuple[re.Pattern, str, str], ...] = tuple(
+    (
+        re.compile(
+            r"\b(?:certified\s+)?(?:" + pattern + r")(?:[\s-]+(?:certified|certification|labell?ed|label|"
+            r"sertifioi\w*|merki\w*))?(?!\w)",
+            re.IGNORECASE,
+        ),
+        code,
+        label,
+    )
+    for pattern, code, label in (
+        (r"MSC", "MARINE_STEWARDSHIP_COUNCIL_LABEL", "MSC"),
+        (r"ASC", "AQUACULTURE_STEWARDSHIP_COUNCIL", "ASC"),
+        (r"fair[\s-]?trade|reilu(?:n|a)?\s+kaup\w*", "FAIR_TRADE_MARK", "Fairtrade"),
+    )
+)
+_CERTIFICATION_NAMES = {code: label for _pattern, code, label in _CERTIFICATIONS}
 # Purpose clauses ("for the school", "for our kitchen") describe the buyer, not the product.
 _PURPOSE_RE = re.compile(
     r"\bfor\s+(?:the|our|a|an|my|this|their)?\s*[^\W\d_]+(?:\s+(?:kitchen|canteen|cafeteria|restaurant|"
@@ -165,7 +193,8 @@ _PURPOSE_RE = re.compile(
 )
 
 _PREFERENCES: tuple[tuple[re.Pattern, Preference], ...] = (
-    (re.compile(r"\b(?:organic|luomu\w*)\b", re.IGNORECASE), Preference(kind="ORGANIC", value="organic")),
+    (re.compile(r"\b(?:certified\s+)?(?:organic|luomu\w*)(?:[\s-]+(?:certified|sertifioi\w*))?\b", re.IGNORECASE),
+     Preference(kind="ORGANIC", value="organic")),
     (re.compile(r"\b(?:finnish(?:\s+origin)?|domestic|kotimai\w*)\b", re.IGNORECASE),
      Preference(kind="ORIGIN", value="FI")),
 )
@@ -257,13 +286,25 @@ _FINNISH_FORMS: tuple[tuple[re.Pattern, str], ...] = tuple(
         (r"kermavaah\w*|(?:kuohu|vispi)kerm\w*", "whipping cream"),
         (r"ruokakerm\w*", "cooking cream"),
         (r"kahvikerm\w*", "coffee cream"),
+        (r"kevytkerm\w*", "low-fat cream"),
         (r"kermaviil\w*|smetan\w*|ranskankerm\w*", "sour cream"),
+        # T74: the most specific type, never the first part ("kermajuusto" is not cream). Finnish
+        # "kermajuusto" is a semi-hard cheese, sold by Valio as tilsit; cream cheese is "tuorejuusto".
         (r"tuorejuust\w*", "cream cheese"),
+        (r"kermajuust\w*", "tilsit cheese"),
+        (r"sulatejuust\w*", "processed cheese"),
+        (r"maitojauh\w*", "milk powder"),
+        (r"maitorahk\w*", "quark"),
+        (r"kasvirasvalevit\w*", "vegetable fat spread"),
+        (r"levite|levitettä|levitteen|levitteet|levitteitä|levitteenä", "fat spread"),
+        (r"piimä|piimää|piimän|piimät|piimiä", "sour milk"),
+        (r"voileip\w*|voileiv\w*", "sandwich"),
+        (r"suklaa|suklaata|suklaan", "chocolate"),
         (r"emmentaljuust\w*", "Emmental cheese"),
         (r"lohifile\w*", "salmon fillet"),
         (r"kirjolo(?:hi|ht|he)\w*", "rainbow trout"),
         (r"lohi|lohta|lohen|lohia|lohet|loheen|lohesta", "salmon"),
-        (r"(?:kanan)?muna(?:a|t|n)?|(?:kanan)?munia|(?:kanan)?munien", "eggs"),
+        (r"(?:kanan?)?muna(?:a|t|n)?|(?:kanan?)?munia|(?:kanan?)?munien", "eggs"),
         (r"broiler\w*|kana|kanaa|kanan|kanoja|kanafile\w*", "chicken"),
         (r"jauhelih\w*", "minced meat"),
         (r"kala|kalaa|kalan|kaloja", "fish"),
@@ -343,6 +384,23 @@ _OCCASION_CONTEXT_RE = re.compile(
     r"wedding|birthday|christmas|school|staff)\s+)*(?:banquet|party|event|function|reception|conference|buffet|"
     r"celebration|catering|gala)(?:\s+(?:booking|order|reservation|guests))?\b",
     re.IGNORECASE,
+)
+# T74: Finnish occasion clauses ("iso juhla illalla", "yrityksen pikkujouluihin") and purpose clauses
+# ("juhlia varten") describe the event, not the product. Diet words in them are read before they go.
+_OCCASION_CONTEXT_FI_RE = re.compile(
+    r"\b(?:(?:iso|isot|isoon|isolle|isoa|suuri|suuret|suureen|suurelle|pieni|pienet|yllättävä|yllättävät|"
+    r"ylimääräinen|yksityinen|yrityksen|oma|omat|meidän)\s+)*"
+    r"(?:juhl(?!a\s+mokka)\w*|tilaisuu\w*|tapahtum\w*|häät|häihin|hääjuhl\w*|syntymäpäiv\w*|synttär\w*|pikkujoul\w*|"
+    r"kokoukse\w*|kokous|seminaar\w*|konferens\w*|pitopalvelu\w*|banketti\w*|illalli\w*|vastaanot\w*|"
+    r"catering\w*|noutopöy\w*)"
+    r"(?:\s+(?:varten|tilaus|tilaukseen|varaus|varaukseen|vieraille))?\b",
+    re.IGNORECASE,
+)
+_PURPOSE_FI_RE = re.compile(r"\b(?:[^\W\d_]+n\s+)?[^\W\d_]+\s+varten\b", re.IGNORECASE)
+# A Finnish word whose usual English reading differs from its literal parts is said in the assumptions.
+_READING_NOTES: tuple[tuple[re.Pattern, str], ...] = (
+    (re.compile(r"\bkermajuust\w*", re.IGNORECASE),
+     "“Kermajuusto” read as tilsit, the semi-hard cheese Valio sells under that name, not cream cheese"),
 )
 # "or similar" / "tai vastaavaa": an accepted alternative, recorded as an assumption, never part of the item.
 _SIMILAR_RE = re.compile(
@@ -547,11 +605,50 @@ def _compound(lower: str) -> str | None:
     return None
 
 
+def _modifier_part(part: str) -> str | None:
+    """English for the first part of a Finnish compound, in its basic form ("kerma", "maito", "riisi")."""
+    if part in _COMPOUND_MODIFIERS:
+        return _COMPOUND_MODIFIERS[part]
+    for pattern, english in _FINNISH_FORMS:
+        if pattern.fullmatch(part):
+            return english
+    for stem, english in _FINNISH_NOUNS:
+        if part.startswith(stem) and len(part) - len(stem) <= 1:
+            return english
+    return None
+
+
+def _head_part(part: str) -> str | None:
+    """English for the last part of a Finnish compound, in any inflection ("juustoa", "jauhoja")."""
+    for pattern, english in _FINNISH_FORMS:
+        if pattern.fullmatch(part):
+            return english
+    for stem, english in _FINNISH_NOUNS:
+        if part.startswith(stem):
+            return english
+    return None
+
+
+def _head_compound(lower: str) -> str | None:
+    """T74: a Finnish compound takes its type from its last part, so the longest reading wins over the first
+    word: "riisijauhoa" is rice *flour* (not rice), "maitosuklaata" milk chocolate, "kermajäätelö" ice cream.
+    Both parts must be known words, otherwise the word is left to the stems and kept as written."""
+    for cut in range(3, len(lower) - 2):
+        head = _head_part(lower[cut:].lstrip("-"))
+        if head is None:
+            continue
+        modifier = _modifier_part(lower[:cut].rstrip("-"))
+        if modifier is None:
+            continue
+        return head if modifier in head else f"{modifier} {head}"
+    return None
+
+
 def _translate(token: str) -> tuple[str, bool]:
     """Finnish product noun (any inflection) -> (English, True); anything else (brands, names) as written.
 
-    Whole-word inflections come first, then the parser's core stems, then the catalogue's FI/SV stem table
-    (T04), so the request and the search speak the same vocabulary.
+    Whole-word inflections come first, then compounds by their last part, then the parser's core stems,
+    then the catalogue's FI/SV stem table (T04), so the request and the search speak the same vocabulary.
     """
     lower = token.lower()
     if compound := _compound(lower):
@@ -559,6 +656,8 @@ def _translate(token: str) -> tuple[str, bool]:
     for pattern, english in _FINNISH_FORMS:
         if pattern.fullmatch(lower):
             return english, True
+    if head := _head_compound(lower):
+        return head, True
     for stem, english in _FINNISH_NOUNS:
         if lower.startswith(stem):
             return english, True
@@ -605,6 +704,10 @@ def _extract(fragment: str) -> tuple[str, list[Requirement], list[Preference], s
         if pattern.search(rest):
             preferences.append(preference)
             rest = pattern.sub(" ", rest)
+    for pattern, code, _label in _CERTIFICATIONS:
+        if pattern.search(rest):
+            preferences.append(Preference(kind="LABEL", value=code))
+            rest = pattern.sub(" ", rest)
 
     def take_fat(m: re.Match) -> str:
         preferences.append(Preference(kind="FAT_PERCENT", value=m.group(1).replace(",", ".")))
@@ -621,7 +724,9 @@ def _extract(fragment: str) -> tuple[str, list[Requirement], list[Preference], s
         rest = pattern.sub(" ", rest)
     rest = _HEADCOUNT_RE.sub(" ", rest)
     rest = _OCCASION_CONTEXT_RE.sub(" ", rest)
+    rest = _OCCASION_CONTEXT_FI_RE.sub(" ", rest)
     rest = _PURPOSE_RE.sub(" ", rest)
+    rest = _PURPOSE_FI_RE.sub(" ", rest)
     rest = _DESTINATION_RE.sub(" ", rest)
     rest = _BENIGN_NEGATION_RE.sub(" ", rest)
     return rest, requirements, preferences, product_id, packs
@@ -631,9 +736,13 @@ def _take_exclusions(text: str) -> tuple[str, list[Requirement], str | None]:
     """Read explicit ingredient lists with the same vocabulary as individual free-from phrases."""
     requirements: list[Requirement] = []
     unknown = None
+    brands: list[tuple[int, int]] = []
 
     def take(match: re.Match) -> str:
         nonlocal unknown
+        # "No" inside a brand or product name ("Oatly No Sugars") is the name, not an exclusion (T74).
+        if any(start <= match.start() < end for start, end in brands):
+            return match.group(0)
         for term in _EXCLUSION_TERM_RE.finditer(match["terms"]):
             word = term.group(0)
             if word.lower() in _EXCLUSION_CONJUNCTIONS:
@@ -651,13 +760,17 @@ def _take_exclusions(text: str) -> tuple[str, list[Requirement], str | None]:
         return " "
 
     for pattern in _EXCLUSION_RES:
+        brands = [m.span() for m in _BRAND_PHRASE_RE.finditer(text)]
         text = pattern.sub(take, text)
     return text, requirements, unknown
 
 
 def _unknown_negation(text: str) -> str | None:
-    """Return a negated word the vocabulary cannot map ("no sugar", "salt-free"), or None."""
-    rest = _PRODUCT_ID_RE.sub(" ", text)
+    """Return a negated word the vocabulary cannot map ("no sugar", "salt-free"), or None.
+
+    Words inside a brand or product name ("Oatly No Sugars") are part of the name, not a negation (T74)."""
+    rest = _BRAND_PHRASE_RE.sub(" ", text)
+    rest = _PRODUCT_ID_RE.sub(" ", rest)
     rest, _requirements, unknown = _take_exclusions(rest)
     if unknown:
         return unknown
@@ -684,7 +797,9 @@ def _words(rest: str, finnish: bool = False) -> tuple[str | None, list[str]]:
     raw = [t for t in _PUNCTUATION.sub(" ", rest).split()
            if t.lower().strip("'’") not in _STOPWORDS and not re.fullmatch(r"[-®™'’]+", t)]
     tokens = [(t, *_translate(t)) for t in raw]
-    if finnish:
+    # A product noun translated from Finnish makes the item Finnish even when the request has no other
+    # Finnish hint ("40 kg juustoa hotellin aamiaiselle"), so its destination tail goes too (T74).
+    if finnish or any(known and original.lower() != english.lower() for original, english, known in tokens):
         tokens = _cut_finnish_tail(tokens)
     words: list[str] = []
     for _original, english, _known in tokens:
@@ -911,6 +1026,8 @@ def _fallback(
     if extra_requirements:
         labels = ", ".join(_REQUIREMENT_LABELS.get(r.code, r.code) for r in extra_requirements)
         notes.append(f"Applied to every item: {labels}")
+    notes.extend(note for pattern, note in _READING_NOTES if items and pattern.search(clean))
+    notes.extend(_label_notes([p for item in items for p in item.preferences]))
     request = None
     if items and question is None and safety_question is None:
         assumptions: list[str] = []
@@ -1070,24 +1187,90 @@ def _item_assumptions(what: str, preferences: list[Preference]) -> list[str]:
     return out
 
 
+# "cheddar made from cow milk": the milk the product is made from (the "from" is a stopword by now).
+_MADE_FROM_MILK_RE = re.compile(
+    r"\s*\bmade\s+(?:from\s+|of\s+|with\s+)?(?:(?:cow|cows|goat|goats|sheep)['’]?s?\s+)?milk\b"
+    r"|\s*\b(?:from\s+)?(?:cow|cows|goat|goats|sheep)['’]?s?\s+milk\b",
+    re.IGNORECASE,
+)
+_PLAIN_MILK_RE = re.compile(r"(?:[^\W\d_]+\s+)*milk(?:\s+drink)?", re.IGNORECASE)
+# T74: the product type a milk-free alternative must keep (English, Finnish partitive of "… alternative").
+_DAIRY_TYPES: tuple[tuple[re.Pattern, str, str], ...] = tuple(
+    (re.compile(rf"\b(?:{pattern})\b", re.IGNORECASE), english, finnish)
+    for pattern, english, finnish in (
+        (r"ice\s+cream", "ice cream", "jäätelövaihtoehdon"),
+        (r"sour\s+cream", "sour cream", "kermaviilivaihtoehdon"),
+        (r"cheese|cheddar|emmental|edam|gouda|mozzarella|feta|brie|camembert|halloumi|parmesan|tilsit",
+         "cheese", "juustovaihtoehdon"),
+        (r"yoghurt|yogurt", "yoghurt", "jogurttivaihtoehdon"),
+        (r"quark", "quark", "rahkavaihtoehdon"),
+        (r"cream", "cream", "kermavaihtoehdon"),
+        (r"butter", "butter", "voivaihtoehdon"),
+    )
+)
+
+
+def _label_notes(preferences: list[Preference]) -> list[str]:
+    """T74: a certification is kept out of the product name and said in the assumptions, never dropped."""
+    labels = dict.fromkeys(
+        _CERTIFICATION_NAMES[p.value] for p in preferences if p.kind == "LABEL" and p.value in _CERTIFICATION_NAMES
+    )
+    return [f"{label} label preferred: {label}-labelled products are ranked first (not a hard requirement)"
+            for label in labels]
+
+
+def _clean_name(what: object) -> object:
+    """The LLM's product name without certification or occasion words (T74), as the deterministic reading."""
+    if not isinstance(what, str):
+        return what
+    cleaned = what
+    for pattern, _code, _label in _CERTIFICATIONS:
+        cleaned = pattern.sub(" ", cleaned)
+    cleaned = _OCCASION_CONTEXT_FI_RE.sub(" ", _OCCASION_CONTEXT_RE.sub(" ", cleaned))
+    cleaned = " ".join(cleaned.split()).strip(" ,;-")
+    return cleaned or what
+
+
 def _contradiction(what: str, requirements: list[Requirement], finnish: bool = False) -> str | None:
-    # Only milk itself (§7.10: "lactose-free milk that is milk-free"). Milk-free cheese, cream and
-    # yoghurt alternatives exist, so those are not contradictions.
-    if _MILK_RE.search(what) and not _PLANT_RE.search(what):
-        for requirement in requirements:
-            if (requirement.kind, requirement.code) in (("AVOID_ALLERGEN", "AM"), ("CLAIM", "VEGAN")):
-                if finnish:
-                    label = "maidoton" if requirement.code == "AM" else "vegaaninen"
-                    return (
-                        f"Maito on maitotuote, joten se ei voi olla {label}: tarvitsetteko laktoositonta maitoa "
-                        "vai maidottoman vaihtoehdon, kuten kaurajuoman?"
-                    )
-                label = _REQUIREMENT_LABELS[requirement.code]
-                return (
-                    f"{what[:1].upper()}{what[1:]} is a dairy product, so it cannot also be {label}: "
-                    f"do you need lactose-free {what}, or a milk-free alternative such as oat drink?"
-                )
-    return None
+    # Only milk itself (§7.10: "lactose-free milk that is milk-free") or a product the buyer says is made from
+    # milk ("milk-free cheddar made from cow milk"). Milk-free cheese, cream and yoghurt alternatives exist,
+    # so those alone are not contradictions.
+    if not _MILK_RE.search(what) or _PLANT_RE.search(what):
+        return None
+    conflict = next(
+        (r for r in requirements if (r.kind, r.code) in (("AVOID_ALLERGEN", "AM"), ("CLAIM", "VEGAN"))), None
+    )
+    if conflict is None:
+        return None
+    base = " ".join(_MADE_FROM_MILK_RE.sub(" ", what).split()) or what
+    made_from_milk = base != what
+    plain_milk = not made_from_milk and bool(_PLAIN_MILK_RE.fullmatch(base))
+    # The alternative keeps the product type (a milk-free cheese for a cheese), or names none (T74).
+    kind = None if plain_milk else next((t for t in _DAIRY_TYPES if t[0].search(base)), None)
+    if finnish:
+        label = "maidoton" if conflict.code == "AM" else "vegaaninen"
+        if plain_milk:
+            return (
+                f"Maito on maitotuote, joten se ei voi olla {label}: tarvitsetteko laktoositonta maitoa "
+                "vai maidottoman vaihtoehdon, kuten kaurajuoman?"
+            )
+        other = f"maidottoman {kind[2]}" if kind else "maidottoman vaihtoehdon"
+        return (
+            f"Maidosta tehty tuote on maitotuote, joten se ei voi olla {label}: tarvitsetteko laktoositonta "
+            f"tuotetta vai {other}?"
+        )
+    label = _REQUIREMENT_LABELS[conflict.code]
+    subject = f"{base} made from milk" if made_from_milk else base
+    if plain_milk:
+        other = "a milk-free alternative such as oat drink"
+    elif kind is not None:
+        other = f"a {label} {kind[1]} alternative"
+    else:
+        other = f"a {label} alternative"
+    return (
+        f"{subject[:1].upper()}{subject[1:]} is a dairy product, so it cannot also be {label}: "
+        f"do you need lactose-free {base}, or {other}?"
+    )
 
 
 def _one_question(text: str) -> str:
@@ -1124,7 +1307,7 @@ def _from_llm(raw: dict, text: str, today: date, fallback: _Fallback) -> tuple[S
         items.append(
             {
                 "itemId": f"I{n}",
-                "what": entry.get("what"),
+                "what": _clean_name(entry.get("what")),
                 "quantity": quantity,
                 "unit": entry.get("unit"),
                 "productId": product_id,
@@ -1154,7 +1337,12 @@ def _from_llm(raw: dict, text: str, today: date, fallback: _Fallback) -> tuple[S
         merged = []
         for llm_item, det_item in zip(request.items, fallback.request.items, strict=True):
             extra = [r for r in det_item.requirements if r not in llm_item.requirements]
-            merged.append(llm_item.model_copy(update={"requirements": [*llm_item.requirements, *extra]}))
+            # A certification label the deterministic reading found is kept too (T74).
+            labels = [p for p in det_item.preferences if p.kind == "LABEL" and p not in llm_item.preferences]
+            merged.append(llm_item.model_copy(update={
+                "requirements": [*llm_item.requirements, *extra],
+                "preferences": [*llm_item.preferences, *labels],
+            }))
         request = request.model_copy(update={"items": merged})
     return request, None
 
