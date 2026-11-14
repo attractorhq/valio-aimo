@@ -512,6 +512,16 @@
         "totals": {
           "$ref": "#/$defs/Totals"
         },
+        "reasonDetails": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/ReasonCode"
+          },
+          "title": "Reasondetails",
+          "type": "object"
+        },
         "supersededBy": {
           "anyOf": [
             {

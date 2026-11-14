@@ -68,6 +68,7 @@ export function ApproveMobile() {
           item={{ proposal: view.data.proposal, loggedAt: view.data.loggedAt }}
           mandate={mandate}
           showQr={false}
+          compact
           initialToken={decodedToken}
           initialApprovalStatement={view.data.approvalStatement}
         />

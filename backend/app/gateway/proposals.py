@@ -100,6 +100,9 @@ from app.valio.facts import SENTINEL_METHOD, is_stock_sentinel
 
 # T62: proposal states whose total counts against the same-day limits (the split-order guard).
 COMMITTED_STATES = frozenset({"PENDING_APPROVAL", "APPROVED", "AUTO_APPROVED", "RECHECKED", "CONFIRMED_SIMULATED"})
+# T97: stock is held only by orders that are confirmed or on their way to confirmation. A proposal still waiting
+# for sign-off is not an order yet; it counts against the limits (T62) but holds no stock.
+STOCK_HOLDING_STATES = frozenset({"APPROVED", "AUTO_APPROVED", "RECHECKED", "CONFIRMED_SIMULATED"})
 
 
 def _type_guard_facts(facts: Sequence[TrustLabel]) -> list[TrustLabel]:
@@ -747,6 +750,7 @@ class ProposalGateway:
             offer_id=resolved_offer_id,
             offer_version=offer_version,
             force_refresh=force_refresh,
+            committed_units=self.committed_units(request.customerId),
         )
         self.register_offer(result, offer_request=request)
         return result
@@ -847,6 +851,25 @@ class ProposalGateway:
                 if line.deliveryDate in wanted:
                     committed[line.deliveryDate] = committed.get(line.deliveryDate, Decimal(0)) + line.lineTotalExclVat
         return committed
+
+    def committed_units(self, customer_id: str) -> dict[tuple[str, date], Decimal]:
+        """T97: sales units the customer already holds in confirmed orders, per (product, delivery date).
+
+        A new offer takes these off the stock pool, so the buyer's own earlier order is never offered twice.
+        Only confirmed orders and approved ones being confirmed hold stock (`STOCK_HOLDING_STATES`); a proposal
+        waiting for sign-off does not. Re-checks of an existing proposal do not use this: its own lines would
+        otherwise count against itself.
+        """
+        if self._session is not None:
+            self._hydrate_from_session(self._session)
+        held: dict[tuple[str, date], Decimal] = {}
+        for p in self._proposals.values():
+            if p.customerId != customer_id or p.state not in STOCK_HOLDING_STATES:
+                continue
+            for line in p.lines:
+                key = (line.productId, line.deliveryDate)
+                held[key] = held.get(key, Decimal(0)) + line.quantitySalesUnits
+        return held
 
     def committed_total(
         self, customer_id: str, days: date | Iterable[date], *, exclude: Sequence[str] = ()
@@ -1107,6 +1130,11 @@ class ProposalGateway:
             lines=kept_lines,
             excluded=excluded,
             totals=totals,
+            reasonDetails={
+                ReasonCode(f.code): f.detail
+                for f in policy_decision.findings
+                if f.detail and ReasonCode(f.code) in reasons
+            },
         )
         base_summary = decision_summary(
             outcome, reasons, total_excl_vat=totals.exclVat, mandate=mandate,

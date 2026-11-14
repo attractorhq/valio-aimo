@@ -46,6 +46,7 @@ from app.agent.plan import (
     select_curated_static_excluded,
     variant_choices,
 )
+from app.agent.suggest import ClarificationOption, clarification_options
 from app.catalog.search import (
     SearchProductsRequest,
     SearchProductsResult,
@@ -95,6 +96,8 @@ class AgentStepEvent(Contract):
     summary: str
     request: StructuredRequest | None = None
     clarificationQuestion: str | None = None
+    # T97: complete requests the buyer can run with one tap when the request was too vague to act on.
+    clarificationOptions: list[ClarificationOption] = Field(default_factory=list)
     plan: list[ItemPlan] | None = None
     offer: Offer | None = None
     proposal: Proposal | None = None
@@ -114,6 +117,7 @@ class AgentRunResult(Contract):
     steps: list[AgentStepEvent]
     request: StructuredRequest | None = None
     clarificationQuestion: str | None = None
+    clarificationOptions: list[ClarificationOption] = Field(default_factory=list)
     plan: AgentPlan | None = None
     offer: Offer | None = None
     proposal: Proposal | None = None
@@ -543,6 +547,34 @@ def _compliant_offer_lines(
     ]
 
 
+CANNOT_FULFIL_SHARE = Decimal("0.10")
+
+
+def _qty(value: Decimal, unit: str) -> str:
+    """'50,000 kg', '40 kg', '12.5 l'."""
+    return f"{value.normalize():,f} {unit}"
+
+
+def cannot_fulfil_items(request: StructuredRequest, lines: Sequence[OfferLine]) -> dict[str, str]:
+    """T97: items whose compliant offer lines cover more than nothing but under 10 % of the requested quantity,
+    each with a plain 'cannot fulfil' sentence and the buyer's options."""
+    out: dict[str, str] = {}
+    for item in request.items:
+        covered = sum((ln.deliveredQuantity.value for ln in lines if ln.itemId == item.itemId), Decimal(0))
+        if not (Decimal(0) < covered < item.quantity * CANNOT_FULFIL_SHARE):
+            continue
+        share = (covered / item.quantity * 100).quantize(Decimal("0.01"))
+        days = sorted({ln.deliveryDate for ln in lines if ln.itemId == item.itemId})
+        out[item.itemId] = (
+            f"Cannot fulfil: only {_qty(covered, item.unit)} of the "
+            f"{_qty(item.quantity, item.unit)} you asked for is available"
+            f"{' for ' + format_date(days[-1]) if days else ''} ({share.normalize():f} %). "
+            "Options: order a smaller quantity, spread the need over several delivery days, "
+            "or ask Valio Aimo sales for a bulk quote."
+        )
+    return out
+
+
 def _no_order_step(
     *,
     channel: AgentChannel,
@@ -559,6 +591,7 @@ def _no_order_step(
     offer: Offer | None = None,
     offer_request: GetOfferRequest | None = None,
     now: datetime,
+    cannot_fulfil: Mapping[str, str] | None = None,
 ) -> AgentStepEvent:
     deadline = request.requestedDate
     effective_lines = _compliant_offer_lines(offer, request, products, mandate) if offer else []
@@ -607,7 +640,7 @@ def _no_order_step(
         items.append(NoOrderItem(
             itemId=item.itemId,
             searched=searched,
-            why=no_order_item_reason(
+            why=(cannot_fulfil or {}).get(item.itemId) or no_order_item_reason(
                 has_candidates=bool(candidates[item.itemId]),
                 deadline_label=format_date(deadline),
                 delivery_label=format_date(delivery) if delivery and delivery > deadline else None,
@@ -625,7 +658,7 @@ def _no_order_step(
     no_order_reasons = list(dict.fromkeys([ReasonCode.NO_CANDIDATE, *reasons]))
     return AgentStepEvent(
         step=4, name="APPROVAL", title="Approval", status="blocked",
-        summary="The full request could not be fulfilled",
+        summary="Cannot fulfil this request" if cannot_fulfil else "The full request could not be fulfilled",
         request=request,
         explanation=explain_proposal(reasons=no_order_reasons, excluded=excluded, mandate=mandate),
         reasons=no_order_reasons,
@@ -727,6 +760,10 @@ def _iter_agent_steps_inner(
             summary=parse_res.clarificationQuestion or "Clarification needed",
             request=parse_res.request,
             clarificationQuestion=parse_res.clarificationQuestion,
+            clarificationOptions=(
+                clarification_options(request_text, eval_now)
+                if ReasonCode.CLARIFICATION_NEEDED in parse_res.reasons else []
+            ),
             explanation=exp,
             reasons=list(parse_res.reasons),
         )
@@ -967,6 +1004,7 @@ def _iter_agent_steps_inner(
         offer_request: GetOfferRequest | None = None,
         reasons: Sequence[ReasonCode] = (),
         policy_excluded: Sequence[ExcludedProduct] = (),
+        cannot_fulfil: Mapping[str, str] | None = None,
     ) -> AgentStepEvent:
         return _no_order_step(
             channel=channel, customer_id=customer_id, request=planned_request, mandate=mandate,
@@ -974,6 +1012,7 @@ def _iter_agent_steps_inner(
             observations=observations_by_item,
             excluded=_merge_excluded_reasons(policy_excluded, offer.excluded if offer else [], all_lookup_excluded),
             reasons=[*reasons, *parse_res.reasons], offer=offer, offer_request=offer_request, now=eval_now,
+            cannot_fulfil=cannot_fulfil,
         )
 
     if not final_offer_items or any(not cands for cands in candidates_by_item.values()):
@@ -1014,6 +1053,13 @@ def _iter_agent_steps_inner(
         not all(coverage) or not any(line.deliveryDate > deadline for line in compliant_lines)
     ):
         yield no_order(offer, offer_request)
+        return
+
+    # T97: a token fraction of a large request is not a sensible partial order. Under 10 % available, say plainly
+    # that the request cannot be met, with options, instead of asking a human to sign off e.g. 40 kg of 50,000 kg.
+    tiny = cannot_fulfil_items(planned_request, compliant_lines)
+    if tiny:
+        yield no_order(offer, offer_request, cannot_fulfil=tiny)
         return
 
     # ------------------------------------------------------------------ Step 4: APPROVAL (`createProposal` -> `getProposal`)
@@ -1176,6 +1222,7 @@ def run_agent(
         steps=steps,
         request=req,
         clarificationQuestion=last.clarificationQuestion,
+        clarificationOptions=last.clarificationOptions,
         plan=plan_obj,
         offer=offer,
         proposal=proposal,

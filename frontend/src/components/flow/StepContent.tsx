@@ -14,6 +14,7 @@ import {
   formatNumber,
   formatQuantity,
   formatTime,
+  earlyDeliveryNote,
   reasonChip,
   reasonText,
   requirementLabel,
@@ -216,6 +217,13 @@ function deliverySummary(proposal: Proposal) {
   return dates.map(formatDate).join(', ')
 }
 
+/** "Arrives Mon 16 Nov, 4 days early" when everything comes early; otherwise the dates, plus a note if part does. */
+function deliveryBullet(delivery: string, early: string | null) {
+  if (!early) return `Delivery ${delivery}`
+  if (early.startsWith('Arrives')) return early
+  return `Delivery ${delivery} · ${early[0].toLowerCase()}${early.slice(1)}`
+}
+
 function resultBullets(proposal: Proposal, mandate?: Mandate) {
   const decisionReasons = uniqueReasons(proposal.reasons)
     .filter(
@@ -248,11 +256,11 @@ function resultBullets(proposal: Proposal, mandate?: Mandate) {
     .flatMap((line) => (line.closingTime ? [line.closingTime] : []))
     .sort((left, right) => Date.parse(left) - Date.parse(right))[0]
   const delivery = deliverySummary(proposal)
+  const early = earlyDeliveryNote(proposal.lines, proposal.requestedDate)
+  const orderBy = cutoff ? ` (order by ${formatTime(cutoff)})` : ''
   return [...new Set([...requirements, ...allergens, ...decisionReasons])]
     .slice(0, delivery ? 3 : 4)
-    .concat(
-      delivery ? [`Delivery ${delivery}${cutoff ? ` (order by ${formatTime(cutoff)})` : ''}`] : [],
-    )
+    .concat(delivery ? [`${deliveryBullet(delivery, early)}${orderBy}`] : [])
 }
 
 export function ResultBanner({

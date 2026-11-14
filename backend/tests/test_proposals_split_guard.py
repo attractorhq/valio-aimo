@@ -75,7 +75,10 @@ def test_staying_within_the_limit_with_committed_orders_is_still_auto():
 
 
 def _gateway():
-    return ProposalGateway(products=PRODUCTS, mandates=MandateBook(DEMO_MANDATES), provider=MutableSyntheticProvider())
+    # Enough stock for every order: since T97 the customer's own committed bags come off the stock pool.
+    provider = MutableSyntheticProvider()
+    provider.stocks["SYN-PASTA"] = stock_row("SYN-PASTA", 100, sales_unit="PSS")
+    return ProposalGateway(products=PRODUCTS, mandates=MandateBook(DEMO_MANDATES), provider=provider)
 
 
 def _order(gateway: ProposalGateway, offer_id: str, *, kg: str = "65", day=MONDAY):
@@ -120,7 +123,7 @@ def test_another_delivery_date_does_not_count():
     gateway = _gateway()
     _order(gateway, "OF-DAY-1")  # delivered Mon 16 Nov
     # The next order is available for Tuesday only: a different delivery day has its own limit.
-    gateway.provider.stocks["SYN-PASTA"] = stock_row("SYN-PASTA", 19, sales_unit="PSS", day=TUESDAY)
+    gateway.provider.stocks["SYN-PASTA"] = stock_row("SYN-PASTA", 100, sales_unit="PSS", day=TUESDAY)
     tuesday = _order(gateway, "OF-DAY-2", day=TUESDAY)
     assert {line.deliveryDate for line in tuesday.lines} == {TUESDAY}
     assert tuesday.decision == "AUTO"
