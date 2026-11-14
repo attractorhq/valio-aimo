@@ -376,8 +376,8 @@ export function Main() {
             status={step2Status}
             liveStatus={
               lookupSummary(step2?.plan as ItemPlanSummary[] | undefined).replace(
-                'Live price & stock',
-                'Checking live price and stock',
+                'Price & stock',
+                'Checking price & stock',
               ) + '…'
             }
             current={currentStepNumber === 2 && !proposal}

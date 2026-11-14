@@ -67,7 +67,7 @@ for (const view of [
     path: '/valio',
     loading: 'readiness insights',
     absent: '0 proposals',
-    ready: 'Catalogue Analysed',
+    ready: 'Catalogue',
   },
   {
     path: '/approver',
@@ -250,7 +250,7 @@ test('NDJSON completions advance the active step without invented timing or coun
     request: proposal.request,
     summary: '2 items · structured',
   })
-  await expect(active).toContainText('Checking live price and stock for the shortlist…')
+  await expect(active).toContainText('Checking price & stock for the shortlist…')
   await expect(page.locator('.step-done').first()).toContainText('Done')
   await send({
     type: 'step',
