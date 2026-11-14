@@ -84,13 +84,14 @@
         {
           "fact": "stock.quantity",
           "value": 9999999999,
-          "display": "Plenty in stock",
-          "level": "VERIFIED",
+          "display": "No stock limit: Valio allows any quantity (availability not tracked)",
+          "level": "DECLARED",
           "source": {
             "system": "valio-aimo.availability-api",
             "field": "scheduleLines[0].availableAmount",
             "retrievedAt": "2026-11-13T21:50:00+02:00"
-          }
+          },
+          "method": "sentinel ≥ 999999 (Valio convention)"
         },
         {
           "fact": "delivery.date",
