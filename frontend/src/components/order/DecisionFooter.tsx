@@ -1,6 +1,7 @@
 import { Ban, CheckCircle2, Hourglass, Info } from 'lucide-react'
 import { REASON_REGISTRY, type Mandate, type Proposal, type ReasonCode } from '../../lib/contracts'
 import { formatMoney, reasonChip, reasonText } from '../../lib/format'
+import { EvidenceChip } from '../trust/EvidenceChip'
 import {
   decisiveEvidence,
   evidenceCountsText,
@@ -82,7 +83,15 @@ function askStateText(proposal: Proposal, approver: string): string {
  * Step 4 Decision footer: reason chips, plain-language explanation, "Waiting for Head Chef" with NO approve button,
  * (P6 P0-2/P0-3, P10 S2).
  */
-export function DecisionFooter({ proposal, mandate }: { proposal: Proposal; mandate?: Mandate }) {
+export function DecisionFooter({
+  proposal,
+  mandate,
+  showEvidence = false,
+}: {
+  proposal: Proposal
+  mandate?: Mandate
+  showEvidence?: boolean
+}) {
   const decision = proposal.decision
   const approver = proposal.approverRole ?? mandate?.approver.role ?? 'Head Chef'
   const confirmed = proposal.state === 'CONFIRMED_SIMULATED'
@@ -133,11 +142,12 @@ export function DecisionFooter({ proposal, mandate }: { proposal: Proposal; mand
             const text = explainReason(code, proposal, mandate)
             return (
               <li key={code} className={`reason reason-${effect.toLowerCase()}`}>
-                <span className="chip">
+                <EvidenceChip className="chip" detail={<code>{code}</code>}>
                   {effect === 'INFO' ? <Info size={13} aria-hidden /> : null}
                   {reasonChip(code)}
-                </span>
+                </EvidenceChip>
                 {text && <span>{text}</span>}
+                {showEvidence && <code data-reason-code={code} className="text-xs break-all">{code}</code>}
               </li>
             )
           })}

@@ -4,6 +4,7 @@ import type { ExcludedProduct, Proposal, ReasonCode, RequestItem } from '../../l
 import { reasonChip, requirementLabel } from '../../lib/format'
 import type { ItemPlanSummary } from '../request/AssumptionChips'
 import { TrustBadge, TrustSourceMeta, formatFactDisplay } from '../trust/TrustBadge'
+import { EvidenceChip } from '../trust/EvidenceChip'
 
 function formatExcludedReasonChip(code: ReasonCode, item?: RequestItem): string {
   if (code === 'CLAIM_MISSING' && item?.requirements?.length) {
@@ -34,7 +35,15 @@ export function excludedSummary(entries: ExcludedProduct[], item?: RequestItem):
   return `${entries.length} excluded · ${parts.join(', ')}`
 }
 
-function ExcludedEntry({ entry, item }: { entry: ExcludedProduct; item?: RequestItem }) {
+function ExcludedEntry({
+  entry,
+  item,
+  showEvidence,
+}: {
+  entry: ExcludedProduct
+  item?: RequestItem
+  showEvidence?: boolean
+}) {
   const [open, setOpen] = useState(false)
   const factsId = useId()
   const valioSub = isValioSubstitute(entry)
@@ -60,11 +69,14 @@ function ExcludedEntry({ entry, item }: { entry: ExcludedProduct; item?: Request
                 className="inline-flex items-center gap-1 font-semibold text-[var(--block)]"
               >
                 <Ban size={11} aria-hidden />
-                <span>{formatExcludedReasonChip(code, item)}</span>
+                <EvidenceChip detail={<code>{code}</code>}>
+                  {formatExcludedReasonChip(code, item)}
+                </EvidenceChip>
+                {showEvidence && <code className="break-all">{code}</code>}
               </li>
             ))}
           </ul>
-          {facts.length > 0 && (
+          {!showEvidence && facts.length > 0 && (
             <button
               type="button"
               className="disclosure-btn"
@@ -81,12 +93,12 @@ function ExcludedEntry({ entry, item }: { entry: ExcludedProduct; item?: Request
         <p className="mt-0.5 flex items-center gap-1.5 font-bold text-[var(--block)]">
           <ShieldAlert size={13} aria-hidden />
           <span>
-            Valio&rsquo;s substitute for {entry.substituteFor ?? 'this line'}: fails &lsquo;{reqNames}&rsquo;,
-            never swapped in.
+            Valio&rsquo;s substitute for {entry.substituteFor ?? 'this line'}: fails &lsquo;
+            {reqNames}&rsquo;, never swapped in.
           </span>
         </p>
       )}
-      {open && (
+      {facts.length > 0 && (open || showEvidence) && (
         <ul id={factsId} className="mt-1 grid gap-1 border-t border-[var(--line)] pt-1">
           {facts.map((fact, idx) => (
             <li
@@ -117,11 +129,13 @@ export function ExcludedList({
   request: directRequest,
   excluded: directExcluded,
   plan,
+  showEvidence,
 }: {
   proposal?: Proposal
   request?: Proposal['request']
   excluded?: Proposal['excluded']
   plan?: ItemPlanSummary[]
+  showEvidence?: boolean
 }) {
   const [showAll, setShowAll] = useState(false)
   const listId = useId()
@@ -184,7 +198,7 @@ export function ExcludedList({
                 · rejected by hard rules, never offered for approval
               </span>
             </h3>
-            {others.length > 0 && (
+            {!showEvidence && others.length > 0 && (
               <button
                 type="button"
                 className="disclosure-btn"
@@ -205,17 +219,19 @@ export function ExcludedList({
                   key={`${entry.productId}-${entry.itemId ?? 'all'}`}
                   entry={entry}
                   item={itemOf(entry)}
+                  showEvidence={showEvidence}
                 />
               ))}
             </ul>
           )}
-          {showAll && (
+          {(showAll || showEvidence) && others.length > 0 && (
             <ul id={listId} className="mt-1.5 grid gap-1.5">
               {others.map((entry) => (
                 <ExcludedEntry
                   key={`${entry.productId}-${entry.itemId ?? 'all'}`}
                   entry={entry}
                   item={itemOf(entry)}
+                  showEvidence={showEvidence}
                 />
               ))}
             </ul>

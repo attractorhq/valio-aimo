@@ -13,7 +13,7 @@ import {
   type RunInput,
   type ScenarioId,
 } from '../lib/gateway'
-import { formatMoney } from '../lib/format'
+import { formatDate, formatMoney } from '../lib/format'
 import { MandatePanel } from '../components/flow/MandatePanel'
 import { MandateStatus } from '../components/mandate/MandateControls'
 import { RequestComposer } from '../components/flow/RequestComposer'
@@ -85,6 +85,8 @@ export function Main() {
   const [customerId, setCustomerId] = useState<string>()
   const [text, setText] = useState('')
   const [streamedSteps, setStreamedSteps] = useState<AgentStepEvent[]>([])
+  const [openSteps, setOpenSteps] = useState<number[]>([])
+  const [showAllEvidence, setShowAllEvidence] = useState(false)
   const [sourceState, setSourceState] = useState<DataSource>(() => gateway.source)
 
   useEffect(() => {
@@ -104,6 +106,11 @@ export function Main() {
           setStreamedSteps(stepsSoFar)
         },
       })
+    },
+    onSuccess: (result) => {
+      if (result.clarificationQuestion) {
+        setOpenSteps((steps) => (steps.includes(1) ? steps : [1, ...steps]))
+      }
     },
   })
 
@@ -158,6 +165,8 @@ export function Main() {
     setCustomerId(id)
     setStreamedSteps([])
     run.reset()
+    setOpenSteps([])
+    setShowAllEvidence(false)
   }
   function submit() {
     if (customerId && text.trim()) {
@@ -178,6 +187,20 @@ export function Main() {
     if (el) {
       el.focus()
       el.setSelectionRange(el.value.length, el.value.length)
+    }
+  }
+
+  function toggleStep(number: number) {
+    setOpenSteps((steps) =>
+      steps.includes(number) ? steps.filter((step) => step !== number) : [...steps, number],
+    )
+  }
+
+  function toggleEvidence() {
+    setOpenSteps(showAllEvidence ? [] : [1, 2, 3, 4])
+    setShowAllEvidence(!showAllEvidence)
+    if (!showAllEvidence) {
+      requestAnimationFrame(() => document.getElementById('purchase-evidence')?.focus())
     }
   }
 
@@ -289,7 +312,8 @@ export function Main() {
               <ResultBanner
                 proposal={proposal}
                 mandate={mandate}
-                logHref={logPath(proposal.proposalId)}
+                evidenceExpanded={showAllEvidence}
+                onToggleEvidence={toggleEvidence}
               />
             )}
             {!proposal && step4 && (
@@ -298,6 +322,7 @@ export function Main() {
                 detail={step4.explanation?.text}
                 noOrder={step4.noOrder}
                 hasExclusions={Boolean(step4.excluded?.length)}
+                onShowExclusions={() => setOpenSteps((steps) => [...new Set([...steps, 2])])}
                 onRetry={
                   running
                     ? undefined
@@ -323,7 +348,7 @@ export function Main() {
           </div>
         )}
       </div>
-      <div className="main-flow panel">
+      <div className="main-flow panel" id="purchase-evidence" tabIndex={-1}>
         <div className="flow-header">
           <h2 className="panel-title">Evidence</h2>
         </div>
@@ -334,11 +359,13 @@ export function Main() {
             status={step1Status}
             liveStatus="Reading the request…"
             current={currentStepNumber === 1 && !proposal}
+            expanded={openSteps.includes(1)}
+            onToggle={() => toggleStep(1)}
             summary={
               clarificationQuestion
                 ? clarificationQuestion
                 : structuredRequest
-                  ? itemCountFromItems(structuredRequest.items.length)
+                  ? `${itemCountFromItems(structuredRequest.items.length)} · deliver by ${formatDate(run.variables?.lookupDate ?? structuredRequest.requestedDate)}`
                   : (step1?.summary ?? 'Structured request')
             }
           >
@@ -403,10 +430,10 @@ export function Main() {
               ) + '…'
             }
             current={currentStepNumber === 2 && !proposal}
+            expanded={openSteps.includes(2)}
+            onToggle={() => toggleStep(2)}
             summary={
-              errorStep && errorStep.step <= 2
-                ? errorStep.summary
-                : lookupSummary(step2?.plan as ItemPlanSummary[] | undefined)
+              errorStep && errorStep.step <= 2 ? errorStep.summary : 'Price and availability'
             }
           >
             {errorStep && errorStep.step <= 2 && (
@@ -422,6 +449,7 @@ export function Main() {
                 request={structuredRequest}
                 excluded={lookupExcluded}
                 plan={step2?.plan as ItemPlanSummary[] | undefined}
+                showEvidence={showAllEvidence}
               />
             )}
           </Step>
@@ -431,6 +459,8 @@ export function Main() {
             status={step3Status}
             liveStatus="Building the fixed-price proposal…"
             current={currentStepNumber === 3 && !proposal}
+            expanded={openSteps.includes(3)}
+            onToggle={() => toggleStep(3)}
             summary={
               proposal
                 ? `Offer v${proposal.offerVersion} · ${formatMoney(proposal.totals.exclVat)} excl. VAT`
@@ -447,6 +477,7 @@ export function Main() {
                 mandateVersion={mandate?.version}
                 forbiddenAllergens={mandate?.forbiddenAllergens}
                 plan={step2?.plan}
+                showEvidence={showAllEvidence}
               />
             )}
           </Step>
@@ -457,6 +488,8 @@ export function Main() {
             liveStatus="Deciding against the buyer mandate…"
             statusWord={proposal ? approvalWord(proposal) : undefined}
             current={currentStepNumber === 4}
+            expanded={openSteps.includes(4)}
+            onToggle={() => toggleStep(4)}
             summary={
               proposal
                 ? approvalLabel(proposal)
@@ -465,7 +498,13 @@ export function Main() {
                   : (step4?.summary ?? 'Agent or human decides')
             }
           >
-            {proposal && <DecisionFooter proposal={proposal} mandate={mandate} />}
+            {proposal && (
+              <DecisionFooter
+                proposal={proposal}
+                mandate={mandate}
+                showEvidence={showAllEvidence}
+              />
+            )}
             {proposal?.decision === 'BLOCK' && run.data?.feasibleWithinHardLimit && (
               <p className="notice small mt-2" role="note">
                 <Info size={16} aria-hidden />

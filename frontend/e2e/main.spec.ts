@@ -38,6 +38,8 @@ test('shows one main view with four steps and a read-only mandate', async ({ pag
 
 test('scenario A: agent decided → confirmed', async ({ page }, info) => {
   await runScenario(page, 'A')
+  await page.getByRole('button', { name: 'Request details' }).click()
+  await page.getByRole('button', { name: 'Order details' }).click()
   await expect(step(page, 'Request')).toContainText('Lactose-free')
   await expect(step(page, 'Request')).toContainText('Mon 16 Nov')
   await expect(step(page, 'Order')).toContainText('Offer v1 · €1,010.00 excl. VAT')
@@ -68,6 +70,9 @@ test('scenario B: waiting for approver, exactly one reason, no approve button', 
   page,
 }, info) => {
   await runScenario(page, 'B')
+  await page.getByRole('button', { name: 'Order details' }).click()
+  await page.getByRole('button', { name: 'Lookup details' }).click()
+  await page.getByRole('button', { name: 'Approval details' }).click()
   await expect(page.getByRole('radio', { name: /School Kitchen/ })).toBeChecked()
   await expect(step(page, 'Order')).toContainText('Offer v1 · €506.16 excl. VAT')
   const altsB = step(page, 'Order').getByRole('region', {
@@ -83,13 +88,13 @@ test('scenario B: waiting for approver, exactly one reason, no approve button', 
   await expect(approval).toContainText('Waiting for approver')
   await expect(approval).toContainText('Waiting for Head Chef')
   await expect(page.getByTestId('result-why')).toHaveText(
-    'Not auto-approved because the order total exceeds your €500.00 auto-approve limit.',
+    'The order total exceeds your €500.00 auto-approve limit.',
   )
   await expect(approval.getByRole('list', { name: 'Reasons' }).getByRole('listitem')).toHaveCount(1)
   await expect(approval).toContainText(
     '€506.16 excl. VAT is above your €500.00 auto-approve limit.',
   )
-  await expect(page.getByRole('button', { name: /approve/i })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Approve(?:\s|$)/i })).toHaveCount(0)
   await expect(step(page, 'Lookup')).toContainText('excluded')
   await page.screenshot({
     path: `test-results/scenario-b-${info.project.name}.png`,
@@ -99,6 +104,7 @@ test('scenario B: waiting for approver, exactly one reason, no approve button', 
 
 test('scenario C: blocked by mandate, instruction ignored', async ({ page }, info) => {
   await runScenario(page, 'C')
+  await page.getByRole('button', { name: 'Approval details' }).click()
   const approval = step(page, 'Approval')
   await expect(approval).toContainText('Blocked by mandate')
   await expect(approval).toContainText('Above hard limit')
@@ -130,6 +136,7 @@ test('collapsible trust cards keep step 4 reachable within one viewport scroll a
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await runScenario(page, 'B')
+  await page.getByRole('button', { name: 'Order details' }).click()
 
   // Trust cards start collapsed, showing summary counts, hard requirements and the Valio-substitute check.
   const toggles = page.getByRole('button', { name: /Show facts/ })
@@ -160,6 +167,8 @@ test('editable assumption chips: changing "Any fat %" to "1.5 %" in Scenario A r
   page,
 }) => {
   await runScenario(page, 'A')
+  await page.getByRole('button', { name: 'Request details' }).click()
+  await page.getByRole('button', { name: 'Lookup details' }).click()
   // T49: shortlist ids live in a tooltip (data-shortlist); the visible text is the count.
   const shortlist = step(page, 'Lookup').locator('small[data-shortlist]').first()
   await expect(shortlist).toHaveText('2 shortlisted')
@@ -495,7 +504,7 @@ test('T86: ASK proposal without hard requirements explains why it was not auto-a
 
   await expect(page.getByText('No hard requirements were stated')).toHaveCount(0)
   await expect(page.getByTestId('result-why')).toContainText(
-    'earliest delivery is Mon 16 Nov instead of requested Sun 15 Nov',
+    'Earliest delivery is Mon 16 Nov instead of requested Sun 15 Nov',
   )
   await expect(page.getByTestId('result-why')).toContainText(
     'only 40 kg of the requested 60 kg of macaroni is available in stock',

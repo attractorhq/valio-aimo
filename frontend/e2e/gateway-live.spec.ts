@@ -11,7 +11,7 @@ test.describe('live /v0.1 gateway integration (T35)', () => {
   let viteProc: ChildProcess | null = null
   const backendPort = 8018
   const vitePort = 5188
-  const baseURL = `http://localhost:${vitePort}`
+  const baseURL = `http://127.0.0.1:${vitePort}`
 
   test.beforeAll(async () => {
     const repoRoot = path.resolve(process.cwd(), '..')
@@ -64,29 +64,29 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
       cwd: path.join(repoRoot, 'backend'),
       env: {
         ...process.env,
-        PYTHONPATH: [path.join(repoRoot, 'backend'), path.join(repoRoot, 'backend/tests')].join(delimiter),
+        PYTHONPATH: [path.join(repoRoot, 'backend'), path.join(repoRoot, 'backend/tests')].join(
+          delimiter,
+        ),
         OPENROUTER_API_KEY: '',
       },
       stdio: 'pipe',
     })
 
-    // Wait for /health on backendPort
-    for (let i = 0; i < 60; i++) {
-      try {
-        const res = await fetch(`http://127.0.0.1:${backendPort}/health`)
-        if (res.ok) {
-          const data = (await res.json()) as { ready?: boolean }
-          if (data.ready) break
-        }
-      } catch {
-        // retry
-      }
-      await new Promise((r) => setTimeout(r, 250))
-    }
+    await expect.poll(async () => {
+      const response = await fetch(`http://127.0.0.1:${backendPort}/health`).catch(() => null)
+      return response?.ok ? (await response.json()).ready : false
+    }, { timeout: 30_000, message: 'The test gateway is ready' }).toBe(true)
 
     viteProc = spawn(
       process.execPath,
-      ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', String(vitePort), '--strictPort'],
+      [
+        'node_modules/vite/bin/vite.js',
+        '--host',
+        '127.0.0.1',
+        '--port',
+        String(vitePort),
+        '--strictPort',
+      ],
       {
         cwd: process.cwd(),
         env: {
@@ -97,15 +97,10 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
       },
     )
 
-    for (let i = 0; i < 40; i++) {
-      try {
-        const res = await fetch(baseURL)
-        if (res.ok) break
-      } catch {
-        // retry
-      }
-      await new Promise((r) => setTimeout(r, 200))
-    }
+    await expect.poll(async () => {
+      const response = await fetch(`${baseURL}/health`).catch(() => null)
+      return response?.ok ? (await response.json()).ready : false
+    }, { timeout: 20_000, message: 'Vite is proxying to the test gateway' }).toBe(true)
   })
 
   test.afterAll(async () => {
@@ -135,6 +130,9 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
       )
     await page.getByRole('button', { name: 'Run request' }).click()
     await expect(step(page, 'Approval')).toContainText('Agent decided → Confirmed')
+    for (const name of ['Request', 'Lookup', 'Order', 'Approval']) {
+      await page.getByRole('button', { name: `${name} details` }).click()
+    }
     await expect(step(page, 'Order')).toContainText('€1,010.00 excl. VAT')
     await expect(step(page, 'Order')).toContainText('464306')
     const altsLiveA = step(page, 'Order').getByRole('region', {
@@ -187,28 +185,34 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     await expect(altsLiveB).toContainText('in stock (verified)')
     await expect(step(page, 'Approval')).toContainText('Waiting for approver')
     await expect(step(page, 'Approval')).toContainText('Waiting for Head Chef')
-    await expect(page.getByRole('button', { name: /approve/i })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /^Approve(?:\s|$)/i })).toHaveCount(0)
 
     // Resubmitting the scenario through the composer must return the same immutable proposal.
-    const firstLogHref = await page.getByRole('link', { name: 'Open decision log' }).getAttribute('href')
-    const rerun = page.waitForResponse((response) =>
-      response.url().endsWith('/v0.1/agent/run') && response.request().method() === 'POST',
+    const firstLogHref = await page
+      .getByRole('link', { name: 'Open decision log' })
+      .getAttribute('href')
+    const rerun = page.waitForResponse(
+      (response) =>
+        response.url().endsWith('/v0.1/agent/run') && response.request().method() === 'POST',
     )
     await page.getByRole('button', { name: 'Run request' }).click()
     expect((await rerun).ok()).toBe(true)
     await expect(step(page, 'Approval')).toContainText('Waiting for approver')
-    await expect(page.getByRole('link', { name: 'Open decision log' })).toHaveAttribute('href', firstLogHref!)
+    await expect(page.getByRole('link', { name: 'Open decision log' })).toHaveAttribute(
+      'href',
+      firstLogHref!,
+    )
 
     const approverPage = await context.newPage()
     await approverPage.goto(`${baseURL}/approver`)
     await approverPage.getByLabel('Signed in as').selectOption('northbay-school-kitchen')
+    await expect(approverPage.getByRole('heading', { name: 'Approver — Head Chef' })).toBeVisible()
     await expect(
-      approverPage.getByRole('heading', { name: 'Approver — Head Chef' }),
+      approverPage.getByRole('heading', { name: 'Proposals for you (1 waiting)' }),
     ).toBeVisible()
-    await expect(approverPage.getByRole('heading', { name: 'Proposals for you (1 waiting)' })).toBeVisible()
     const card = approverPage.getByRole('article')
     await expect(card.getByRole('heading')).toHaveText('Approving version 1')
-    await expect(card).toContainText('€506.16 is above your €500.00 auto-approve limit.')
+    await expect(card).toContainText('Head Chef signs off on €6.16 over the auto-approve limit.')
     const mobileHref = await card
       .getByRole('link', { name: 'Open mobile approval page' })
       .getAttribute('href')
@@ -223,7 +227,9 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     await card.getByRole('button', { name: 'Approve €506.16' }).click()
     await expect(card).toContainText(/Approved · re-checked \(recorded data\) · Confirmed/)
 
-    await expect(approverPage.getByRole('heading', { name: 'Proposals for you (0 waiting)' })).toBeVisible()
+    await expect(
+      approverPage.getByRole('heading', { name: 'Proposals for you (0 waiting)' }),
+    ).toBeVisible()
     await expect(card.getByRole('heading')).toHaveText('Version 1')
     await expect(card.getByRole('button', { name: /^(Approve|Reject)/ })).toHaveCount(0)
 
@@ -259,7 +265,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
       '€1,010.00 excl. VAT plus the orders already committed for delivery on Mon 16 Nov exceeds your €1,500.00 auto-approve limit.',
     )
     await expect(page.getByTestId('result-why')).toContainText(
-      'this order plus the orders already committed for delivery on Mon 16 Nov exceeds your €1,500.00 auto-approve limit',
+      'This order plus the orders already committed for delivery on Mon 16 Nov exceeds your €1,500.00 auto-approve limit',
     )
     await expect(step(page, 'Order')).toContainText('€1,010.00 excl. VAT')
 

@@ -7,11 +7,15 @@ const mock = <T>(name: string): T =>
 const mandate = mock<Mandate>('mandate-m1.json')
 const scenario = mock<Proposal>('scenario-b.json')
 
-test('shows the search and retries with the original request and the suggested date', async ({ page }) => {
+test('shows the search and retries with the original request and the suggested date', async ({
+  page,
+}) => {
   const requestText = 'I need 10 litres of lactose-free milk today.'
   const lookupDate = '2026-11-16'
   const inputs: { requestText: string; lookupDate?: string }[] = []
-  await page.route('**/health', (route) => route.fulfill({ json: { status: 'ok', ready: true, mode: 'RECORDED' } }))
+  await page.route('**/health', (route) =>
+    route.fulfill({ json: { status: 'ok', ready: true, mode: 'RECORDED' } }),
+  )
   await page.route('**/v0.1/mandates', (route) => route.fulfill({ json: [mandate] }))
   const proposal = {
     ...scenario,
@@ -27,22 +31,26 @@ test('shows the search and retries with the original request and the suggested d
     if (input.lookupDate) return route.fulfill({ json: { steps: [], proposal } })
     return route.fulfill({
       json: {
-        steps: [{
-          step: 4,
-          name: 'APPROVAL',
-          title: 'Approval',
-          status: 'blocked',
-          summary: 'The full request could not be fulfilled',
-          noOrder: {
-            earliestDelivery: lookupDate,
-            items: [{
-              itemId: 'I1',
-              searched: 'milk · lactose-free',
-              why: 'Available Mon 16 Nov, after your Fri 13 Nov deadline.',
-              closestMatches: [],
-            }],
+        steps: [
+          {
+            step: 4,
+            name: 'APPROVAL',
+            title: 'Approval',
+            status: 'blocked',
+            summary: 'The full request could not be fulfilled',
+            noOrder: {
+              earliestDelivery: lookupDate,
+              items: [
+                {
+                  itemId: 'I1',
+                  searched: 'milk · lactose-free',
+                  why: 'Available Mon 16 Nov, after your Fri 13 Nov deadline.',
+                  closestMatches: [],
+                },
+              ],
+            },
           },
-        }],
+        ],
       },
     })
   })
@@ -55,12 +63,16 @@ test('shows the search and retries with the original request and the suggested d
   await expect(result).toContainText('after your Fri 13 Nov deadline')
   await expect(result).toContainText('Earliest delivery: Mon 16 Nov')
   await result.getByRole('button', { name: 'Use Mon 16 Nov' }).click()
-  await expect(result).toContainText('Waiting for approver')
+  await expect(result).toContainText('Needs Head Chef')
+  await page.getByRole('button', { name: 'Request details' }).click()
+  await page.getByRole('button', { name: 'Order details' }).click()
   const request = page.getByRole('listitem', { name: /Step 1: Request/ })
-  await expect(request.locator('dt').filter({ hasText: 'Deliver by' }).locator('+ dd'))
-    .toHaveText('Mon 16 Nov')
-  await expect(page.getByRole('listitem', { name: /Step 3: Order/ }))
-    .toContainText('After your Fri 13 Nov deadline')
+  await expect(request.locator('dt').filter({ hasText: 'Deliver by' }).locator('+ dd')).toHaveText(
+    'Mon 16 Nov',
+  )
+  await expect(page.getByRole('listitem', { name: /Step 3: Order/ })).toContainText(
+    'After your Fri 13 Nov deadline',
+  )
   expect(inputs).toEqual([
     { customerId: mandate.customerId, requestText },
     { customerId: mandate.customerId, requestText, lookupDate },

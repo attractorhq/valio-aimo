@@ -25,6 +25,7 @@ import { approvalReasons, contextReasons, formatApprovalStatement, plainReason }
 import { QrCode } from './QrCode'
 import { logPath } from '../log/logData'
 import { LoadingSection } from '../Loading'
+import { EvidenceChip } from '../trust/EvidenceChip'
 
 /** What happened to this proposal version, in one line. */
 export function ApprovalState({ item }: { item: ApproverItem }) {
@@ -110,8 +111,11 @@ export function ApprovalCard({
     onMutate: onDecisionStart,
     onSuccess: (result) => {
       const updateList = (items: ApproverItem[] | undefined) =>
-        items?.map((entry) => entry.proposal.proposalId === proposal.proposalId ? result : entry)
-      queryClient.setQueryData<ApproverItem[]>(['approver-proposals', proposal.customerId], updateList)
+        items?.map((entry) => (entry.proposal.proposalId === proposal.proposalId ? result : entry))
+      queryClient.setQueryData<ApproverItem[]>(
+        ['approver-proposals', proposal.customerId],
+        updateList,
+      )
       queryClient.setQueryData<ApproverItem[]>(['approver-all-proposals'], updateList)
     },
     onSettled: () => {
@@ -119,9 +123,10 @@ export function ApprovalCard({
       void queryClient.invalidateQueries({ queryKey: ['approver-all-proposals'] })
     },
   })
-  const decided = proposal.state === 'PENDING_APPROVAL'
-    ? (decide.data ?? item)
-    : { ...item, loggedAt: item.loggedAt ?? decide.data?.loggedAt }
+  const decided =
+    proposal.state === 'PENDING_APPROVAL'
+      ? (decide.data ?? item)
+      : { ...item, loggedAt: item.loggedAt ?? decide.data?.loggedAt }
   const pending = decided.proposal.state === 'PENDING_APPROVAL'
 
   const approvalStatement =
@@ -131,6 +136,11 @@ export function ApprovalCard({
   const reasons = approvalReasons(proposal)
   const context = contextReasons(proposal)
   const onlyLimit = reasons.length === 1 && reasons[0] === 'OVER_AUTO_LIMIT'
+  const excess = mandate && Number(proposal.totals.exclVat) - Number(mandate.autoApproveLimitEur)
+  const limitTradeoff =
+    onlyLimit && excess && excess > 0
+      ? `${proposal.approverRole ?? mandate?.approver.role ?? 'Approver'} signs off on ${formatMoney(excess.toFixed(2))} over the auto-approve limit.`
+      : null
   const total = formatMoney(proposal.totals.exclVat)
   const error = decide.error instanceof GatewayError ? decide.error : undefined
 
@@ -172,21 +182,20 @@ export function ApprovalCard({
       <section aria-label="Why you are asked" className="approval-why">
         {reasons.map((code) => (
           <p key={code} className="approval-reason">
-            <span className="chip">{reasonChip(code)}</span>
-            <span>
-              {plainReason(code, proposal, mandate)}
-              {onlyLimit && ' Everything else is verified or declared.'}
-            </span>
+            <EvidenceChip className="chip" detail={<code>{code}</code>}>
+              {reasonChip(code)}
+            </EvidenceChip>
+            <span>{limitTradeoff ?? plainReason(code, proposal, mandate)}</span>
           </p>
         ))}
         {context.map((code) => {
           const text = plainReason(code, proposal, mandate)
           return (
             <p key={code} className="approval-reason approval-reason-info">
-              <span className="chip">
+              <EvidenceChip className="chip" detail={<code>{code}</code>}>
                 <Info size={13} aria-hidden />
                 {reasonChip(code)}
-              </span>
+              </EvidenceChip>
               {text && <span>{text}</span>}
             </p>
           )

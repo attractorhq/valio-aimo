@@ -70,14 +70,17 @@ export function TrustCard({
   item,
   forbiddenAllergens = [],
   excludedSubstitutes = [],
+  showEvidence = false,
 }: {
   line: OfferLine
   item?: RequestItem
   /** The mandate's forbidden allergens: hard requirements the policy enforces on every line. */
   forbiddenAllergens?: readonly string[]
   excludedSubstitutes?: ExcludedProduct[]
+  showEvidence?: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
+  const factsOpen = expanded || showEvidence
   const factsId = useId()
   const counts = countLevels(line)
   const requirements = item?.requirements ?? []
@@ -85,7 +88,7 @@ export function TrustCard({
   const checks = requirementChecks(line, item, forbiddenAllergens)
 
   const subFact = line.facts.find((f) => f.fact === 'substitute.valio')
-  const regularFacts = line.facts.filter((f) => f.fact !== 'substitute.valio')
+  const regularFacts = showEvidence ? line.facts : line.facts.filter((f) => f.fact !== 'substitute.valio')
 
   const syntheticContentFact: TrustLabel = {
     fact: 'content.perSalesUnit',
@@ -125,7 +128,11 @@ export function TrustCard({
                 key={`${req.kind}-${req.code}`}
                 data-requirement={`${req.kind}:${req.code}`}
                 data-proven={proven ? 'true' : 'false'}
-                title={fact ? `Source: ${sourceShort(fact)} · ${sourceText(fact)}` : 'No evidence on this line'}
+                title={
+                  fact
+                    ? `Source: ${sourceShort(fact)} · ${sourceText(fact)}`
+                    : 'No evidence on this line'
+                }
                 className="inline-flex flex-wrap items-center gap-1 text-xs"
               >
                 <strong className="text-[var(--ink)]">
@@ -144,42 +151,35 @@ export function TrustCard({
             className="flex flex-wrap items-center gap-2 text-xs font-semibold"
             aria-label={`Trust summary for ${line.name}`}
           >
-            <li className="text-[var(--auto)]">
-              {counts.VERIFIED} Verified
-            </li>
-            <li className="text-[var(--info)]">
-              {counts.DECLARED} Declared
-            </li>
-            <li className="text-[var(--ask)]">
-              {counts.ESTIMATE} Estimate
-            </li>
-            <li className="text-[var(--muted)]">
-              {counts.UNKNOWN} Unknown
-            </li>
+            <li className="text-[var(--auto)]">{counts.VERIFIED} Verified</li>
+            <li className="text-[var(--info)]">{counts.DECLARED} Declared</li>
+            <li className="text-[var(--ask)]">{counts.ESTIMATE} Estimate</li>
+            <li className="text-[var(--muted)]">{counts.UNKNOWN} Unknown</li>
             {counts.CONFLICT > 0 && (
-              <li className="text-[var(--block)]">
-                {counts.CONFLICT} Conflict
-              </li>
+              <li className="text-[var(--block)]">{counts.CONFLICT} Conflict</li>
             )}
           </ul>
-          <button
-            type="button"
-            aria-expanded={expanded}
-            aria-controls={factsId}
-            onClick={() => setExpanded((prev) => !prev)}
-            className="disclosure-btn"
-          >
-            <ToggleIcon size={13} aria-hidden />
-            <span>{expanded ? 'Hide facts' : `Show facts (${displayedFacts.length})`}</span>
-          </button>
+          {!showEvidence && (
+            <button
+              type="button"
+              aria-expanded={expanded}
+              aria-controls={factsId}
+              onClick={() => setExpanded((prev) => !prev)}
+              className="disclosure-btn"
+            >
+              <ToggleIcon size={13} aria-hidden />
+              <span>{expanded ? 'Hide facts' : `Show facts (${displayedFacts.length})`}</span>
+            </button>
+          )}
         </div>
       </div>
 
-      {expanded && (
+      {factsOpen && (
         <dl id={factsId} className="mt-2 grid border-t border-[var(--line)]">
           {displayedFacts.map((fact, idx) => (
             <div
               key={`${fact.fact}-${idx}`}
+              data-fact={fact.fact}
               className="grid grid-cols-1 items-baseline gap-1 border-b border-[var(--line)] py-1.5 text-sm last:border-b-0 sm:grid-cols-[160px_minmax(0,1fr)_auto]"
             >
               <dt className="text-xs font-semibold text-[var(--muted)]">{factLabel(fact.fact)}</dt>
@@ -226,8 +226,8 @@ export function TrustCard({
                 'hard requirements'
               return (
                 <p key={sub.productId} className="mt-1">
-                  Valio lists <strong>{sub.productId}</strong> ({sub.name}) as the substitute; it fails
-                  &lsquo;{reqNames}&rsquo;, so the agent never swaps to it.
+                  Valio lists <strong>{sub.productId}</strong> ({sub.name}) as the substitute; it
+                  fails &lsquo;{reqNames}&rsquo;, so the agent never swaps to it.
                 </p>
               )
             })

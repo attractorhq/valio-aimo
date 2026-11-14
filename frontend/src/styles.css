@@ -267,10 +267,6 @@ select {
 .valio-decisions-panel {
   min-height: 300px;
 }
-.step-reveal {
-  min-width: 0;
-}
-
 @media (max-width: 639px) {
   .buyer-line {
     min-height: 38px;
@@ -366,6 +362,7 @@ select {
   display: block;
   height: 30px;
   width: auto;
+  aspect-ratio: 80 / 27;
 }
 .brand-proto {
   padding: 1px 8px;
@@ -1147,16 +1144,13 @@ button.chip {
   padding: 0;
   color: var(--ink);
 }
-.outcome-auto .outcome-headline > svg,
-.outcome-auto .result-total strong {
+.outcome-auto .outcome-headline > svg {
   color: var(--auto);
 }
-.outcome-ask .outcome-headline > svg,
-.outcome-ask .result-total strong {
+.outcome-ask .outcome-headline > svg {
   color: var(--ask);
 }
-.outcome-block .outcome-headline > svg,
-.outcome-block .result-total strong {
+.outcome-block .outcome-headline > svg {
   color: var(--block);
 }
 .outcome-headline {
@@ -1798,37 +1792,59 @@ button.chip {
   display: grid;
   gap: 8px;
 }
-.result-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 4px 16px;
+.result-banner .outcome-headline {
+  align-items: flex-start;
 }
-.result-total {
+.result-banner .outcome-headline svg {
+  flex: none;
+}
+.result-bullets {
   margin: 0;
-  color: var(--ink);
-  font-size: 14px;
+  padding-left: 18px;
+  list-style: disc;
+  font-size: 13px;
 }
-.result-total strong {
-  font-size: 22px;
-  font-variant-numeric: tabular-nums;
+.result-evidence {
+  justify-self: start;
 }
-.result-lines {
-  display: grid;
-  gap: 2px;
-  color: var(--ink);
-  font-size: 14px;
-}
-.result-lines li {
+.step-controls {
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  min-width: 0;
+  align-items: center;
+  gap: 4px;
 }
-.result-lines li > span:first-child {
-  min-width: 0;
-  overflow-wrap: break-word;
+.step-toggle[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+.evidence-chip-button {
+  cursor: help;
+}
+.evidence-chip-button:focus-visible {
+  outline: 2px solid var(--action);
+  outline-offset: 2px;
+}
+.evidence-chip {
+  position: relative;
+  display: inline-flex;
+}
+.evidence-tooltip {
+  position: absolute;
+  z-index: 5;
+  top: 100%;
+  right: 0;
+  width: max-content;
+  max-width: 150px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: var(--ink);
+  color: var(--surface);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  font-weight: 400;
+}
+.evidence-tooltip[hidden],
+.step-content[hidden] {
+  display: none;
 }
 .result-links {
   display: flex;
@@ -1984,9 +2000,6 @@ button.chip {
   .primary-result,
   .approval-state {
     animation: content-enter 200ms ease-out;
-  }
-  .step-reveal {
-    transition: height 200ms ease-out;
   }
   .step-number,
   .status-pill {

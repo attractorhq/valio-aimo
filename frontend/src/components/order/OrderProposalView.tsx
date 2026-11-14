@@ -22,6 +22,7 @@ export function OrderProposalView({
   mandateVersion,
   forbiddenAllergens,
   plan,
+  showEvidence,
 }: {
   proposal?: Proposal
   offer?: Proposal | import('../../lib/contracts').Offer
@@ -29,6 +30,7 @@ export function OrderProposalView({
   mandateVersion?: number
   forbiddenAllergens?: readonly string[]
   plan?: unknown[] | null
+  showEvidence?: boolean
 }) {
   const source = proposal ?? offer
   if (!source) return null
@@ -148,6 +150,7 @@ export function OrderProposalView({
               item={item}
               forbiddenAllergens={forbiddenAllergens}
               excludedSubstitutes={excludedSubstitutes}
+              showEvidence={showEvidence}
             />
           )
         })}
