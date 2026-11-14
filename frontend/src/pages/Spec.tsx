@@ -112,7 +112,7 @@ const OPERATIONS: { channel: string; rows: [string, string, string][] }[] = [
       [
         'approver view',
         'GET /v0.1/approver/proposals/{proposalId}',
-        'The exact version to approve, with a single-use demo approval link.',
+        'The exact version to approve, with a single-use approval link.',
       ],
       [
         'decideApproval',

@@ -7,7 +7,7 @@
   new proposal version.
 - `ApproverView` is the only model carrying `approvalToken`, `approvalUrl` or `qrPayload`, and belongs
   exclusively to the approver channel.
-- Demo audit actor: `"human:Head Chef (demo, link-based)"`.
+- Demo audit actor: `"human:Head Chef (link)"`.
 """
 
 import hashlib
@@ -31,8 +31,8 @@ from app.contracts import (
 )
 from app.db.models import ApprovalTokenRow
 
-DEMO_APPROVER_ACTOR = "human:Head Chef (demo, link-based)"
-PERMISSION_NOTICE = "Demo approval link — single use"
+DEMO_APPROVER_ACTOR = "human:Head Chef (link)"
+PERMISSION_NOTICE = "Single-use approval link"
 ALLOWED_ACTIONS: frozenset[str] = frozenset({"APPROVE", "REJECT"})
 
 

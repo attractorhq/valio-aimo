@@ -57,12 +57,12 @@ function askStateText(proposal: Proposal, approver: string): string {
 }
 
 /**
- * Step 4 Decision footer: reason chips, plain-language explanation, "Waiting for Head Chef (demo)" with NO approve button,
+ * Step 4 Decision footer: reason chips, plain-language explanation, "Waiting for Head Chef" with NO approve button,
  * and "Simulated order — mock environment" (P6 P0-2/P0-3, P10 S2).
  */
 export function DecisionFooter({ proposal, mandate }: { proposal: Proposal; mandate?: Mandate }) {
   const decision = proposal.decision
-  const approver = proposal.approverRole ?? mandate?.approver.role ?? 'Head Chef (demo)'
+  const approver = proposal.approverRole ?? mandate?.approver.role ?? 'Head Chef'
   const confirmed = proposal.state === 'CONFIRMED_SIMULATED'
   const voided =
     decision === 'ASK' && ['REJECTED', 'EXPIRED', 'SUPERSEDED'].includes(proposal.state)

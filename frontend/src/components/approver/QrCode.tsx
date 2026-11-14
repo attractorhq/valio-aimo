@@ -21,7 +21,7 @@ export function buildQrMatrix(text: string): boolean[][] {
 
 export function QrCode({
   value,
-  label = 'Scan on a phone to open the single-use demo approval page',
+  label = 'Scan on a phone to open the single-use approval page',
   size = 160,
 }: {
   value: string

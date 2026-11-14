@@ -67,7 +67,7 @@ SERVER_INSTRUCTIONS = (
     "Verified or Ask · Trusted Trade Gateway (Agent Trust Labels v0.1). "
     "Use these agent-channel tools to run the four-step purchasing flow: "
     "(1) Read the buyer's mandate with `getMandate` or `listMandates` "
-    f"(demo customers: {_DEMO_CUSTOMERS}). "
+    f"(customers: {_DEMO_CUSTOMERS}). "
     "(2) Search the static catalogue with `searchProducts` using hard requirements "
     "(e.g. `{\"kind\": \"CLAIM\", \"code\": \"FREE_FROM_GLUTEN\"}` or `FREE_FROM_LACTOSE`). "
     "(3) Request a fixed-price offer with `getOffer` for the shortlisted candidate IDs (at most 20 per item). "
@@ -96,7 +96,7 @@ AGENT_TOOLS: list[dict[str, Any]] = [
         "description": (
             "List all buyer mandates (read-only). Returns customerId, version, organisationName, "
             "allergenMode (STANDARD | STRICT), autoApproveLimitEur, hardLimitEur, forbiddenAllergens, "
-            f"and named approver role. Demo customers: {_DEMO_CUSTOMERS}."
+            f"and named approver role. Customers: {_DEMO_CUSTOMERS}."
         ),
         "inputSchema": {
             "type": "object",

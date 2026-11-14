@@ -52,11 +52,8 @@ export function Approver() {
       <header className="approver-header">
         <UserRoundCheck size={20} aria-hidden className="mt-0.5 shrink-0" />
         <div>
-          <h1>Approver — {mandate?.approver.role ?? 'Head Chef (demo)'}</h1>
+          <h1>Approver — {mandate?.approver.role ?? 'Head Chef'}</h1>
           <p>Human sign-off channel · not the agent</p>
-          <p className="mt-1 text-xs font-semibold" role="note">
-            Demo approver — no authentication
-          </p>
         </div>
         {mandates.data && mandates.data.length > 1 && (
           <label className="approver-switch">

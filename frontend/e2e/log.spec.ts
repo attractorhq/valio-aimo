@@ -34,7 +34,7 @@ test('scenario B: one reason, the rule and the waiting approver', async ({ page 
   await expect(entries(page).filter({ hasText: 'Candidate excluded' })).toContainText(
     'SUBSTITUTE_REJECTED',
   )
-  await expect(entries(page).last()).toContainText('Waiting for Head Chef (demo)')
+  await expect(entries(page).last()).toContainText('Waiting for Head Chef')
 })
 
 test('scenario C: instruction ignored and blocked by mandate are visible', async ({ page }) => {

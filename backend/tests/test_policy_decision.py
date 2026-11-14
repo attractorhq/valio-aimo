@@ -42,7 +42,7 @@ def test_ask_with_exactly_over_auto_limit_and_rejected_valio_substitute_in_exclu
     assert d.outcome == "ASK"
     assert d.reasons == ("OVER_AUTO_LIMIT",) and d.approvable_reasons == ("OVER_AUTO_LIMIT",)
     assert d.total_excl_vat == Decimal("506.16")
-    assert d.approver_role == "Head Chef (demo)"
+    assert d.approver_role == "Head Chef"
     assert [v.line.line_id for v in d.lines] == ["L1", "L2"]
     excluded = d.excluded_products()
     assert [(e.productId, e.itemId, e.reasons, e.substituteFor) for e in excluded] == [

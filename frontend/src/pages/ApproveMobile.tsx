@@ -28,7 +28,7 @@ export function ApproveMobile() {
 
   const proposal = view.data?.proposal
   const mandate = mandates.data?.find((m) => m.customerId === proposal?.customerId)
-  const role = view.data?.approver.role ?? mandate?.approver.role ?? 'Head Chef (demo)'
+  const role = view.data?.approver.role ?? mandate?.approver.role ?? 'Head Chef'
 
   return (
     <div className="approver-page mx-auto max-w-xl">
@@ -59,7 +59,7 @@ export function ApproveMobile() {
             <p className="mt-0.5 text-sm">
               {view.error instanceof Error
                 ? view.error.message
-                : 'This single-use demo approval link is invalid or has expired.'}
+                : 'This single-use approval link is invalid or has expired.'}
             </p>
           </div>
         </div>

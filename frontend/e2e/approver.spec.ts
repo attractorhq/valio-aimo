@@ -40,7 +40,7 @@ test('B: main view ASK → Approver panel → Approve → confirmed in both view
 
   const approver = await context.newPage()
   await approver.goto('/approver')
-  await expect(approver.getByRole('heading', { name: 'Approver — Head Chef (demo)' })).toBeVisible()
+  await expect(approver.getByRole('heading', { name: 'Approver — Head Chef' })).toBeVisible()
   const card = approver.getByRole('article')
   await expect(card.getByRole('heading')).toHaveText('Approving version 1')
   await expect(card).toContainText(
@@ -49,7 +49,7 @@ test('B: main view ASK → Approver panel → Approve → confirmed in both view
   await expect(card).toContainText('Synthetic gluten-free macaroni 5 kg')
   await expect(card).toContainText('18 bag')
   await expect(card).toContainText('Mon 16 Nov')
-  await expect(card).toContainText('Demo approval link — single use')
+  await expect(card).toContainText('Single-use approval link')
   await approver.screenshot({
     path: `test-results/approver-pending-${info.project.name}.png`,
     fullPage: true,
@@ -76,7 +76,7 @@ test('B: main view ASK → Approver panel → Approve → confirmed in both view
 
   await page.bringToFront()
   await expect(step(page, 'Approval')).toContainText(
-    'Approved by Head Chef (demo) → Confirmed (simulated)',
+    'Approved by Head Chef → Confirmed (simulated)',
   )
   await expect(step(page, 'Approval')).toContainText('Approved')
   await page.screenshot({
@@ -93,7 +93,7 @@ test('reject is shown in both views and nothing is ordered', async ({ page, cont
   await approver.getByRole('button', { name: 'Reject' }).click()
   await expect(approver.getByRole('article')).toContainText('Rejected · nothing was ordered')
   await page.bringToFront()
-  await expect(step(page, 'Approval')).toContainText('Rejected by Head Chef (demo)')
+  await expect(step(page, 'Approval')).toContainText('Rejected by Head Chef')
 })
 
 test('a used approval link cannot be replayed', async ({ page }) => {
@@ -130,13 +130,10 @@ test('a superseded version can no longer be approved', async ({ page }) => {
 test('the approver panel is visibly not the agent and starts empty', async ({ page }) => {
   await page.goto('/approver')
   await expect(page.getByText('Human sign-off channel · not the agent')).toBeVisible()
-  await expect(
-    page.getByText('Demo approver — no authentication'),
-  ).toBeVisible()
   await expect(page.getByText('Nothing to approve.')).toBeVisible()
   await page.getByLabel('Signed in as').selectOption('mock-hotels')
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(
-    'Approver — Purchasing Manager (demo)',
+    'Approver — Purchasing Manager',
   )
 })
 
@@ -160,7 +157,7 @@ test('phone approval via QR (/approve/:token) at 390 px and across separate devi
 
   await page.goto('/approver')
   const qr = page.getByRole('img', {
-    name: 'Scan on a phone to open the single-use demo approval page',
+    name: 'Scan on a phone to open the single-use approval page',
   })
   await expect(qr).toBeVisible()
   const mobileHref = await page
@@ -209,14 +206,14 @@ test('phone approval via QR (/approve/:token) at 390 px and across separate devi
   const phone = await phoneContext.newPage()
   await phone.goto(decoded!.data)
 
-  await expect(phone.getByRole('heading', { name: 'Approver — Head Chef (demo)' })).toBeVisible()
+  await expect(phone.getByRole('heading', { name: 'Approver — Head Chef' })).toBeVisible()
   const card = phone.getByRole('article')
   await expect(card.getByRole('heading')).toHaveText('Approving version 1')
   await expect(card).toContainText(
     '€506.16 is above your €500.00 auto-approve limit. Everything else is verified or declared.',
   )
   await expect(card).toContainText('Synthetic gluten-free macaroni 5 kg')
-  await expect(card).toContainText('Demo approval link — single use')
+  await expect(card).toContainText('Single-use approval link')
 
   const overflow = await phone.evaluate(
     () => document.documentElement.scrollWidth - window.innerWidth,

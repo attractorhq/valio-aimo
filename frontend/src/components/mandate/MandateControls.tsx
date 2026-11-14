@@ -290,7 +290,7 @@ export function MandateControls({
 
 /**
  * T46 `/admin` view: buyer-admin mandate controls moved off the buyer page and explicitly labelled
- * "Buyer admin (demo, no login)".
+ * "Buyer admin".
  */
 export function BuyerAdmin() {
   const mandates = useQuery({ queryKey: ['mandates'], queryFn: () => gateway.listMandates() })
@@ -317,8 +317,7 @@ export function BuyerAdmin() {
     <div className="approver-page">
       <header className="panel flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold">Buyer admin (demo, no login)</h1>
-          <p className="muted small mt-1">Demo buyer admin — no authentication.</p>
+          <h1 className="text-xl font-bold">Buyer admin</h1>
         </div>
         <Link to="/" className="font-semibold text-[var(--green)] underline">
           Buyer view

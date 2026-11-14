@@ -24,7 +24,7 @@ test('shows one main view with four steps and a read-only mandate', async ({ pag
   await expect(mandate).toContainText('€500.00 excl. VAT')
   await expect(mandate).toContainText('€3,000.00 excl. VAT')
   await expect(mandate).toContainText('Strict')
-  await expect(mandate).toContainText('Head Chef (demo)')
+  await expect(mandate).toContainText('Head Chef')
   // T46: the buyer page has no mandate write controls.
   await expect(page.getByRole('button', { name: 'Apply policy change' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Reset to default' })).toHaveCount(0)
@@ -83,7 +83,7 @@ test('scenario B: waiting for approver, exactly one reason, no approve button', 
   await expect(altsB).not.toContainText('MOCK-REJECTED')
   const approval = step(page, 'Approval')
   await expect(approval).toContainText('Waiting for approver')
-  await expect(approval).toContainText('Waiting for Head Chef (demo)')
+  await expect(approval).toContainText('Waiting for Head Chef')
   await expect(approval.getByRole('list', { name: 'Reasons' }).getByRole('listitem')).toHaveCount(1)
   await expect(approval).toContainText(
     '€506.16 excl. VAT is above your €500.00 auto-approve limit.',
@@ -221,7 +221,7 @@ test('T46: /admin holds buyer-admin controls and reset; buyer page shows mandate
   const defaultM2 = {
     customerId: 'northbay-school-kitchen',
     version: 1,
-    organisationName: 'Northbay School Kitchen (demo)',
+    organisationName: 'Northbay School Kitchen',
     segment: 'school kitchen',
     allergenMode: 'STRICT' as const,
     autoApproveLimitEur: '500.00',
@@ -232,7 +232,7 @@ test('T46: /admin holds buyer-admin controls and reset; buyer page shows mandate
     minReliability: '0.80',
     enforceCutoff: true,
     forbiddenAllergens: [] as string[],
-    approver: { name: 'Head Chef (demo)', role: 'Head Chef (demo)' },
+    approver: { name: 'Head Chef', role: 'Head Chef' },
   }
   let currentM2 = { ...defaultM2 }
   const json = (body: unknown, status = 200) => ({
@@ -288,7 +288,7 @@ test('T46: /admin holds buyer-admin controls and reset; buyer page shows mandate
             customerId: currentM2.customerId,
             mandateVersion: currentM2.version,
             timestamp: '2026-11-13T21:55:00+02:00',
-            actor: 'human:Buyer admin (demo)',
+            actor: 'human:Buyer admin',
             event: 'MANDATE_CHANGED',
             rule: '§6.1',
             summary: 'Policy changed by buyer admin',
@@ -314,7 +314,7 @@ test('T46: /admin holds buyer-admin controls and reset; buyer page shows mandate
             customerId: currentM2.customerId,
             mandateVersion: currentM2.version,
             timestamp: '2026-11-13T21:56:00+02:00',
-            actor: 'human:Buyer admin (demo)',
+            actor: 'human:Buyer admin',
             event: 'MANDATE_RESET',
             rule: '§6.1',
             summary: 'Policy reset to default by buyer admin',
@@ -331,7 +331,7 @@ test('T46: /admin holds buyer-admin controls and reset; buyer page shows mandate
   await expect(page.getByRole('button', { name: 'Apply policy change' })).toHaveCount(0)
   await page.getByRole('link', { name: 'Buyer admin', exact: true }).click()
   await expect(page).toHaveURL(/\/admin$/)
-  await expect(page.getByRole('heading', { name: 'Buyer admin (demo, no login)' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Buyer admin', exact: true })).toBeVisible()
 
   const limitInput = page.getByLabel('Auto-approve limit (€, excl. VAT)')
   await expect(limitInput).toBeEnabled()

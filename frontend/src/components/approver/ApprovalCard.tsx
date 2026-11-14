@@ -314,7 +314,7 @@ export function ApprovalCard({
 
       <p className="permission-notice">
         <KeyRound size={14} aria-hidden />
-        {view.data?.permissionNotice ?? 'Demo approval link — single use'}
+        {view.data?.permissionNotice ?? 'Single-use approval link'}
         {decided.proposal.state === 'PENDING_APPROVAL'
           ? view.data && ` · valid until ${formatClock(view.data.expiresAt)}`
           : ' · no longer valid'}

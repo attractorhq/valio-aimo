@@ -121,8 +121,8 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     await expect(page.getByText('Synthetic mock data')).toHaveCount(0)
 
     const mandateRegion = page.getByRole('region', { name: 'Buyer mandate' })
-    await expect(mandateRegion).toContainText('Nordic Harbour Hotels (demo)')
-    await expect(mandateRegion).toContainText('Northbay School Kitchen (demo)')
+    await expect(mandateRegion).toContainText('Nordic Harbour Hotels')
+    await expect(mandateRegion).toContainText('Northbay School Kitchen')
 
     // 1. Official example typed in free text -> AUTO confirmed (€1,010.00)
     await page
@@ -183,13 +183,13 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     await expect(altsLiveB).toContainText('Oddlygood')
     await expect(altsLiveB).toContainText('in stock (verified)')
     await expect(step(page, 'Approval')).toContainText('Waiting for approver')
-    await expect(step(page, 'Approval')).toContainText('Waiting for Head Chef (demo)')
+    await expect(step(page, 'Approval')).toContainText('Waiting for Head Chef')
     await expect(page.getByRole('button', { name: /approve/i })).toHaveCount(0)
 
     const approverPage = await context.newPage()
     await approverPage.goto(`${baseURL}/approver`)
     await expect(
-      approverPage.getByRole('heading', { name: 'Approver — Head Chef (demo)' }),
+      approverPage.getByRole('heading', { name: 'Approver — Head Chef' }),
     ).toBeVisible()
     const card = approverPage.getByRole('article')
     await expect(card.getByRole('heading')).toHaveText(
@@ -216,7 +216,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
 
     await page.bringToFront()
     await expect(step(page, 'Approval')).toContainText(
-      'Approved by Head Chef (demo) → Confirmed (simulated)',
+      'Approved by Head Chef → Confirmed (simulated)',
     )
 
     // Decision log via GET /v0.1/audit?proposalId=
