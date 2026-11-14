@@ -24,6 +24,15 @@ test('shows one main view with four steps and a read-only mandate', async ({ pag
   await expect(mandate).toContainText('€3,000.00 excl. VAT')
   await expect(mandate).toContainText('Strict')
   await expect(mandate).toContainText('Head Chef (demo)')
+  // T46: the buyer page has no mandate write controls.
+  await expect(page.getByRole('button', { name: 'Apply policy change' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Reset to default mandate' })).toHaveCount(0)
+  await expect(page.getByLabel('Auto-approve limit (€, excl. VAT)')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Mandate v1 · read-only' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Buyer admin (demo, no login)' })).toHaveAttribute(
+    'href',
+    '/admin',
+  )
 })
 
 test('scenario A: agent decided → confirmed (simulated)', async ({ page }, info) => {
@@ -177,7 +186,9 @@ test('Valio Aimo readiness view shows supplier data gaps, AUTO/ASK/BLOCK statist
   await expect(summary).toContainText('AUTO-Ready Products')
   await expect(summary).toContainText('Blocked from AUTO')
 
-  const liveStats = page.getByRole('region', { name: 'Live AUTO / ASK / BLOCK Decision Statistics' })
+  const liveStats = page.getByRole('region', {
+    name: 'Live AUTO / ASK / BLOCK Decision Statistics',
+  })
   await expect(liveStats).toContainText('AUTO · Autonomous Order')
   await expect(liveStats).toContainText('ASK · Human Sign-Off')
   await expect(liveStats).toContainText('BLOCK · Mandate Refusal')
@@ -196,4 +207,154 @@ test('Valio Aimo readiness view shows supplier data gaps, AUTO/ASK/BLOCK statist
   await expect(fixList).toContainText('SUBSTITUTE_REJECTED')
   await expect(fixList).toContainText('DATA_CONFLICT')
   await expect(fixList).toContainText('ALLERGEN_UNKNOWN')
+})
+
+test('T46: /admin holds buyer-admin controls and reset; buyer page shows mandate version and changed-from-default read-only', async ({
+  page,
+}) => {
+  const defaultM2 = {
+    customerId: 'northbay-school-kitchen',
+    version: 1,
+    organisationName: 'Northbay School Kitchen (demo)',
+    segment: 'school kitchen',
+    allergenMode: 'STRICT' as const,
+    autoApproveLimitEur: '500.00',
+    hardLimitEur: '3000.00',
+    autoAcceptValioSubstitutes: false,
+    autoAcceptAgentSubstitutes: false,
+    autoAcceptSupplierStock: false,
+    minReliability: '0.80',
+    enforceCutoff: true,
+    forbiddenAllergens: [] as string[],
+    approver: { name: 'Head Chef (demo)', role: 'Head Chef (demo)' },
+  }
+  let currentM2 = { ...defaultM2 }
+  const json = (body: unknown, status = 200) => ({
+    status,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  await page.route('**/health', (route) =>
+    route.fulfill(json({ status: 'ok', ready: true, mode: 'RECORDED', version: '0.1' })),
+  )
+  await page.route('**/v0.1/**', async (route) => {
+    const req = route.request()
+    const url = new URL(req.url())
+    if (url.pathname === '/v0.1/mandates') {
+      return route.fulfill(json([currentM2]))
+    }
+    if (url.pathname === '/v0.1/admin/mandates/northbay-school-kitchen/default') {
+      const diffs =
+        currentM2.autoApproveLimitEur !== defaultM2.autoApproveLimitEur
+          ? [
+              {
+                field: 'autoApproveLimitEur',
+                current: currentM2.autoApproveLimitEur,
+                default: defaultM2.autoApproveLimitEur,
+              },
+            ]
+          : []
+      return route.fulfill(
+        json({
+          mandate: currentM2,
+          default: defaultM2,
+          changedFromDefault: diffs.length > 0,
+          differences: diffs,
+        }),
+      )
+    }
+    if (
+      url.pathname === '/v0.1/admin/mandates/northbay-school-kitchen' &&
+      req.method() === 'PATCH'
+    ) {
+      const body = JSON.parse(req.postData() ?? '{}') as { autoApproveLimitEur?: string }
+      currentM2 = {
+        ...currentM2,
+        version: currentM2.version + 1,
+        autoApproveLimitEur: body.autoApproveLimitEur ?? currentM2.autoApproveLimitEur,
+      }
+      return route.fulfill(
+        json({
+          mandate: currentM2,
+          auditEntry: {
+            entryId: `mandate-northbay-school-kitchen-v${currentM2.version}`,
+            customerId: currentM2.customerId,
+            mandateVersion: currentM2.version,
+            timestamp: '2026-11-13T21:55:00+02:00',
+            actor: 'human:Buyer admin (demo)',
+            event: 'MANDATE_CHANGED',
+            rule: '§6.1',
+            summary: 'Policy changed by buyer admin',
+          },
+          superseded: [],
+          redecided: [],
+        }),
+      )
+    }
+    if (
+      url.pathname === '/v0.1/admin/mandates/northbay-school-kitchen/reset' &&
+      req.method() === 'POST'
+    ) {
+      currentM2 = {
+        ...defaultM2,
+        version: currentM2.version + 1,
+      }
+      return route.fulfill(
+        json({
+          mandate: currentM2,
+          auditEntry: {
+            entryId: `mandate-northbay-school-kitchen-v${currentM2.version}`,
+            customerId: currentM2.customerId,
+            mandateVersion: currentM2.version,
+            timestamp: '2026-11-13T21:56:00+02:00',
+            actor: 'human:Buyer admin (demo)',
+            event: 'MANDATE_RESET',
+            rule: '§6.1',
+            summary: 'Policy reset to default by buyer admin',
+          },
+          superseded: [],
+          redecided: [],
+        }),
+      )
+    }
+    return route.fulfill(json({ error: { code: 'NOT_FOUND', message: 'not faked' } }, 404))
+  })
+
+  await page.goto('/')
+  await expect(page.getByRole('button', { name: 'Apply policy change' })).toHaveCount(0)
+  await page.getByRole('link', { name: 'Buyer admin (demo, no login)' }).click()
+  await expect(page).toHaveURL(/\/admin$/)
+  await expect(page.getByRole('heading', { name: 'Buyer admin (demo, no login)' })).toBeVisible()
+
+  const limitInput = page.getByLabel('Auto-approve limit (€, excl. VAT)')
+  await expect(limitInput).toBeEnabled()
+  await limitInput.fill('510.00')
+  await page.getByRole('button', { name: 'Apply policy change' }).click()
+
+  await expect(page.getByRole('status')).toContainText(
+    'Policy changed by buyer admin · mandate v2 · auto-approve limit €510.00',
+  )
+  await expect(page.getByRole('note')).toContainText(
+    'Changed from default: auto-approve €510.00 (default €500.00)',
+  )
+  await expect(page.getByRole('button', { name: 'Reset to default mandate' })).toBeVisible()
+
+  // Navigate back to the buyer view: read-only, shows v2 and "Changed from default", no write controls.
+  await page.getByRole('link', { name: 'Back to the buyer view' }).click()
+  await expect(page).toHaveURL(/\/$/)
+  await expect(page.getByRole('heading', { name: 'Mandate v2 · read-only' })).toBeVisible()
+  await expect(page.getByRole('note')).toContainText(
+    'Changed from default: auto-approve €510.00 (default €500.00)',
+  )
+  await expect(page.getByRole('button', { name: 'Apply policy change' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Reset to default mandate' })).toHaveCount(0)
+  await expect(page.getByLabel('Auto-approve limit (€, excl. VAT)')).toHaveCount(0)
+
+  // Return to /admin and reset to the shipped default (v3).
+  await page.getByRole('link', { name: 'Buyer admin (demo, no login)' }).click()
+  await page.getByRole('button', { name: 'Reset to default mandate' }).click()
+  await expect(page.getByRole('status')).toContainText(
+    'Policy reset to default by buyer admin · mandate v3 · auto-approve limit €500.00',
+  )
 })

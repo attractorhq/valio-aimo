@@ -52,6 +52,9 @@ export function Approver() {
             Human sign-off channel. The purchasing agent cannot see or use this page. You approve
             trade-offs, never missing evidence.
           </p>
+          <p className="mt-1 text-xs font-semibold" role="note">
+            Demo approver — no authentication; production uses SSO/OIDC
+          </p>
         </div>
         {mandates.data && mandates.data.length > 1 && (
           <label className="approver-switch">
