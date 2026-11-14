@@ -38,6 +38,42 @@ export async function changeMandate(
   return data as MandateChangeResult
 }
 
+async function adminCall<T>(path: string, init: RequestInit = {}): Promise<T> {
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE}/v0.1/admin/mandates/${path}`, init)
+  } catch {
+    throw new AdminError('Could not reach the gateway.')
+  }
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new AdminError(data?.error?.message ?? 'The gateway refused the request.')
+  }
+  return data as T
+}
+
+/** T36: restore the shipped default mandate as a new, audited version; open proposals are re-decided. */
+export function resetMandate(customerId: string): Promise<MandateChangeResult> {
+  return adminCall(`${encodeURIComponent(customerId)}/reset`, { method: 'POST' })
+}
+
+export type MandateDifference = {
+  field: string
+  current: unknown
+  default: unknown
+}
+
+export type MandateDefaultView = {
+  mandate: Mandate
+  default: Mandate
+  changedFromDefault: boolean
+  differences: MandateDifference[]
+}
+
+export function getMandateDefault(customerId: string): Promise<MandateDefaultView> {
+  return adminCall(`${encodeURIComponent(customerId)}/default`)
+}
+
 /** "500" / "500.5" / "€510,00" → "510.00"; undefined when it is not a money amount. */
 export function toMoneyString(input: string): string | undefined {
   const cleaned = input.replace(/[€\s]/g, '').replace(',', '.')
