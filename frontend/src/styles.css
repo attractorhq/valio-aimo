@@ -1059,6 +1059,10 @@ button.chip {
   padding: var(--space-1) 0;
   border-bottom: 1px solid var(--line);
 }
+/* The last row has no own line: the next section's divider is the only one (no double rule). */
+.lookup-list li:last-child {
+  border-bottom: 0;
+}
 /* The excluded summary sits under the chosen product, so long product names keep their width. */
 .lookup-list li > :nth-child(3) {
   grid-column: 2;
