@@ -7,17 +7,18 @@ Two channels on one origin:
 """
 
 import os
+import secrets
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import GatewayState, GatewayUnavailable, agent_router, approver_router, register_error_handlers
 from app.api.log_routes import router as log_router
 from app.api.mandate_routes import router as mandate_router
 from app.api.mcp import router as mcp_router
-from app.api.state import try_state
+from app.api.state import SANDBOX_COOKIE, SANDBOX_ID_RE, sandbox_count, try_state
 from app.config import get_settings
 from app.contracts import VERSION
 
@@ -84,8 +85,30 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in get_settings().frontend_origins.split(",") if o.strip()],
     allow_methods=["GET", "POST", "PATCH"],  # PATCH: buyer-admin mandate change (T21) from the dev UI
-    allow_headers=["Content-Type"],
+    allow_headers=["Content-Type", "X-Demo-Sandbox", "X-Approval-Token", "Mcp-Session-Id"],
 )
+
+
+@app.middleware("http")
+async def demo_session_cookie(request: Request, call_next):
+    cookie = request.cookies.get(SANDBOX_COOKIE, "")
+    browser = bool(request.headers.get("sec-fetch-mode")) or "text/html" in request.headers.get("accept", "")
+    browser_cookie = browser and request.headers.get("x-demo-sandbox") is None
+    new_cookie = browser_cookie and not SANDBOX_ID_RE.fullmatch(cookie)
+    if new_cookie:
+        request.state.demo_sandbox = secrets.token_hex(16)
+    response = await call_next(request)
+    if browser_cookie:
+        https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "").split(",")[0] == "https"
+        # Renew the browser cookie without rotating its id: expiry follows inactivity, not creation time.
+        session_id = request.state.demo_sandbox if new_cookie else cookie
+        response.set_cookie(SANDBOX_COOKIE, session_id, httponly=True, samesite="lax", secure=https,
+                            max_age=6 * 60 * 60)
+    if request.url.path.startswith(("/v0.1/", "/mcp", "/health")):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 register_error_handlers(app)
 app.include_router(agent_router)
 app.include_router(approver_router)
@@ -113,7 +136,8 @@ def build_sha() -> str:
 def health(state: Annotated[GatewayState | GatewayUnavailable, Depends(try_state)]) -> dict:
     """Liveness plus whether the gateway can serve orders (catalogue + live key or recorded fixtures)."""
     if isinstance(state, GatewayUnavailable):
-        return {"status": "degraded", "version": VERSION, "build": build_sha(), "ready": False, "reason": str(state)}
+        return {"status": "degraded", "version": VERSION, "build": build_sha(), "ready": False, "reason": str(state),
+                "sandboxes": sandbox_count()}
     return {
         "status": "ok",
         "version": VERSION,
@@ -121,4 +145,5 @@ def health(state: Annotated[GatewayState | GatewayUnavailable, Depends(try_state
         "ready": True,
         "mode": state.mode,
         "catalogProducts": len(state.catalog),
+        "sandboxes": sandbox_count(),
     }

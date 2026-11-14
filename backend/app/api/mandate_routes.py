@@ -9,10 +9,13 @@ re-decided live by the deterministic policy, with no model call.
   live and confirmed (simulated) right away.
 """
 
+import hashlib
+import hmac
+import os
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import Field
 
 from app.contracts import AuditEntry, Mandate, Money, Proposal
@@ -21,13 +24,34 @@ from app.gateway.offers import shortlists
 from app.gateway.proposals import _derive_offer_request
 
 from .errors import ERROR_RESPONSES
-from .state import GatewayState, get_state
+from .state import GatewayState, get_state, reset_sandbox, sandbox_registry
 
 router = APIRouter(prefix="/v0.1/admin", tags=["Buyer admin"], responses=ERROR_RESPONSES)
 State = Annotated[GatewayState, Depends(get_state)]
 
 BUYER_ADMIN_ACTOR = "human:Buyer admin (demo)"
 OPEN_STATES = frozenset({"PENDING_APPROVAL", "APPROVED", "AUTO_APPROVED", "PROPOSED"})
+
+
+@router.post("/demo/reset", operation_id="resetDemoSandbox",
+             summary="Reset this private session, including confirmed orders and its log")
+def reset_demo_sandbox(request: Request, state: State) -> dict:
+    scope = request.headers.get("x-admin-reset")
+    if scope is not None:
+        if scope != "all":
+            raise HTTPException(400, "X-Admin-Reset must be 'all', or omitted for this session.")
+        key = os.environ.get("APPROVAL_SIGNING_KEY", "")
+        expected = hmac.new(key.encode(), b"voa-admin-reset-all", hashlib.sha256).hexdigest()
+        supplied = request.headers.get("x-admin-reset-key", "")
+        if not key or not hmac.compare_digest(supplied, expected):
+            raise HTTPException(403, "Resetting every session requires the architect reset secret.")
+        return {"scope": "all", "resetSandboxes": sandbox_registry().reset_all()}
+    ids = list(state.proposal_ids)
+    pending = [pid for pid in ids if state.gateway.get_proposal(pid).state == "PENDING_APPROVAL"]
+    customers = list(state.gateway.mandates.customers())
+    reset_sandbox(state)
+    return {"scope": "session", "resetMandates": customers,
+            "clearedPendingProposals": pending, "clearedProposals": ids}
 
 
 class MandateChangeRequest(Contract):

@@ -13,6 +13,7 @@
 import hashlib
 import hmac
 import secrets
+from base64 import urlsafe_b64decode, urlsafe_b64encode
 from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import cast
@@ -69,6 +70,32 @@ class ApprovalExpiredError(ApprovalError):
 
 class ApprovalSupersededError(ApprovalError):
     """Raised when the proposal version was superseded and its approval is void."""
+
+
+def sandbox_approval_token(token: str, sandbox_id: str, *, signing_key: bytes) -> str:
+    """An approver-only capability carrying an authenticated sandbox for cross-device routing."""
+    encoded = urlsafe_b64encode(sandbox_id.encode()).decode().rstrip("=")
+    payload = f"{token}.sbx1.{encoded}"
+    mac = hmac.new(signing_key, b"voa-approval-sandbox:" + payload.encode(), hashlib.sha256).hexdigest()
+    return f"{payload}.{mac}"
+
+
+def open_sandbox_approval_token(token: str, *, signing_key: bytes) -> tuple[str, str] | None:
+    """Verify the sandbox before selecting any state; legacy local tokens cannot route across sandboxes."""
+    if ".sbx1." not in token:
+        return None
+    try:
+        inner, version, encoded, supplied_mac = token.split(".")
+        payload = f"{inner}.{version}.{encoded}"
+        expected = hmac.new(signing_key, b"voa-approval-sandbox:" + payload.encode(), hashlib.sha256).hexdigest()
+        if version != "sbx1" or not hmac.compare_digest(supplied_mac, expected):
+            raise ValueError("Bad signature")
+        sandbox_id = urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)).decode()
+        if not 1 <= len(sandbox_id) <= 100 or any(not (c.isascii() and (c.isalnum() or c in "_-")) for c in sandbox_id):
+            raise ValueError("Bad sandbox")
+        return sandbox_id, inner
+    except (ValueError, UnicodeError):
+        raise InvalidApprovalTokenError("Unknown or invalid approval token") from None
 
 
 def _assert_proposal_approvable(proposal: Proposal) -> None:

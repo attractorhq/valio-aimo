@@ -1395,6 +1395,9 @@ export function ValioView() {
         </div>
       </section>
 
+      <p className="muted text-sm">
+        Statistics cover your session only.
+      </p>
       {/* Live AUTO / ASK / BLOCK Statistics */}
       <section className="panel" aria-labelledby="live-decision-stats-title">
         <div className="flex flex-wrap items-center justify-between gap-2">
