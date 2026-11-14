@@ -373,7 +373,8 @@ export function Main() {
                 <span>{errorStep.summary}</span>
               </div>
             )}
-            {(proposal || step2 || lookupExcluded?.length) && (
+            {/* A boolean, never a count: an empty list must not render a stray "0" (T57). */}
+            {Boolean(proposal || step2 || (lookupExcluded?.length ?? 0) > 0) && (
               <ExcludedList
                 proposal={proposal}
                 request={structuredRequest}
