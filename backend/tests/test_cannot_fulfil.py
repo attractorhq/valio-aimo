@@ -59,5 +59,6 @@ def test_the_agent_run_stops_with_cannot_fulfil_and_creates_no_proposal(syntheti
     approval = result.steps[-1]
     assert approval.summary == "Cannot fulfil this request"
     (item,) = approval.noOrder.items
-    assert item.why.startswith("Cannot fulfil: only 95 kg of the 5,000 kg you asked for")
+    # T85: split top-ups count too (95 kg macaroni + compliant top-ups), so only the shape is pinned.
+    assert item.why.startswith("Cannot fulfil: only ") and "of the 5,000 kg you asked for" in item.why
     assert state.gateway.committed_total(M2.customerId, MONDAY) == 0
