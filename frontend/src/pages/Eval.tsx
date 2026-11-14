@@ -232,7 +232,7 @@ export function Eval({
 
   return (
     <section
-      className="mt-2 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 text-sm"
+      className="mt-2 rounded-[24px] border border-[var(--line)] bg-[var(--surface)] p-4 text-sm"
       aria-label="Evaluation and live pre-flight"
     >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] pb-3">
@@ -250,7 +250,7 @@ export function Eval({
           <button
             type="button"
             onClick={() => runCheck(false)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--green)] bg-[var(--green)] px-3 py-1.5 text-xs font-semibold text-white"
+            className="btn btn-primary text-xs"
           >
             <Play size={13} aria-hidden />
             <span>Run live pre-flight</span>
@@ -258,7 +258,7 @@ export function Eval({
           <button
             type="button"
             onClick={() => runCheck(!simulateCutoff)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--line)] bg-[var(--bg)] px-2.5 py-1.5 text-xs font-semibold text-[var(--ink)]"
+            className="btn btn-scenario text-xs"
           >
             <TriangleAlert size={13} aria-hidden />
             <span>{simulateCutoff ? 'Restore open cut-offs' : 'Simulate passed cut-off (P5.3)'}</span>
@@ -267,9 +267,9 @@ export function Eval({
       </div>
 
       <div
-        className={`mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-xs font-semibold ${
+        className={`mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[16px] border p-3 text-xs font-semibold ${
           allGreen
-            ? 'border-[var(--auto)] bg-[var(--auto-bg)] text-[var(--auto)]'
+            ? 'border-[var(--auto-accent)] bg-[var(--auto-bg)] text-[var(--auto)]'
             : 'border-[var(--block)] bg-[var(--block-bg)] text-[var(--block)]'
         }`}
         role="status"
@@ -287,9 +287,9 @@ export function Eval({
             <button
               type="button"
               onClick={() => onModeChange('LIVE')}
-              className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 ${
+              className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 ${
                 mode === 'LIVE'
-                  ? 'border-[var(--auto)] bg-white text-[var(--auto)]'
+                  ? 'border-[var(--auto-accent)] bg-white text-[var(--auto)]'
                   : 'border-transparent bg-transparent opacity-75'
               }`}
             >
@@ -299,9 +299,9 @@ export function Eval({
             <button
               type="button"
               onClick={() => onModeChange('RECORDED')}
-              className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 ${
+              className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 ${
                 mode === 'RECORDED'
-                  ? 'border-[var(--info)] bg-white text-[var(--info)]'
+                  ? 'border-[var(--action)] bg-white text-[var(--info)]'
                   : 'border-transparent bg-transparent opacity-75'
               }`}
             >

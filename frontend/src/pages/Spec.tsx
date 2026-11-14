@@ -431,8 +431,8 @@ export function Spec() {
         >
           {SCHEMAS.map(({ name, schema }) => (
             <li key={name}>
-              <details className="rounded-md border border-[var(--line)] p-2">
-                <summary className="cursor-pointer font-semibold">
+              <details className="rounded-[16px] border border-[var(--line)] bg-[var(--tint)] p-3">
+                <summary className="cursor-pointer font-semibold text-[var(--ink)]">
                   <FileJson size={14} aria-hidden className="mr-1 inline align-[-2px]" />
                   {name}
                 </summary>
@@ -443,7 +443,7 @@ export function Spec() {
                 >
                   <Download size={14} aria-hidden /> Download {name}.json
                 </button>
-                <pre className="mt-2 max-h-64 max-w-full overflow-auto text-xs">
+                <pre className="mt-2 max-h-64 max-w-full overflow-auto rounded-[12px] bg-[var(--surface)] p-2 text-xs">
                   {JSON.stringify(schema, null, 2)}
                 </pre>
               </details>

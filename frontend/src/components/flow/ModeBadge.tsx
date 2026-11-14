@@ -48,7 +48,7 @@ export function ModeBadge({
           type="button"
           aria-expanded={showPreflight}
           onClick={() => setShowPreflight((prev) => !prev)}
-          className="mode-badge cursor-pointer border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] hover:border-[var(--green)]"
+          className="mode-badge cursor-pointer border-[var(--action)] bg-[var(--surface)] text-[var(--action)] hover:bg-[var(--tint)]"
         >
           <Activity size={13} aria-hidden />
           <span>Pre-flight</span>

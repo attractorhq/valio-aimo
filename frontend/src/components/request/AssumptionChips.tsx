@@ -149,7 +149,7 @@ export function AssumptionChips({
               <form onSubmit={submitEdit} className="inline-flex flex-wrap items-center gap-1">
                 <input
                   type="text"
-                  className="rounded-md border border-[var(--green)] bg-[var(--surface)] px-2 py-0.5 text-xs font-semibold text-[var(--ink)]"
+                  className="rounded-[12px] border border-[var(--action)] bg-[var(--surface)] px-2.5 py-0.5 text-xs font-semibold text-[var(--ink)]"
                   style={{ width: `${Math.max(draft.length + 3, 9)}ch` }}
                   aria-label={`Edit assumption ${chip}`}
                   value={draft}
@@ -164,7 +164,7 @@ export function AssumptionChips({
                 />
                 <button
                   type="submit"
-                  className="chip border-[var(--green)] bg-[var(--green)] text-white cursor-pointer"
+                  className="chip cursor-pointer rounded-full border-[var(--action)] bg-[var(--action)] px-3 text-white hover:bg-[var(--action-hover)]"
                   aria-label={`Apply assumption ${chip}`}
                 >
                   <Check size={11} aria-hidden />
@@ -172,7 +172,7 @@ export function AssumptionChips({
                 </button>
                 <button
                   type="button"
-                  className="chip cursor-pointer"
+                  className="chip cursor-pointer rounded-full border-[var(--action)] bg-[var(--surface)] text-[var(--action)] hover:bg-[var(--tint)]"
                   onClick={cancelEdit}
                   aria-label="Cancel editing assumption"
                 >

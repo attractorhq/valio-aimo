@@ -46,13 +46,13 @@ export function TrustBadge({
   return (
     <span className="inline-flex flex-wrap items-center gap-1.5">
       <span
-        className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-bold tracking-wide uppercase ${className}`}
+        className={`inline-flex items-center gap-1 rounded-[12px] border px-2 py-0.5 text-xs font-bold tracking-wide uppercase ${className}`}
       >
         <Icon size={12} aria-hidden />
         <span>{word}</span>
       </span>
       {conflict && (
-        <span className="inline-flex items-center gap-1 rounded-md border border-[var(--block)] bg-[var(--block-bg)] px-2 py-0.5 text-xs font-bold tracking-wide text-[var(--block)] uppercase">
+        <span className="inline-flex items-center gap-1 rounded-[12px] border border-[var(--block)] bg-[var(--block-bg)] px-2 py-0.5 text-xs font-bold tracking-wide text-[var(--block)] uppercase">
           <AlertTriangle size={12} aria-hidden />
           <span>Conflict · {conflict.code}</span>
         </span>

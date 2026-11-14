@@ -350,7 +350,7 @@ export function Alternatives({
 
   return (
     <section
-      className="mt-1 min-w-0 rounded-lg border border-[var(--line)] bg-[var(--bg)] px-2 py-0.5 [overflow-wrap:anywhere]"
+      className="mt-1.5 min-w-0 rounded-[24px] border border-[var(--line)] bg-[var(--tint)] px-3 py-1.5 [overflow-wrap:anywhere]"
       aria-label="Good / Better / Best alternatives"
     >
       <div className="flex flex-wrap items-center justify-between gap-1">
@@ -362,7 +362,7 @@ export function Alternatives({
           {uniqueRequirements.map((r) => (
             <span
               key={`${r.kind}-${r.code}`}
-              className="inline-flex items-center gap-0.5 rounded bg-[var(--auto-bg)] px-1 py-0.5 text-[10px] font-semibold text-[var(--auto)]"
+              className="inline-flex items-center gap-0.5 rounded-[12px] bg-[var(--auto-bg)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--auto)]"
             >
               <ShieldCheck size={10} aria-hidden />
               <span>{requirementLabel(r)} proven</span>
@@ -379,7 +379,7 @@ export function Alternatives({
                 <span
                   key={cand.productId}
                   title={`${cand.name} (${cand.productId}) — ${cand.tradeoff}`}
-                  className={`inline-flex items-center gap-0.5 rounded border px-1 py-0.5 text-[10px] font-semibold ${tierBadgeClass(cand.tier)}`}
+                  className={`inline-flex items-center gap-0.5 rounded-[12px] border px-1.5 py-0.5 text-[10px] font-semibold ${tierBadgeClass(cand.tier)}`}
                 >
                   <span>{TIER_LABEL[cand.tier]}</span>
                   {!cand.productId.startsWith('MOCK-') && <span>{cand.productId}</span>}
@@ -394,7 +394,7 @@ export function Alternatives({
           aria-expanded={expanded}
           aria-controls={detailsId}
           onClick={() => setExpanded((prev) => !prev)}
-          className="inline-flex items-center gap-0.5 rounded border border-[var(--line)] bg-[var(--surface)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--ink)] hover:border-[var(--green)]"
+          className="inline-flex items-center gap-0.5 rounded-full border border-[var(--action)] bg-[var(--surface)] px-2.5 py-0.5 text-[10px] font-semibold text-[var(--action)] hover:bg-[var(--tint)]"
         >
           <ToggleIcon size={11} aria-hidden />
           <span>{expanded ? 'Hide trade-offs' : 'Show trade-offs'}</span>
@@ -409,7 +409,7 @@ export function Alternatives({
           {itemsWithOptions.map((entry) => (
             <div
               key={entry.item.itemId}
-              className="min-w-0 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-2.5 py-1.5"
+              className="min-w-0 rounded-[16px] border border-[var(--line)] bg-[var(--surface)] px-2.5 py-1.5"
               aria-label={`Alternatives for ${entry.item.what}`}
             >
               <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-[var(--line)] pb-1">
@@ -426,12 +426,12 @@ export function Alternatives({
                 {entry.topOptions.map((cand) => (
                   <li
                     key={cand.productId}
-                    className="rounded border border-[var(--line)] bg-[var(--bg)] px-2 py-1 text-xs"
+                    className="rounded-[12px] border border-[var(--line)] bg-[var(--bg)] px-2 py-1 text-xs"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-1.5">
                       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                         <span
-                          className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-bold tracking-wide uppercase ${tierBadgeClass(cand.tier)}`}
+                          className={`inline-flex items-center rounded-[12px] border px-1.5 py-0.5 text-[10px] font-bold tracking-wide uppercase ${tierBadgeClass(cand.tier)}`}
                         >
                           {TIER_LABEL[cand.tier]}
                         </span>
@@ -439,7 +439,7 @@ export function Alternatives({
                         <span className="text-[var(--muted)]">· {cand.productId}</span>
                       </div>
                       {cand.substitutionSource && (
-                        <span className="rounded border border-[var(--ask)] bg-[var(--ask-bg)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--ask)]">
+                        <span className="rounded-[12px] border border-[var(--ask)] bg-[var(--ask-bg)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--ask)]">
                           {cand.substitutionSource === 'VALIO'
                             ? 'Valio substitute'
                             : 'Agent substitute'}

@@ -23,17 +23,25 @@ export default function App() {
       </a>
       <header className="app-header">
         <div className="brand">
+          <span className="brand-wordmark" aria-label="Valio Aimo">
+            Valio Aimo
+          </span>
           {approver ? (
-            <UserRoundCheck size={18} aria-hidden />
+            <UserRoundCheck size={18} aria-hidden className="shrink-0" />
           ) : (
-            <ShieldCheck size={18} aria-hidden />
+            <ShieldCheck size={18} aria-hidden className="shrink-0" />
           )}
-          <div>
-            <span className="brand-name">{approver ? 'Approver panel' : 'Verified or Ask'}</span>
+          <div className="min-w-0">
+            <div className="brand-title-row">
+              <span className="brand-name">{approver ? 'Approver panel' : 'Trusted Trade Gateway'}</span>
+              <span className="brand-gateway">
+                {approver ? '· Trusted Trade Gateway' : '· Verified or Ask'}
+              </span>
+            </div>
             <span className="brand-sub">
               {approver
-                ? 'Human sign-off channel · not the agent'
-                : 'Trusted Trade Gateway · Valio Aimo'}
+                ? 'Human sign-off channel · not the agent · Prototype for the Valio Aimo Junction 2026 challenge · not an official Valio service'
+                : 'Prototype for the Valio Aimo Junction 2026 challenge · not an official Valio service'}
             </span>
           </div>
         </div>
@@ -105,7 +113,9 @@ export default function App() {
       </main>
       <footer className="app-footer">
         <span>Simulated orders only — mock environment.</span>
-        <span>Junction 2026 · proof of concept</span>
+        <span>
+          Prototype for the Valio Aimo Junction 2026 challenge · not an official Valio service
+        </span>
       </footer>
     </div>
   )
