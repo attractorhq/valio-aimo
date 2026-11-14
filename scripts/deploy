@@ -84,9 +84,9 @@ done
 # shortlist, and the throwaway session never touches anyone else's state.
 warm_session="deploy-warmup-$build_sha"
 curl -fsS --max-time 60 -o /dev/null -H "X-Demo-Sandbox: $warm_session" "$url/v0.1/mandates" || true
-curl -fsS --max-time 60 -o /dev/null -H "X-Demo-Sandbox: $warm_session" -H 'Content-Type: application/json' \
+curl -fsS --max-time 60 -o /dev/null -H "X-Demo-Sandbox: $warm_session" -H "Authorization: Bearer demo-agent-nordic-harbour-hotels" -H 'Content-Type: application/json' \
   -d '{"query":"lactose-free milk","limit":5}' "$url/v0.1/products/search" || true
-curl -fsS --max-time 90 -o /dev/null -H "X-Demo-Sandbox: $warm_session" -H 'Content-Type: application/json' \
+curl -fsS --max-time 90 -o /dev/null -H "X-Demo-Sandbox: $warm_session" -H "Authorization: Bearer demo-agent-nordic-harbour-hotels" -H 'Content-Type: application/json' \
   -H 'Accept: application/json' \
   -d '{"customerId":"nordic-harbour-hotels","requestText":"I need 1,000 litres of lactose-free milk by Monday"}' \
   "$url/v0.1/agent/run" || true

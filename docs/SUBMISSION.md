@@ -49,6 +49,7 @@ A trusted trade gateway for Valio Aimo plus a demo purchasing agent. It separate
 - **Open interface:**
   - OpenAPI 3.1, JSON Schemas and a human-readable specification of the trust labels and reason codes at `/spec`.
   - An MCP endpoint at `/mcp` exposes the purchasing-agent tools only. Approval is not an agent tool and is refused if called.
+  - Agents identify their buyer with a public key, `Authorization: Bearer demo-agent-<customerId>`, and can act only for that buyer. Approvers sign in by role and see only their buyer's queue; buyer-admin changes need the public admin key shown on `/admin`.
   - A second, independent client gets the same decision and offer hash.
 - **Valio Aimo readiness view** (`/valio`): computed from the 17,546-product catalogue.
   - It shows which data gaps keep products from automatic ordering, by supplier.
@@ -67,7 +68,7 @@ A trusted trade gateway for Valio Aimo plus a demo purchasing agent. It separate
 
 **Simulated order — mock environment.** No real order or payment is sent.
 
-Demo approval links are not an authenticated identity, and the demo has no production access control. State is held in memory and resets when the service restarts.
+The keys and role sign-in are public demonstration gates that show the separation of duties; they are not production authentication. State is held in memory and resets when the service restarts.
 
 Production would need:
 - authenticated named approvers (SSO/OIDC);
