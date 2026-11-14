@@ -2,8 +2,10 @@ import { Ban, CheckCircle2, Hourglass, Info, ShieldCheck } from 'lucide-react'
 import { REASON_REGISTRY, type Mandate, type Proposal, type ReasonCode } from '../../lib/contracts'
 import { formatMoney, reasonChip, reasonText } from '../../lib/format'
 import { proposalRequirementChecks, requirementsStatement } from '../../lib/requirements'
+import { plainReason, uniqueReasons } from '../approver/explain'
 
-function explainReason(code: ReasonCode, proposal: Proposal, mandate?: Mandate): string {
+/** The reason in plain words, or null when that would only repeat the chip (T45). */
+function explainReason(code: ReasonCode, proposal: Proposal, mandate?: Mandate): string | null {
   const params: Record<string, string> = { total: formatMoney(proposal.totals.exclVat) }
   if (mandate) {
     params.limit = formatMoney(
@@ -11,7 +13,7 @@ function explainReason(code: ReasonCode, proposal: Proposal, mandate?: Mandate):
     )
   }
   const text = reasonText(code, params)
-  return /\{\w+\}/.test(text) ? reasonChip(code) : text
+  return /\{\w+\}/.test(text) ? plainReason(code, proposal, mandate) : text
 }
 
 /**
@@ -97,15 +99,16 @@ export function DecisionFooter({ proposal, mandate }: { proposal: Proposal; mand
 
       {proposal.reasons.length > 0 && (
         <ul className="reason-list" aria-label="Reasons">
-          {proposal.reasons.map((code) => {
+          {uniqueReasons(proposal.reasons).map((code) => {
             const effect = REASON_REGISTRY[code].effect
+            const text = explainReason(code, proposal, mandate)
             return (
               <li key={code} className={`reason reason-${effect.toLowerCase()}`}>
                 <span className="chip">
                   {effect === 'INFO' ? <Info size={13} aria-hidden /> : null}
                   {reasonChip(code)}
                 </span>
-                <span>{explainReason(code, proposal, mandate)}</span>
+                {text && <span>{text}</span>}
               </li>
             )
           })}

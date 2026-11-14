@@ -20,12 +20,7 @@ import {
   formatQuantity,
   reasonChip,
 } from '../../lib/format'
-import {
-  approvalReasons,
-  contextReasons,
-  formatApprovalStatement,
-  plainReason,
-} from './explain'
+import { approvalReasons, contextReasons, formatApprovalStatement, plainReason } from './explain'
 import { QrCode } from './QrCode'
 import { logPath } from '../log/logData'
 
@@ -159,15 +154,18 @@ export function ApprovalCard({
             </span>
           </p>
         ))}
-        {context.map((code) => (
-          <p key={code} className="approval-reason approval-reason-info">
-            <span className="chip">
-              <Info size={13} aria-hidden />
-              {reasonChip(code)}
-            </span>
-            <span>{plainReason(code, proposal, mandate)}</span>
-          </p>
-        ))}
+        {context.map((code) => {
+          const text = plainReason(code, proposal, mandate)
+          return (
+            <p key={code} className="approval-reason approval-reason-info">
+              <span className="chip">
+                <Info size={13} aria-hidden />
+                {reasonChip(code)}
+              </span>
+              {text && <span>{text}</span>}
+            </p>
+          )
+        })}
       </section>
 
       <div className="table-scroll">
