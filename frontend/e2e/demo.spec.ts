@@ -320,11 +320,11 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     await expect(step(page, 'Order')).toContainText('464306')
     await expect(step(page, 'Approval')).toContainText('Agent decided → Confirmed (simulated)')
     await expect(step(page, 'Approval')).toContainText('Simulated order — mock environment')
-    // T60: Valio's availability sentinel (>= 999999) is "No stock limit" at DECLARED, never "Plenty in stock".
+    // T60/T78: Valio's availability sentinel (>= 999999) is "Stock not tracked" at DECLARED, never "Plenty in stock".
     const cardA = page.getByRole('article', { name: /Trust card for/ }).first()
     await cardA.getByRole('button', { name: /Show facts/ }).click()
     const stockRow = cardA.locator('dl > div').filter({ hasText: /^Stock/ })
-    await expect(stockRow).toContainText('No stock limit: Valio allows any quantity')
+    await expect(stockRow).toContainText('Stock not tracked · Valio accepts any quantity')
     await expect(stockRow).toContainText(/declared/i)
     await expect(cardA).not.toContainText('Plenty in stock')
 

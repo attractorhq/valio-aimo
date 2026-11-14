@@ -70,7 +70,9 @@ export function OrderProposalView({
                     </div>
                     {stockFact && (
                       <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs font-normal">
-                        <span className="muted">{stockFact.display}</span>
+                        <span className="muted" title={stockFact.method ?? undefined}>
+                          {stockFact.display}
+                        </span>
                         <TrustBadge level={stockFact.level} conflict={stockFact.conflict} />
                       </div>
                     )}

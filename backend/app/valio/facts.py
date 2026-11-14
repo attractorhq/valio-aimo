@@ -89,8 +89,12 @@ def price_facts(row: dict, pricing_at: datetime, retrieved_at: datetime) -> Pric
 # product, and its ordering logic allows any quantity. It is no proof of a stock count, so it is DECLARED,
 # never VERIFIED. (Empty means not available.)
 STOCK_SENTINEL = Decimal(999_999)
-SENTINEL_METHOD = "sentinel ≥ 999999 (Valio convention)"
-NO_STOCK_LIMIT = "No stock limit: Valio allows any quantity (availability not tracked)"
+# T78: the display says exactly what Valio said; the method carries Valio's statement and its source.
+SENTINEL_METHOD = (
+    "Valio Aimo Q&A, 14 Nov: an available amount of 999999 or more means availability is unknown, "
+    "and Valio accepts any quantity"
+)
+NO_STOCK_LIMIT = "Stock not tracked · Valio accepts any quantity"
 
 
 def is_stock_sentinel(amount: Decimal | None) -> bool:
