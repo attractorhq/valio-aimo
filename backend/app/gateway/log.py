@@ -41,39 +41,6 @@ from app.policy import Finding
 
 GENESIS_HASH: str = "0" * 64
 
-_CUSTOMER_ID_ALIASES: MappingProxyType[str, str] = MappingProxyType({
-    "northbay-school-kitchen": "northbay-school-kitchen",
-    "northbay-school": "northbay-school-kitchen",
-    "mock-school": "northbay-school-kitchen",
-    "m2": "northbay-school-kitchen",
-    "school": "northbay-school-kitchen",
-    "school-kitchen": "northbay-school-kitchen",
-    "nordic-harbour-hotels": "nordic-harbour-hotels",
-    "nordic-harbour-hotel": "nordic-harbour-hotels",
-    "helsinki-hospital-kitchen": "nordic-harbour-hotels",
-    "helsinki-hospital": "nordic-harbour-hotels",
-    "mock-hotels": "nordic-harbour-hotels",
-    "m1": "nordic-harbour-hotels",
-    "hotel": "nordic-harbour-hotels",
-    "hotels": "nordic-harbour-hotels",
-})
-
-
-def canonical_customer_id(customer_id: str) -> str:
-    """Resolve common customer ID aliases to their canonical demo customerId when applicable."""
-    raw = (customer_id or "").strip()
-    if not raw:
-        return raw
-    return _CUSTOMER_ID_ALIASES.get(raw.lower(), raw)
-
-
-def _customer_matches(entry_customer_id: str, target_customer_id: str) -> bool:
-    if entry_customer_id == target_customer_id:
-        return True
-    if entry_customer_id.strip().lower() == target_customer_id.strip().lower():
-        return True
-    return canonical_customer_id(entry_customer_id) == canonical_customer_id(target_customer_id)
-
 
 class AuditChainLink(Contract):
     """One link in the SHA-256 hash chain over the decision log (T28)."""
@@ -531,9 +498,8 @@ class DecisionLog:
                     self._seal_entry_global(entry)
 
                 c_meta = meta.get("customer")
-                c_key = canonical_customer_id(row.customer_id)
                 if c_meta and "prevHash" in c_meta and "entryHash" in c_meta:
-                    c_chain = self._sealed_by_customer.setdefault(c_key, [])
+                    c_chain = self._sealed_by_customer.setdefault(row.customer_id, [])
                     c_idx = len(c_chain)
                     c_chain.append(
                         AuditChainLink(
@@ -584,8 +550,7 @@ class DecisionLog:
         return link
 
     def _seal_entry_customer(self, entry: AuditEntry) -> AuditChainLink:
-        c_key = canonical_customer_id(entry.customerId)
-        c_chain = self._sealed_by_customer.setdefault(c_key, [])
+        c_chain = self._sealed_by_customer.setdefault(entry.customerId, [])
         prev_hash = c_chain[-1].entryHash if c_chain else GENESIS_HASH
         entry_hash = compute_entry_hash(entry, prev_hash)
         link = AuditChainLink(
@@ -779,44 +744,12 @@ class DecisionLog:
                 self._session.commit()
 
     def for_proposal(self, proposal_id: str) -> AuditTrail:
-        """Return the ordered decision log for `proposal_id` (including bound offer entries)."""
-        target = proposal_id.strip()
-        all_entries = self.entries()
-        matched_offer_ids = {
-            e.offerId for e in all_entries if e.proposalId == target and e.offerId is not None
-        }
-        return AuditTrail(
-            entries=[
-                e
-                for e in all_entries
-                if e.proposalId == target
-                or (e.proposalId is None and e.offerId is not None and e.offerId in matched_offer_ids)
-            ]
-        )
+        """Return the ordered decision log for `proposal_id`."""
+        return AuditTrail(entries=[e for e in self.entries() if e.proposalId == proposal_id])
 
     def for_customer(self, customer_id: str) -> AuditTrail:
-        """Return the ordered decision log for `customer_id` across all offers, proposals and mandate events."""
-        target = customer_id.strip()
-        all_entries = self.entries()
-        customer_proposals = {
-            e.proposalId
-            for e in all_entries
-            if e.proposalId is not None and _customer_matches(e.customerId, target)
-        }
-        customer_offers = {
-            e.offerId
-            for e in all_entries
-            if e.offerId is not None and _customer_matches(e.customerId, target)
-        }
-        return AuditTrail(
-            entries=[
-                e
-                for e in all_entries
-                if _customer_matches(e.customerId, target)
-                or (e.proposalId is not None and e.proposalId in customer_proposals)
-                or (e.offerId is not None and e.offerId in customer_offers)
-            ]
-        )
+        """Return the ordered decision log for `customer_id`."""
+        return AuditTrail(entries=[e for e in self.entries() if e.customerId == customer_id])
 
     def get_audit_trail(
         self,
@@ -876,12 +809,14 @@ class DecisionLog:
             return verify_hash_chain(scoped_entries, sealed)
 
         if customer_id is not None:
-            c_key = canonical_customer_id(customer_id)
-            scoped_entries = list(self.for_customer(customer_id).entries)
-            sealed = list(self._sealed_by_customer.get(c_key, ()))
+            scoped_entries = [e for e in current_entries if e.customerId == customer_id]
+            sealed = list(self._sealed_by_customer.get(customer_id, ()))
             if self._session is not None:
-                all_rows = self._session.scalars(select(DecisionLogRow).order_by(DecisionLogRow.seq)).all()
-                rows = [r for r in all_rows if _customer_matches(r.customer_id, customer_id)]
+                rows = self._session.scalars(
+                    select(DecisionLogRow)
+                    .where(DecisionLogRow.customer_id == customer_id)
+                    .order_by(DecisionLogRow.seq)
+                ).all()
                 db_sealed = []
                 for idx, row in enumerate(rows):
                     meta = (row.data or {}).get("_chain", {}).get("customer")

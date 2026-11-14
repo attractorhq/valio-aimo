@@ -382,10 +382,6 @@ def test_t42_customer_audit_trail_lists_every_event_across_multiple_school_propo
         for entry in prop_trail:
             assert entry["entryId"] in school_entry_ids
 
-    # Alias customerId queries (e.g. 'northbay-school', 'mock-school') resolve to the same complete trail
-    alias_trail = client.get("/v0.1/audit", params={"customerId": "northbay-school"}).json()["entries"]
-    assert [e["entryId"] for e in alias_trail] == school_entry_ids
-
     # Verify customer chain length matches the returned customer audit entries
     ver_school = client.get("/v0.1/audit/verify", params={"customerId": M2.customerId}).json()
     assert ver_school["verified"] is True
