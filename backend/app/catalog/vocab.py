@@ -96,9 +96,10 @@ PRODUCT_CONCEPTS: tuple[ProductConcept, ...] = (
     ProductConcept(
         concept_id="yoghurt",
         category_prefixes=("10412", "10413"),
-        en_terms=("yoghurt", "yogurt"),
-        fi_stems=("jogurt", "jugurt"),
-        sv_stems=("yoghurt",),
+        en_terms=("yoghurt", "yogurt", "oatgurt", "soygurt", "plantgurt", "gurt"),
+        fi_stems=("jogurt", "jugurt", "gurtti", "kauravälipala", "soijavalmiste"),
+        sv_stems=("yoghurt", "havregurt", "sojagurt"),
+        exclude_stems=("oat drink", "kaurajuom", "coffee drink", "kahvijuom", "ice coffee", "jääkahvi"),
     ),
     ProductConcept(
         concept_id="quark",
@@ -471,7 +472,21 @@ FI_SV_TO_EN_SYNONYMS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("kermaviili", ("sour cream",)),
     ("ranskankerma", ("creme fraiche", "sour cream")),
     ("juusto", ("cheese",)),
+    ("kaurajugurt", ("oat yogurt", "oat yoghurt")),
+    ("kaurajogurt", ("oat yogurt", "oat yoghurt")),
+    ("soijajugurt", ("soy yogurt", "soy yoghurt")),
+    ("soijajogurt", ("soy yogurt", "soy yoghurt")),
+    ("mantelijugurt", ("almond yogurt", "almond yoghurt")),
+    ("mantelijogurt", ("almond yogurt", "almond yoghurt")),
+    ("kookosjugurt", ("coconut yogurt", "coconut yoghurt")),
+    ("kookosjogurt", ("coconut yogurt", "coconut yoghurt")),
+    ("soijajuom", ("soy drink",)),
+    ("mantelijuom", ("almond drink",)),
+    ("kookosjuom", ("coconut drink", "coconut milk")),
+    ("kookosmaito", ("coconut milk",)),
     ("jogurt", ("yoghurt", "yogurt")),
+    ("jugurt", ("yogurt", "yoghurt")),
+    ("kaali", ("cabbage",)),
     ("rahka", ("quark",)),
     ("kvarg", ("quark",)),
     ("ruisleipä", ("rye bread", "bread")),
@@ -671,9 +686,81 @@ PRODUCT_FORMS: tuple[ProductForm, ...] = (
 FORMS_BY_ID: dict[str, ProductForm] = {f.form_id: f for f in PRODUCT_FORMS}
 FORMS_BY_LABEL: dict[str, ProductForm] = {f.label.lower(): f for f in PRODUCT_FORMS}
 
+# T95: The first part of a compound ending in a known product noun (e.g. "oat" in "oat yogurt",
+# "soy" in "soy yogurt", "rice" in "rice flour") is a hard type attribute on the head concept,
+# never a free-text search term.
+_BASE_APPLICABLE_CONCEPTS: frozenset[str] = frozenset({
+    "yoghurt", "cream", "sour_cream", "quark", "cheese", "cream_cheese", "processed_cheese",
+    "butter", "flour", "noodles",
+})
 
-def extract_requested_form(text: str = "", preferences: Sequence[Preference] = ()) -> ProductForm | None:
-    """Return the first stated product form from `preferences` or `text` (EN/FI/SV), or None."""
+PRODUCT_BASES: tuple[ProductForm, ...] = (
+    ProductForm(
+        form_id="oat",
+        label="Oat",
+        query_patterns=_compile_patterns(r"\boat\b", r"\bkaura[-\w]*", r"\bhavre[-\w]*"),
+        product_patterns=_compile_patterns(r"\boat\w*", r"\b\w*kaura\w*", r"\b\w*havre\w*"),
+    ),
+    ProductForm(
+        form_id="soy",
+        label="Soy",
+        query_patterns=_compile_patterns(r"\bsoy(?:a)?\b", r"\bsoija[-\w]*", r"\bsoja[-\w]*"),
+        product_patterns=_compile_patterns(r"\bsoy\w*", r"\b\w*soija\w*", r"\b\w*soja\w*"),
+    ),
+    ProductForm(
+        form_id="almond",
+        label="Almond",
+        query_patterns=_compile_patterns(r"\balmond\b", r"\bmanteli[-\w]*", r"\bmandel[-\w]*"),
+        product_patterns=_compile_patterns(r"\balmond\w*", r"\b\w*manteli\w*", r"\b\w*mandel\w*"),
+    ),
+    ProductForm(
+        form_id="coconut",
+        label="Coconut",
+        query_patterns=_compile_patterns(r"\bcoconut\b", r"\bkookos[-\w]*", r"\bkokos[-\w]*"),
+        product_patterns=_compile_patterns(r"\bcoconut\w*", r"\b\w*kookos\w*", r"\b\w*kokos\w*"),
+    ),
+    ProductForm(
+        form_id="rice",
+        label="Rice",
+        query_patterns=_compile_patterns(r"\brice\b", r"\briisi[-\w]*", r"\bris\b"),
+        product_patterns=_compile_patterns(r"\brice\w*", r"\b\w*riisi\w*", r"\b\w*ris\b"),
+    ),
+)
+
+BASES_BY_ID: dict[str, ProductForm] = {b.form_id: b for b in PRODUCT_BASES}
+_NEGATED_BASE_RE = re.compile(
+    r"\b(?:(?:soy|soya|oats?|almonds?|coconut|rice)[- ]free|"
+    r"(?:free[- ]from|without|no)\s+(?:soy|soya|oats?|almonds?|coconut|rice)|"
+    r"(?:soija|kaura|manteli|kookos|riisi)(?:ton\w*|ttom\w*)|(?:soja|havre|mandel|kokos|ris)fri\w*)\b",
+    re.IGNORECASE,
+)
+
+
+def extract_requested_base(text: str = "") -> ProductForm | None:
+    """Return the stated base attribute (oat, soy, almond, coconut, rice) when `text` resolves to a head concept."""
+    if not text:
+        return None
+    concepts = resolve_query_concepts(text)
+    if not concepts or concepts[0].concept_id not in _BASE_APPLICABLE_CONCEPTS:
+        return None
+    hits: list[tuple[int, int, ProductForm]] = []
+    for order, base in enumerate(PRODUCT_BASES):
+        starts = [m.start() for pat in base.query_patterns for m in pat.finditer(text)]
+        if starts:
+            hits.append((min(starts), order, base))
+    if not hits:
+        return None
+    hits.sort(key=lambda h: (h[0], h[1]))
+    return hits[0][2]
+
+
+def extract_requested_form(
+    text: str = "",
+    preferences: Sequence[Preference] = (),
+    *,
+    include_bases: bool = True,
+) -> ProductForm | None:
+    """Return the first stated product form (or hard base attribute) from `preferences` or `text`, or None."""
     for pref in preferences:
         if pref.kind == "OTHER":
             key = pref.value.strip().lower()
@@ -688,10 +775,22 @@ def extract_requested_form(text: str = "", preferences: Sequence[Preference] = (
         starts = [m.start() for pat in form.query_patterns for m in pat.finditer(text)]
         if starts:
             hits.append((min(starts), order, form))
-    if not hits:
-        return None
-    hits.sort(key=lambda h: (h[0], h[1]))
-    return hits[0][2]
+    if hits:
+        hits.sort(key=lambda h: (h[0], h[1]))
+        return hits[0][2]
+    if include_bases:
+        return extract_requested_base(text)
+    return None
+
+
+def product_bases(product_names: Sequence[str]) -> frozenset[str]:
+    """Return all base attributes proven by `product_names` (EN/FI/SV)."""
+    text = " " + _NEGATED_BASE_RE.sub(" ", " ".join(n for n in product_names if n).lower()) + " "
+    return frozenset(
+        base.form_id
+        for base in PRODUCT_BASES
+        if any(pat.search(text) for pat in base.product_patterns)
+    )
 
 
 def product_forms(product_names: Sequence[str], category: str = "") -> frozenset[str]:
@@ -722,6 +821,15 @@ def product_form_difference(
     """Return None when `product` proves `requested_form`, else a plain-language difference string."""
     if requested_form is None:
         return None
+    if requested_form.form_id in BASES_BY_ID:
+        bases = product_bases(product_names)
+        if bases == {requested_form.form_id}:
+            return None
+        for other in PRODUCT_BASES:
+            if other.form_id != requested_form.form_id and other.form_id in bases:
+                qualifier = "only " if requested_form.form_id in bases else ""
+                return f"{other.form_id}, not {qualifier}{requested_form.form_id}"
+        return f"not {requested_form.form_id}"
     forms = product_forms(product_names, category)
     if requested_form.form_id in forms:
         return None
@@ -775,13 +883,13 @@ _QUANTITY_STRIP_RE = re.compile(
 def normalise_finnish_token(token: str) -> str:
     """Strip common Finnish/Swedish inflectional endings for compound/substring matching."""
     t = token.lower().strip()
-    if len(t) <= 4:
+    if len(t) <= 4 or t in ("yogurt", "yoghurt", "coconut"):
         return t
     for suffix in ("lla", "llä", "lta", "ltä", "sta", "stä", "ssa", "ssä", "ksi", "itta", "ittä", "ineen"):
         if t.endswith(suffix) and len(t) - len(suffix) >= 4:
             t = t[: -len(suffix)]
             break
-    if t.endswith(("aa", "ää")) and not t.endswith(("maa", "pää")) and len(t) >= 6:
+    if t.endswith(("aa", "ää", "ia", "iä")) and not t.endswith(("maa", "pää")) and len(t) >= 6:
         t = t[:-1]
     elif t.endswith(("ta", "tä", "na", "nä")) and len(t) >= 6:
         t = t[:-2]
@@ -873,30 +981,48 @@ def resolve_query_concepts(cleaned_query: str) -> list[ProductConcept]:
     word_set = frozenset(raw_words) | frozenset(norm_words)
     norm_text = " ".join(norm_words)
 
-    scored: list[tuple[int, int, ProductConcept]] = []
+    scored: list[tuple[int, int, int, ProductConcept]] = []
     for order, concept in enumerate(PRODUCT_CONCEPTS):
         if _named_by_longer_phrase(concept, q_lower, norm_text):
             continue
-        # The longest term that matched: "cream cheese" (12) outranks "cream" (5), "maitojauhe" outranks "maito".
+        # The head word (furthest end position) determines the base type ("riisijauho" -> flour, not rice);
+        # among matches reaching the head word, the longest matched term wins ("cream cheese" outranks "cheese").
         best = 0
+        best_end = -1
         for en_term in concept.en_terms:
             if " " in en_term:
                 if en_term in q_lower or all(p in word_set for p in en_term.split()):
                     best = max(best, len(en_term))
+                    idx = q_lower.rfind(en_term)
+                    if idx >= 0:
+                        best_end = max(best_end, idx + len(en_term))
+                    else:
+                        last_p = en_term.split()[-1]
+                        best_end = max(best_end, q_lower.rfind(last_p) + len(last_p))
             elif en_term in word_set:
                 best = max(best, len(en_term))
+                best_end = max(best_end, q_lower.rfind(en_term) + len(en_term))
         for stem in (*concept.fi_stems, *concept.sv_stems):
             if len(stem) >= 5:
                 if stem in q_lower or stem in norm_text:
                     best = max(best, len(stem))
+                    pos_q = q_lower.rfind(stem)
+                    pos_n = norm_text.rfind(stem)
+                    if pos_q >= 0:
+                        best_end = max(best_end, pos_q + len(stem))
+                    if pos_n >= 0:
+                        best_end = max(best_end, pos_n + len(stem))
             elif stem in word_set or (
                 # A two-letter stem ("te") is only ever a whole word: "levite" is not tea.
                 len(stem) >= 3 and any(w.startswith(stem) or w.endswith(stem) for w in norm_words)
             ):
                 best = max(best, len(stem))
+                pos_n = norm_text.rfind(stem)
+                if pos_n >= 0:
+                    best_end = max(best_end, pos_n + len(stem))
         if best:
-            scored.append((-best, order, concept))
-    matched = [concept for _best, _order, concept in sorted(scored, key=lambda hit: (hit[0], hit[1]))]
+            scored.append((-best_end, -best, order, concept))
+    matched = [concept for _end, _best, _order, concept in sorted(scored, key=lambda hit: (hit[0], hit[1], hit[2]))]
 
     # Prefer specific concepts over generic ones (e.g. oat_drink over milk, macaroni over pasta).
     specific_ids = {c.concept_id for c in matched}
@@ -915,6 +1041,17 @@ def expand_query_tokens(cleaned_query: str) -> tuple[list[tuple[str, ...]], froz
         for w in _WORD_SPLIT_RE.split(q_lower)
         if w and w not in QUERY_STOPWORDS and not w.isdigit()
     ]
+    # T95 Scope 4: when the query resolves to a head concept and carries a base modifier (e.g. "oat" in
+    # "oat yogurt"), keep that first part as a hard type attribute rather than a free-text search term.
+    req_base = extract_requested_base(q_lower)
+    if req_base is not None and len(raw_words) > 1:
+        filtered = [
+            w for w in raw_words
+            if not any(pat.fullmatch(w) for pat in req_base.query_patterns)
+        ]
+        if filtered:
+            raw_words = filtered
+
     groups: list[tuple[str, ...]] = []
     all_terms: set[str] = set()
     for word in raw_words:
