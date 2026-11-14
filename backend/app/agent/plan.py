@@ -19,6 +19,7 @@ from typing import Literal
 from pydantic import Field
 
 from app.catalog.categories import TypeMatch, product_type_match
+from app.catalog.normalise import apply_price_ratio_content
 from app.catalog.search import (
     SearchProductsResult,
     evaluate_product_static_requirements,
@@ -478,6 +479,182 @@ def observation_from_offer_line(line: OfferLine) -> CandidateObservation:
     )
 
 
+_SALES_UNIT_DISPLAY: dict[str, str] = {
+    "ST": "pc",
+    "PCS": "pc",
+    "PC": "pc",
+    "H87": "pc",
+    "PR": "pc",
+    "PTN": "pc",
+    "EA": "pc",
+    "BAG": "bag",
+    "BG": "bag",
+    "PS": "bag",
+    "SK": "bag",
+    "PAK": "pack",
+    "PK": "pack",
+    "KI": "case",
+    "LTK": "case",
+    "BOX": "case",
+    "CS": "case",
+    "CT": "case",
+    "KG": "kg",
+    "KGM": "kg",
+    "L": "l",
+    "LTR": "l",
+}
+
+_KNOWN_BRANDS: tuple[tuple[str, str], ...] = (
+    ("fazer aito", "Fazer Aito"),
+    ("explore cuisine", "Explore Cuisine"),
+    ("myllyn paras", "Myllyn Paras"),
+    ("valio", "Valio"),
+    ("oddlygood", "Oddlygood"),
+    ("elovena", "Elovena"),
+    ("sammills", "SamMills"),
+    ("semper", "Semper"),
+    ("rummo", "Rummo"),
+    ("arla", "Arla"),
+    ("oatly", "Oatly"),
+    ("urtekram", "Urtekram"),
+    ("barilla", "Barilla"),
+    ("fazer", "Fazer"),
+    ("meira", "Meira"),
+    ("raisio", "Raisio"),
+    ("paulig", "Paulig"),
+    ("atria", "Atria"),
+    ("snellman", "Snellman"),
+    ("saarioinen", "Saarioinen"),
+    ("apetit", "Apetit"),
+    ("vaasan", "Vaasan"),
+    ("pirkka", "Pirkka"),
+    ("menu", "Menu"),
+    ("eila", "Valio Eila"),
+    ("arki", "Valio Arki"),
+)
+
+_GENERIC_NAME_LEADS: frozenset[str] = frozenset({
+    "synthetic",
+    "milk",
+    "skimmed",
+    "semi",
+    "semi-skimmed",
+    "whole",
+    "oat",
+    "gluten-free",
+    "glutenfree",
+    "gluten",
+    "lactose-free",
+    "lactose",
+    "organic",
+    "luomu",
+    "cooking",
+    "whipping",
+    "fresh",
+    "light",
+    "cream",
+    "pasta",
+    "macaroni",
+    "penne",
+    "fusilli",
+    "spaghetti",
+    "lasagne",
+    "fettuccine",
+    "fettucine",
+})
+
+_PASTA_SHAPES: tuple[tuple[str, str], ...] = (
+    ("macaroni", "macaroni"),
+    ("maccheroni", "macaroni"),
+    ("makaroni", "macaroni"),
+    ("penne", "penne"),
+    ("fusilli", "fusilli"),
+    ("kierrepasta", "fusilli"),
+    ("fettuccine", "fettuccine"),
+    ("fettucine", "fettuccine"),
+    ("spaghetti", "spaghetti"),
+    ("spagetti", "spaghetti"),
+    ("lasagne", "lasagne"),
+    ("lasagna", "lasagne"),
+    ("rigatoni", "rigatoni"),
+    ("tagliatelle", "tagliatelle"),
+)
+
+_SOUR_MILK_TERMS: tuple[str, ...] = (
+    "sour milk",
+    "piimä",
+    "surmjölk",
+    "filmjölk",
+    "buttermilk",
+)
+
+
+def _sales_unit_label(sales_unit: str) -> str:
+    clean = (sales_unit or "").strip().upper()
+    return _SALES_UNIT_DISPLAY.get(clean, clean.lower() or "unit")
+
+
+def _extract_brand(product: Product) -> str | None:
+    """Extract a readable brand name from the product's multilingual names (§7.6 trade-off)."""
+    combined = " ".join(p for p in (product.name, *product.names.values()) if p)
+    lower = combined.lower()
+    for needle, label in _KNOWN_BRANDS:
+        if re.search(rf"\b{re.escape(needle)}\b", lower):
+            return label
+
+    cleaned = re.sub(r"^\s*\d+\s*[x×]\s*", "", product.name or "", flags=re.IGNORECASE).strip()
+    if cleaned.lower().startswith("synthetic "):
+        cleaned = cleaned[len("synthetic ") :].strip()
+        cleaned = re.sub(r"^\s*\d+\s*[x×]\s*", "", cleaned, flags=re.IGNORECASE).strip()
+    tokens = re.findall(r"[A-Za-zÅÄÖåäö][\w'’-]*", cleaned)
+    if tokens:
+        first = tokens[0]
+        if first[0].isupper() and first.lower() not in _GENERIC_NAME_LEADS:
+            return first
+    return None
+
+
+def _extract_product_traits(product: Product) -> list[str]:
+    """Extract fat %, dairy variant, pasta shape, or heat-treatment style for the §7.6 one-line trade-off."""
+    text_lower = " ".join(p for p in (product.name, *product.names.values()) if p).lower()
+    traits: list[str] = []
+
+    if "semi skimmed" in text_lower or "semi-skimmed" in text_lower or "kevytmaito" in text_lower:
+        traits.append("semi-skimmed")
+    elif "skimmed" in text_lower or "rasvaton" in text_lower:
+        traits.append("skimmed (0 % fat)")
+    elif "whole milk" in text_lower or "täysmaito" in text_lower:
+        traits.append("whole milk")
+
+    fat_match = _FAT_IN_NAME_RE.search(product.name or "")
+    if fat_match:
+        pct = fat_match.group(1).replace(",", ".")
+        fat_label = f"{pct} % fat"
+        if fat_label not in traits:
+            traits.append(fat_label)
+
+    for needle, shape in _PASTA_SHAPES:
+        if re.search(rf"\b{re.escape(needle)}\b", text_lower):
+            if shape not in traits:
+                traits.append(shape)
+            break
+
+    if "barista" in text_lower:
+        traits.append("Barista")
+    if re.search(r"\buht\b", text_lower):
+        traits.append("UHT")
+    elif re.search(r"\besl\b", text_lower):
+        traits.append("ESL")
+    if (
+        "organic" in text_lower
+        or "luomu" in text_lower
+        or "EU_ORGANIC_FARMING" in product.labels
+    ):
+        traits.append("organic")
+
+    return traits
+
+
 def _format_tradeoff(
     product: Product,
     *,
@@ -514,7 +691,15 @@ def _format_tradeoff(
     cpsu = product.contentPerSalesUnit
     if cpsu is not None:
         val_str = format(cpsu.value.normalize(), "f")
-        parts.append(f"{val_str} {cpsu.unit} / {product.salesUnit.lower()}")
+        parts.append(f"{val_str} {cpsu.unit} / {_sales_unit_label(product.salesUnit)}")
+
+    brand = _extract_brand(product)
+    if brand:
+        parts.append(brand)
+
+    traits = _extract_product_traits(product)
+    if traits:
+        parts.append(", ".join(traits))
 
     if stock_tier == "PLENTY":
         parts.append("plenty in stock (verified)")
@@ -522,6 +707,8 @@ def _format_tradeoff(
         parts.append(f"{format(available_qty.normalize(), 'f')} in stock (verified)")
     elif stock_tier == "SUPPLIER":
         parts.append("supplier warehouse stock (quantity unknown)")
+    elif stock_tier == "UNKNOWN":
+        parts.append("static catalogue match (stock unprobed)")
 
     if reliability is not None:
         pct = (reliability * Decimal(100)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
@@ -540,13 +727,34 @@ def _concept_for_item(item: RequestItem) -> tuple[ProductConcept | None, Product
 
 
 def requested_type_match(product: Product, item: RequestItem) -> TypeMatch:
-    """Is `product` exactly the product type the buyer asked for (e.g. whipping, not cooking cream)? (T34)"""
+    """Is `product` exactly the product type the buyer asked for (e.g. whipping, not cooking cream)? (T34, T22)"""
     primary, _ = _concept_for_item(item)
     codes = tuple(r.code for r in item.requirements)
     names = (product.name, *product.names.values())
-    return product_type_match(
+    base = product_type_match(
         item.what, names, concept_id=primary.concept_id if primary else None, requirement_codes=codes
     )
+    differences = list(base.differences)
+    text_lower = " ".join(n for n in names if n).lower()
+    q_lower = item.what.lower()
+
+    if primary is not None and primary.concept_id == "milk":
+        asked_sour = any(t in q_lower for t in ("sour", "piimä", "surmjölk", "filmjölk", "buttermilk", "gefilus"))
+        if not asked_sour and any(t in text_lower for t in _SOUR_MILK_TERMS):
+            diff = "sour milk, not milk"
+            if diff not in differences:
+                differences.append(diff)
+    elif primary is not None and primary.parent_concept == "pasta":
+        words = frozenset(_WORD_RE.findall(text_lower))
+        if not match_concept_in_text(primary, text_lower, words):
+            for needle, shape in _PASTA_SHAPES:
+                if shape != primary.concept_id and re.search(rf"\b{re.escape(needle)}\b", text_lower):
+                    diff = f"{shape}, not {primary.concept_id}"
+                    if diff not in differences:
+                        differences.append(diff)
+                    break
+
+    return TypeMatch(exact=not differences, differences=tuple(differences))
 
 
 def _matches_primary_concept(product: Product, primary: ProductConcept | None, query_lower: str) -> tuple[bool, bool]:
@@ -613,6 +821,12 @@ def rank_candidates(
                 continue
             if obs.unit_price_excl_vat is None:
                 continue
+            prod = apply_price_ratio_content(
+                prod,
+                obs.unit_price_excl_vat,
+                obs.comparison_price,
+                obs.comparison_unit,
+            )
 
         sizing = size(prod, item.quantity, item.unit)
         if sizing.unit_mismatch or sizing.content is None:
@@ -646,6 +860,10 @@ def rank_candidates(
                 sub_rank = 2
                 sub_source = "AGENT"
 
+        # When live/recorded observations exist for this item, any candidate with a verified observation
+        # ranks ahead of static-only candidates that were not in a partial recorded fixture batch.
+        has_observation = 0 if (obs is not None or not obs_map) else 1
+
         # 1. All requirements met with >= DECLARED (§7.6 #1)
         reqs_declared = _all_requirements_declared(prod, item.requirements, mandate)
         crit1_declared = 0 if reqs_declared else 1
@@ -665,7 +883,7 @@ def rank_candidates(
             else:
                 crit2_deliverable = 3
         else:
-            crit2_deliverable = 0
+            crit2_deliverable = 0 if not obs_map else 4
 
         # 3. Lowest comparison price (€/l, €/kg) (§7.6 #3)
         comp_price, _ = _comparison_price(prod, obs, item.unit)
@@ -691,6 +909,7 @@ def rank_candidates(
         in_brief = 0 if prod.productId in BRIEF_PRODUCT_IDS else 1
 
         sort_key = (
+            has_observation,
             sub_rank,
             crit1_declared,
             crit2_deliverable,
@@ -732,7 +951,7 @@ def rank_candidates(
             unit_price = obs.unit_price_excl_vat
             line_reasons = list(obs.reasons)
         else:
-            deliverable_verified = True
+            deliverable_verified = not obs_map
             stock_tier = "UNKNOWN"
             avail_qty = None
             deliv_date = None
@@ -1004,8 +1223,11 @@ def build_shortlist_offer_items(
     # Per §7.7 ("same product type first"), if non-substitute candidates exist (substitutionSource is None),
     # do not mix different-product-type agent substitutes into the same item allocation.
     has_direct_candidates = any(rc.substitutionSource is None for rc in ranked_candidates)
+    has_priced_candidates = any(rc.unitPriceExclVat is not None for rc in ranked_candidates)
     for rc in ranked_candidates:
         if has_direct_candidates and rc.substitutionSource == "AGENT" and item.productId is None:
+            continue
+        if has_priced_candidates and rc.unitPriceExclVat is None:
             continue
         add_id(rc.productId)
 
@@ -1020,6 +1242,15 @@ def build_shortlist_offer_items(
     ]
 
 
+def good_better_best_alternatives(ranked_candidates: Sequence[RankedCandidate]) -> list[RankedCandidate]:
+    """Return the Recommended + Best / Better / Good options (up to 4 proven-compliant candidates, §7.6 / T22)."""
+    return [
+        rc
+        for rc in ranked_candidates
+        if rc.tier in ("RECOMMENDED", "BEST", "BETTER", "GOOD")
+    ][:4]
+
+
 __all__ = [
     "MAX_SHORTLIST_PER_ITEM",
     "AgentPlan",
@@ -1031,10 +1262,12 @@ __all__ = [
     "ValioSubstituteCheck",
     "build_shortlist_offer_items",
     "check_valio_substitutes",
+    "good_better_best_alternatives",
     "is_compliant_substitute",
     "normalise_item_for_planning",
     "observation_from_offer_line",
     "rank_candidates",
+    "requested_type_match",
     "requirement_display_name",
     "select_curated_static_excluded",
 ]
