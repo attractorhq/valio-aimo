@@ -46,7 +46,7 @@ function ExcludedEntry({ entry, item }: { entry: ExcludedProduct; item?: Request
 
   return (
     <li
-      className={`rounded-lg border px-2 py-1 text-xs ${
+      className={`rounded-[12px] border px-2.5 py-1.5 text-xs ${
         valioSub
           ? 'border-[var(--block)] bg-[var(--block-bg)]'
           : 'border-[var(--line)] bg-[var(--surface)]'
@@ -177,7 +177,7 @@ export function ExcludedList({
 
       {excluded.length > 0 && (
         <section
-          className="min-w-0 rounded-xl border border-[var(--line)] bg-[var(--bg)] px-2.5 py-2 [overflow-wrap:anywhere]"
+          className="min-w-0 rounded-[24px] border border-[var(--line)] bg-[var(--tint)] px-3.5 py-2.5 [overflow-wrap:anywhere]"
           aria-label="Excluded candidates"
         >
           <header className="flex flex-wrap items-center justify-between gap-2">

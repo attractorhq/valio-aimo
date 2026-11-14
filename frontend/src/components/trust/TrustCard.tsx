@@ -107,7 +107,7 @@ export function TrustCard({
 
   return (
     <article
-      className="mt-2 rounded-xl border border-[var(--line)] bg-[var(--bg)] px-3 py-2"
+      className="mt-2 rounded-[24px] border border-[var(--line)] bg-[var(--tint)] px-3.5 py-2.5"
       aria-label={`Trust card for ${line.name}`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -122,7 +122,7 @@ export function TrustCard({
               data-requirement={`${req.kind}:${req.code}`}
               data-proven={proven ? 'true' : 'false'}
               title={fact ? `Source: ${sourceText(fact)}` : 'No evidence on this line'}
-              className="inline-flex flex-wrap items-center gap-1 rounded-md border border-[var(--line)] bg-[var(--surface)] px-2 py-0.5 text-xs"
+              className="inline-flex flex-wrap items-center gap-1 rounded-[12px] border border-[var(--line)] bg-[var(--surface)] px-2 py-0.5 text-xs"
             >
               <strong className="text-[var(--ink)]">
                 {requirementLabel(req)}
@@ -139,20 +139,20 @@ export function TrustCard({
             className="flex flex-wrap items-center gap-1 text-xs font-semibold"
             aria-label={`Trust summary for ${line.name}`}
           >
-            <li className="rounded-md bg-[var(--auto-bg)] px-1.5 py-0.5 text-[var(--auto)]">
+            <li className="rounded-[12px] bg-[var(--auto-bg)] px-2 py-0.5 text-[var(--auto)]">
               {counts.VERIFIED} Verified
             </li>
-            <li className="rounded-md bg-[var(--info-bg)] px-1.5 py-0.5 text-[var(--info)]">
+            <li className="rounded-[12px] bg-[var(--info-bg)] px-2 py-0.5 text-[var(--info)]">
               {counts.DECLARED} Declared
             </li>
-            <li className="rounded-md bg-[var(--ask-bg)] px-1.5 py-0.5 text-[var(--ask)]">
+            <li className="rounded-[12px] bg-[var(--ask-bg)] px-2 py-0.5 text-[var(--ask)]">
               {counts.ESTIMATE} Estimate
             </li>
-            <li className="rounded-md border border-dashed border-[var(--muted)] bg-[var(--surface)] px-1.5 py-0.5 text-[var(--muted)]">
+            <li className="rounded-[12px] border border-dashed border-[var(--muted)] bg-[var(--surface)] px-2 py-0.5 text-[var(--muted)]">
               {counts.UNKNOWN} Unknown
             </li>
             {counts.CONFLICT > 0 && (
-              <li className="rounded-md bg-[var(--block-bg)] px-1.5 py-0.5 text-[var(--block)]">
+              <li className="rounded-[12px] bg-[var(--block-bg)] px-2 py-0.5 text-[var(--block)]">
                 {counts.CONFLICT} Conflict
               </li>
             )}
@@ -162,7 +162,7 @@ export function TrustCard({
             aria-expanded={expanded}
             aria-controls={factsId}
             onClick={() => setExpanded((prev) => !prev)}
-            className="inline-flex items-center gap-1 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-2 py-0.5 text-xs font-semibold text-[var(--ink)] hover:border-[var(--green)]"
+            className="inline-flex items-center gap-1 rounded-full border border-[var(--action)] bg-[var(--surface)] px-3 py-0.5 text-xs font-semibold text-[var(--action)] hover:bg-[var(--tint)]"
           >
             <ToggleIcon size={13} aria-hidden />
             <span>{expanded ? 'Hide facts' : `Show facts (${displayedFacts.length})`}</span>
@@ -175,7 +175,7 @@ export function TrustCard({
           {displayedFacts.map((fact, idx) => (
             <div
               key={`${fact.fact}-${idx}`}
-              className="grid grid-cols-1 items-baseline gap-1 rounded-lg bg-[var(--surface)] px-3 py-1.5 text-sm sm:grid-cols-[160px_minmax(0,1fr)_auto]"
+              className="grid grid-cols-1 items-baseline gap-1 rounded-[12px] bg-[var(--surface)] px-3 py-1.5 text-sm sm:grid-cols-[160px_minmax(0,1fr)_auto]"
             >
               <dt className="text-xs font-semibold text-[var(--muted)]">{factLabel(fact.fact)}</dt>
               <dd className="min-w-0">

@@ -1,32 +1,76 @@
 @import 'tailwindcss';
 
-/* Verified or Ask: a calm control room. Status is always icon + word + colour, never colour alone. */
+/* Verified or Ask: a calm B2B control room in the Valio visual family (T64).
+   Status is always icon + word + colour, never colour alone. */
 :root {
-  --bg: #f4f7f5;
-  --surface: #ffffff;
-  --ink: #15302a;
-  --muted: #5d6f68;
-  --line: #dbe4df;
-  --green: #074d40;
-  --green-soft: #e6f2ec;
-  --lime: #dff1a8;
-  --auto: #0b6648;
-  --auto-bg: #e2f3e9;
-  --ask: #7c5200;
-  --ask-bg: #fdf0d2;
-  --block: #a12a1e;
-  --block-bg: #fbe5e2;
-  --info: #31556b;
-  --info-bg: #e5eef4;
-  --focus: #1b6fd1;
-  --radius: 12px;
-  font-family:
-    Inter,
+  /* Valio design tokens (from valio.fi CSS) */
+  --valio-iconic-blue: #002f6d;
+  --valio-action-blue: #204dc6;
+  --valio-button-hover: #1e00cf;
+  --valio-light-blue: #eaf4fd;
+  --valio-warm-white: #f7f3ed;
+  --valio-brown: #efe7de;
+  --valio-ash-gray: #dfe3e6;
+  --valio-aluminum: #bac4cc;
+  --valio-text-tertiary: #616161;
+  --valio-green: #03bb67;
+  --valio-white: #ffffff;
+
+  /* Control-room semantic tokens mapped to Valio tokens */
+  --bg: var(--valio-warm-white);
+  --bg-band: var(--valio-brown);
+  --surface: var(--valio-white);
+  --tint: var(--valio-light-blue);
+  --ink: var(--valio-iconic-blue);
+  --muted: var(--valio-text-tertiary);
+  --line: var(--valio-ash-gray);
+  --line-strong: var(--valio-aluminum);
+  --brand: var(--valio-iconic-blue);
+  --action: var(--valio-action-blue);
+  --action-hover: var(--valio-button-hover);
+  --green: var(--valio-action-blue);
+  --green-soft: var(--valio-light-blue);
+  --lime: var(--valio-light-blue);
+
+  /* Semantic decision colours (WCAG AA contrast + Valio green accent) */
+  --auto: #026b3b;
+  --auto-accent: var(--valio-green);
+  --auto-bg: #e6f9f0;
+  --ask: #8a4b00;
+  --ask-bg: #fff4db;
+  --block: #a81c1c;
+  --block-bg: #fde8e8;
+  --info: var(--valio-iconic-blue);
+  --info-bg: var(--valio-light-blue);
+  --focus: var(--valio-action-blue);
+
+  /* Rounding & spacing tokens (T49 + T64: pills 9999px, cards 24px, inputs/chips 12px) */
+  --radius-pill: 9999px;
+  --radius-card: 24px;
+  --radius-input: 12px;
+  --radius: 24px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+
+  /* Typography: open look-alikes from Google Fonts (Figtree + Barlow Condensed) */
+  --font-sans:
+    'Figtree',
+    'Nunito Sans',
     'Segoe UI',
     system-ui,
     -apple-system,
     Arial,
     sans-serif;
+  --font-condensed:
+    'Barlow Condensed',
+    'Arial Narrow',
+    system-ui,
+    sans-serif;
+
+  font-family: var(--font-sans);
   color: var(--ink);
   background: var(--bg);
   font-synthesis: none;
@@ -38,6 +82,8 @@
 body {
   margin: 0;
   background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
 }
 h1,
 h2,
@@ -51,6 +97,15 @@ ul,
 ol {
   margin: 0;
 }
+h1,
+h2,
+h3 {
+  color: var(--brand);
+}
+h1 {
+  font-family: var(--font-condensed);
+  letter-spacing: 0.01em;
+}
 ul,
 ol {
   padding: 0;
@@ -58,7 +113,8 @@ ol {
 }
 button,
 input,
-textarea {
+textarea,
+select {
   font: inherit;
   color: inherit;
 }
@@ -78,10 +134,10 @@ textarea {
   position: absolute;
   left: 16px;
   top: -60px;
-  background: var(--green);
+  background: var(--brand);
   color: #fff;
-  padding: 8px 12px;
-  border-radius: 8px;
+  padding: 8px 16px;
+  border-radius: var(--radius-pill);
   z-index: 10;
 }
 .skip-link:focus {
@@ -123,26 +179,60 @@ textarea {
   gap: 12px;
   flex-wrap: wrap;
   padding: 10px 20px;
-  background: var(--green);
+  background: var(--valio-iconic-blue);
   color: #fff;
+  border-bottom: 1px solid rgb(255 255 255 / 0.14);
 }
 .brand {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  min-width: 0;
+}
+.brand-wordmark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 11px;
+  border-radius: var(--radius-pill);
+  background: var(--valio-white);
+  color: var(--valio-iconic-blue);
+  font-family: var(--font-condensed);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.05;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.brand-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
 }
 .brand-name {
-  display: block;
+  display: inline-block;
+  font-family: var(--font-condensed);
   font-weight: 700;
-  font-size: 16px;
-  letter-spacing: -0.2px;
+  font-size: 19px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  line-height: 1.1;
+  color: #fff;
+}
+.brand-gateway {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--valio-light-blue);
   line-height: 1.2;
 }
 .brand-sub {
   display: block;
   font-size: 11px;
-  opacity: 0.82;
-  line-height: 1.2;
+  color: rgb(255 255 255 / 0.88);
+  line-height: 1.25;
 }
 .app-tagline {
   font-size: 13px;
@@ -161,20 +251,14 @@ main {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-  padding: 10px 20px;
+  padding: 12px 20px;
   font-size: 12px;
   color: var(--muted);
+  background: var(--bg-band);
   border-top: 1px solid var(--line);
 }
 
 /* Layout (T49): spacing tokens 4/8/12/16/24. Desktop: request + result left, evidence right. */
-:root {
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 24px;
-}
 .main-grid {
   display: grid;
   grid-template-columns: minmax(360px, 440px) minmax(0, 1fr);
@@ -202,40 +286,41 @@ main {
     gap: var(--space-3);
   }
   main {
-    padding: 16px;
+    padding: 14px 16px;
   }
   .app-header {
-    padding: 12px 16px;
+    padding: 10px 16px;
   }
 }
 
-/* Panels */
+/* Panels & Cards (24px rounding, white surface, ash-gray border) */
 .panel {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-card);
   padding: 16px;
 }
 .panel-title {
-  font-size: 12px;
+  font-family: var(--font-condensed);
+  font-size: 15px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--brand);
   margin-bottom: 10px;
 }
 
 /* Buyer picker: a segmented control. Selection = filled background + check, never a side bar. */
 .segmented {
-  border: 0;
+  border: 1px solid var(--line);
   margin: 0;
   padding: var(--space-1);
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   grid-auto-flow: column;
   gap: var(--space-1);
-  background: var(--bg);
-  border-radius: var(--radius);
+  background: var(--tint);
+  border-radius: 16px;
 }
 .segment {
   position: relative;
@@ -245,7 +330,7 @@ main {
   min-height: 44px;
   padding: var(--space-2) var(--space-3);
   border: 1px solid transparent;
-  border-radius: calc(var(--radius) - 4px);
+  border-radius: var(--radius-input);
   cursor: pointer;
   min-width: 0;
 }
@@ -253,7 +338,7 @@ main {
   background: var(--surface);
 }
 .segment.is-selected {
-  background: var(--green);
+  background: var(--valio-iconic-blue);
   color: #fff;
 }
 .segment.is-selected small {
@@ -357,19 +442,23 @@ main {
   margin-top: 0;
 }
 
-/* Composer */
+/* Composer & Buttons (T64: pills 9999px, inputs 12px, action blue #204DC6, hover #1E00CF) */
 .field-label {
   display: block;
   font-weight: 600;
+  color: var(--brand);
   margin-bottom: 6px;
 }
 .composer textarea {
   width: 100%;
   resize: vertical;
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-input);
   padding: 10px 12px;
-  background: #fbfcfb;
+  background: var(--surface);
+}
+.composer textarea:focus {
+  border-color: var(--action);
 }
 .field-hint {
   font-size: 12px;
@@ -392,46 +481,74 @@ main {
 .scenario-buttons .btn {
   min-width: 0;
 }
+/* Secondary button default: white with action-blue border and label, pill radius */
 .btn {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  padding: 8px 14px;
+  border-radius: var(--radius-pill);
+  border: 1.5px solid var(--valio-action-blue);
+  background: var(--valio-white);
+  color: var(--valio-action-blue);
+  font-weight: 500;
+  padding: 8px 18px;
   cursor: pointer;
   min-height: 44px;
+  transition:
+    background-color 0.14s,
+    border-color 0.14s,
+    color 0.14s;
+}
+.btn:hover:not(:disabled) {
+  background: var(--valio-light-blue);
+  border-color: var(--valio-button-hover);
+  color: var(--valio-button-hover);
 }
 .btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
+/* Primary button: filled action blue, white label, ~44px tall, generous horizontal padding, medium weight */
 .btn-primary {
-  background: var(--green);
-  border-color: var(--green);
-  color: #fff;
-  font-weight: 600;
+  background: var(--valio-action-blue);
+  border-color: var(--valio-action-blue);
+  color: var(--valio-white);
+  font-weight: 500;
+  padding: 8px 22px;
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--valio-button-hover);
+  border-color: var(--valio-button-hover);
+  color: var(--valio-white);
 }
 .btn-scenario {
   text-align: left;
+  background: var(--valio-white);
+  border-color: var(--valio-action-blue);
+  color: var(--valio-action-blue);
 }
 .btn-scenario:hover:not(:disabled) {
-  border-color: var(--green);
+  background: var(--valio-light-blue);
+  border-color: var(--valio-button-hover);
+  color: var(--valio-button-hover);
 }
 .scenario-key {
+  font-family: var(--font-condensed);
   font-weight: 700;
-  width: 26px;
-  height: 26px;
+  font-size: 14px;
+  width: 24px;
+  height: 24px;
   display: inline-grid;
   place-items: center;
-  border-radius: 7px;
-  background: var(--lime);
-  color: var(--green);
+  border-radius: var(--radius-pill);
+  background: var(--valio-light-blue);
+  color: var(--valio-iconic-blue);
+  flex-shrink: 0;
 }
 .scenario-text strong {
   display: block;
   font-size: 13px;
+  font-weight: 600;
 }
 .scenario-text small {
   display: block;
@@ -447,12 +564,15 @@ main {
   gap: 8px;
   align-items: flex-start;
   margin-top: 12px;
-  padding: 10px 12px;
-  border-radius: 10px;
+  padding: 10px 14px;
+  border-radius: var(--radius-input);
+  background: var(--valio-light-blue);
+  border: 1px solid var(--line);
   font-size: 14px;
 }
 .notice-error {
   background: var(--block-bg);
+  border-color: var(--block);
   color: var(--block);
 }
 
@@ -478,13 +598,13 @@ main {
   gap: 6px;
   font-size: 12px;
   font-weight: 600;
-  padding: 4px 10px;
-  border-radius: 999px;
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
   border: 1px solid currentColor;
 }
 .mode-mock {
-  color: #5b3d8a;
-  background: #f1ebfa;
+  color: var(--valio-iconic-blue);
+  background: var(--valio-light-blue);
   border-style: dashed;
 }
 .mode-recorded {
@@ -494,6 +614,7 @@ main {
 .mode-live {
   color: var(--auto);
   background: var(--auto-bg);
+  border-color: var(--valio-green);
 }
 
 /* Steps */
@@ -518,25 +639,27 @@ main {
   border-radius: 50%;
   display: grid;
   place-items: center;
+  font-family: var(--font-condensed);
+  font-size: 16px;
   font-weight: 700;
   background: var(--surface);
-  border: 2px solid var(--line);
+  border: 2px solid var(--line-strong);
   color: var(--muted);
 }
 .step-done .step-number {
-  border-color: var(--green);
-  color: var(--green);
+  border-color: var(--valio-green);
+  color: var(--auto);
 }
 .step[aria-current='step'] .step-number {
-  background: var(--green);
-  border-color: var(--green);
+  background: var(--valio-iconic-blue);
+  border-color: var(--valio-iconic-blue);
   color: #fff;
 }
 .step-body {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 10px 14px;
+  border-radius: var(--radius-card);
+  padding: 12px 16px;
   min-width: 0;
 }
 .step-header {
@@ -546,15 +669,19 @@ main {
   gap: 12px;
 }
 .step-title {
-  font-size: 13px;
-  font-weight: 800;
-  letter-spacing: 0.1em;
+  font-family: var(--font-condensed);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
+  color: var(--valio-iconic-blue);
+  line-height: 1.15;
 }
 .step-summary {
   margin-top: 2px;
   font-size: 15px;
   font-weight: 600;
+  color: var(--ink);
 }
 .step-idle .step-summary {
   color: var(--muted);
@@ -570,8 +697,8 @@ main {
   flex-shrink: 0;
   font-size: 12px;
   font-weight: 700;
-  padding: 3px 9px;
-  border-radius: 999px;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
   border: 1px solid currentColor;
 }
 .status-idle {
@@ -584,6 +711,7 @@ main {
 .status-done {
   color: var(--auto);
   background: var(--auto-bg);
+  border-color: var(--valio-green);
 }
 .status-waiting {
   color: var(--ask);
@@ -601,8 +729,8 @@ main {
   gap: 6px 8px;
   align-items: baseline;
   padding: var(--space-2) var(--space-3);
-  background: var(--bg);
-  border-radius: var(--radius);
+  background: var(--tint);
+  border-radius: var(--radius-input);
   margin-bottom: var(--space-3);
 }
 .request-text blockquote {
@@ -625,7 +753,7 @@ main {
 .data-table th,
 .data-table td {
   text-align: left;
-  padding: 5px 8px;
+  padding: 6px 8px;
   border-bottom: 1px solid var(--line);
   vertical-align: top;
 }
@@ -636,6 +764,7 @@ main {
 }
 .data-table tbody th {
   font-weight: 600;
+  color: var(--ink);
 }
 .data-table .num {
   text-align: right;
@@ -656,14 +785,15 @@ main {
   gap: 4px;
   font-size: 12px;
   font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 6px;
+  padding: 2px 9px;
+  border-radius: var(--radius-input);
   border: 1px solid currentColor;
   white-space: nowrap;
 }
 .chip-requirement {
-  color: var(--green);
-  background: var(--green-soft);
+  color: var(--valio-iconic-blue);
+  background: var(--valio-light-blue);
+  border-color: var(--valio-action-blue);
 }
 .inline-facts {
   display: flex;
@@ -718,8 +848,8 @@ main {
   margin: 8px 0 4px;
 }
 .totals > div {
-  background: var(--bg);
-  border-radius: 8px;
+  background: var(--tint);
+  border-radius: var(--radius-input);
   padding: 6px 10px;
 }
 .totals dt {
@@ -729,6 +859,7 @@ main {
 .totals dd {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  color: var(--ink);
 }
 .totals > div:first-child dd {
   font-size: 18px;
@@ -739,15 +870,16 @@ main {
   }
 }
 
-/* Outcome */
+/* Outcome (semantic WCAG AA decision colours, icon + word + colour) */
 .outcome {
-  border-radius: 10px;
-  padding: 14px;
-  border: 1px solid currentColor;
+  border-radius: var(--radius-card);
+  padding: 14px 16px;
+  border: 1.5px solid currentColor;
 }
 .outcome-auto {
   color: var(--auto);
   background: var(--auto-bg);
+  border-color: var(--valio-green);
 }
 .outcome-ask {
   color: var(--ask);
@@ -768,8 +900,9 @@ main {
   display: inline-block;
   margin-right: 8px;
   padding: 0 8px;
-  border-radius: 6px;
+  border-radius: 8px;
   border: 2px solid currentColor;
+  font-family: var(--font-condensed);
   letter-spacing: 0.06em;
 }
 .reason-list {
@@ -820,7 +953,7 @@ main {
   .step-number {
     width: 26px;
     height: 26px;
-    font-size: 13px;
+    font-size: 14px;
   }
   .step-body {
     padding: 12px;
@@ -868,7 +1001,7 @@ main {
   }
 }
 
-/* App navigation between the buyer view and the separate Approver panel */
+/* App navigation between the buyer view and the separate Approver panel (pill tabs) */
 .app-nav {
   display: flex;
   flex-wrap: wrap;
@@ -882,27 +1015,33 @@ main {
   color: #fff;
   font-size: 13px;
   font-weight: 600;
-  padding: 5px 10px;
-  border: 1px solid rgb(255 255 255 / 0.35);
-  border-radius: 8px;
+  padding: 6px 14px;
+  border: 1px solid rgb(255 255 255 / 0.4);
+  border-radius: var(--radius-pill);
   text-decoration: none;
   line-height: 1.25;
+  transition:
+    background-color 0.14s,
+    border-color 0.14s,
+    color 0.14s;
 }
 .app-nav a:hover {
-  background: rgb(255 255 255 / 0.14);
-}
-.app-nav a[aria-current='page'] {
-  background: #fff;
-  color: var(--green);
+  background: rgb(255 255 255 / 0.16);
   border-color: #fff;
 }
+.app-nav a[aria-current='page'] {
+  background: var(--valio-white);
+  color: var(--valio-iconic-blue);
+  border-color: var(--valio-white);
+}
 .app-approver .app-nav a[aria-current='page'] {
-  color: #2b2f5c;
+  color: var(--valio-iconic-blue);
 }
 
-/* Approver panel: a different person's channel, so a different colour, icon and wording */
+/* Approver panel: a different person's channel, styled within the Valio visual family */
 .app-approver .app-header {
-  background: #2b2f5c;
+  background: var(--valio-iconic-blue);
+  border-bottom: 2px solid var(--valio-light-blue);
 }
 .approver-page {
   display: flex;
@@ -914,30 +1053,33 @@ main {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-  padding: 12px 16px;
-  border-radius: var(--radius);
-  background: #ecedf8;
-  border: 1px solid #c9cbe6;
-  color: #23264a;
+  padding: 14px 18px;
+  border-radius: var(--radius-card);
+  background: var(--valio-light-blue);
+  border: 1px solid var(--valio-aluminum);
+  color: var(--valio-iconic-blue);
 }
 .approver-header-compact {
   justify-content: space-between;
-  padding: 10px 12px;
+  padding: 12px 16px;
   gap: 8px;
 }
 .approver-header > div {
   flex: 1 1 260px;
 }
 .approver-header h1 {
-  font-size: 18px;
+  font-family: var(--font-condensed);
+  font-size: 22px;
   font-weight: 700;
-  letter-spacing: -0.2px;
-  line-height: 1.25;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  line-height: 1.15;
+  color: var(--valio-iconic-blue);
 }
 .approver-header p {
   font-size: 13px;
-  margin-top: 1px;
-  opacity: 0.88;
+  margin-top: 2px;
+  color: var(--valio-iconic-blue);
 }
 .approver-switch {
   display: flex;
@@ -958,11 +1100,12 @@ main {
   font: inherit;
   font-size: 13px;
   font-weight: 600;
-  padding: 6px 8px;
-  border-radius: 8px;
-  border: 1px solid #c9cbe6;
-  background: #fff;
-  min-height: 36px;
+  padding: 6px 10px;
+  border-radius: var(--radius-input);
+  border: 1px solid var(--valio-aluminum);
+  background: var(--valio-white);
+  color: var(--valio-iconic-blue);
+  min-height: 38px;
 }
 .approver-grid {
   display: grid;
@@ -982,30 +1125,33 @@ main {
 .queue-item {
   width: 100%;
   display: grid;
-  gap: 3px;
+  gap: 4px;
   text-align: left;
-  padding: 10px 12px;
-  border-radius: 10px;
+  padding: 12px 14px;
+  border-radius: 16px;
   border: 1px solid var(--line);
   background: var(--surface);
   cursor: pointer;
   min-height: 44px;
-  transition: background-color 0.12s, border-color 0.12s;
+  transition:
+    background-color 0.14s,
+    border-color 0.14s;
 }
 .queue-item:hover {
-  border-color: #8f93c4;
+  border-color: var(--valio-action-blue);
+  background: var(--valio-light-blue);
 }
 .queue-item.selected {
-  border-color: #2b2f5c;
-  background: #e8eaf8;
+  border-color: var(--valio-action-blue);
+  background: var(--valio-light-blue);
 }
 .queue-select-mark {
   display: inline-grid;
   place-items: center;
   width: 18px;
   height: 18px;
-  border-radius: 999px;
-  background: #2b2f5c;
+  border-radius: var(--radius-pill);
+  background: var(--valio-action-blue);
   color: #fff;
   flex-shrink: 0;
 }
@@ -1014,15 +1160,15 @@ main {
   opacity: 0.65;
 }
 .queue-item.selected .queue-chevron {
-  color: #2b2f5c;
+  color: var(--valio-action-blue);
   opacity: 1;
 }
 .queue-state {
   justify-self: start;
   font-size: 11px;
   font-weight: 700;
-  padding: 1px 7px;
-  border-radius: 999px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
   border: 1px solid currentColor;
 }
 .queue-state-pending_approval {
@@ -1032,6 +1178,7 @@ main {
 .queue-state-confirmed_simulated {
   color: var(--auto);
   background: var(--auto-bg);
+  border-color: var(--valio-green);
 }
 .queue-state-rejected,
 .queue-state-expired,
@@ -1041,17 +1188,20 @@ main {
 }
 .approval-card {
   background: var(--surface);
-  border: 1.5px solid #2b2f5c;
-  border-radius: var(--radius);
-  padding: 14px 16px;
+  border: 1.5px solid var(--valio-action-blue);
+  border-radius: var(--radius-card);
+  padding: 16px 18px;
   display: grid;
   gap: 10px;
   min-width: 0;
 }
 .approval-card-header h2 {
-  font-size: 17px;
+  font-family: var(--font-condensed);
+  font-size: 21px;
   font-weight: 700;
-  letter-spacing: -0.2px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--valio-iconic-blue);
 }
 .approval-card .totals {
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1064,7 +1214,7 @@ main {
   display: grid;
   gap: 6px;
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-input);
   background: var(--ask-bg);
   color: var(--ink);
   border: 1px solid #e9cf8f;
@@ -1109,12 +1259,13 @@ main {
 }
 .approval-actions textarea {
   width: 100%;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-input);
   padding: 7px 10px;
   font-size: 13px;
   resize: vertical;
-  min-height: 38px;
+  min-height: 40px;
+  background: var(--surface);
 }
 .approval-buttons {
   display: flex;
@@ -1125,35 +1276,48 @@ main {
   background: var(--auto);
   border-color: var(--auto);
   color: #fff;
-  font-weight: 700;
+  font-weight: 600;
   font-size: 15px;
-  padding: 8px 16px;
-  min-height: 40px;
+  padding: 8px 20px;
+  min-height: 44px;
+  border-radius: var(--radius-pill);
+}
+.btn-approve:hover:not(:disabled) {
+  background: #01542e;
+  border-color: #01542e;
+  color: #fff;
 }
 .btn-reject {
+  background: var(--valio-white);
   color: var(--block);
   border-color: var(--block);
   font-weight: 600;
   font-size: 14px;
-  padding: 8px 14px;
-  min-height: 40px;
+  padding: 8px 18px;
+  min-height: 44px;
+  border-radius: var(--radius-pill);
+}
+.btn-reject:hover:not(:disabled) {
+  background: var(--block-bg);
+  border-color: var(--block);
+  color: var(--block);
 }
 .approval-qr-box {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
-  padding: 8px 10px;
-  border-radius: 10px;
+  padding: 10px 12px;
+  border-radius: 16px;
   border: 1px solid var(--line);
-  background: var(--bg);
+  background: var(--valio-light-blue);
 }
 .approval-state {
   display: flex;
   gap: 8px;
   align-items: flex-start;
-  padding: 10px 12px;
-  border-radius: 8px;
+  padding: 10px 14px;
+  border-radius: var(--radius-input);
   font-size: 14px;
   font-weight: 600;
   border: 1px solid currentColor;
@@ -1161,6 +1325,7 @@ main {
 .approval-state-done {
   color: var(--auto);
   background: var(--auto-bg);
+  border-color: var(--valio-green);
 }
 .approval-state-rejected,
 .approval-state-void {
@@ -1173,37 +1338,39 @@ main {
   gap: 6px;
   font-size: 12px;
   font-weight: 600;
-  color: #23264a;
+  color: var(--valio-iconic-blue);
 }
 
 /* Decision log: compact table-like rows on desktop with details on expand */
 .log-scenario-pill {
-  min-height: 32px;
-  padding: 4px 10px;
+  min-height: 36px;
+  padding: 5px 14px;
   font-size: 12px;
   font-weight: 600;
-  border-radius: 8px;
+  border-radius: var(--radius-pill);
 }
 .log-download-btn {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 9px;
-  border-radius: 7px;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  color: var(--ink);
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  border: 1.5px solid var(--valio-action-blue);
+  background: var(--valio-white);
+  color: var(--valio-action-blue);
   font-size: 12px;
   font-weight: 600;
   text-decoration: none;
 }
 .log-download-btn:hover {
-  border-color: var(--green);
+  background: var(--valio-light-blue);
+  border-color: var(--valio-button-hover);
+  color: var(--valio-button-hover);
 }
 .log-table-wrap {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--radius-card);
   overflow: hidden;
 }
 .log-table-head {
@@ -1211,14 +1378,15 @@ main {
   grid-template-columns: 54px 116px minmax(145px, 185px) minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
-  padding: 7px 14px;
-  background: var(--bg);
+  padding: 8px 16px;
+  background: var(--valio-light-blue);
   border-bottom: 1px solid var(--line);
-  font-size: 11px;
+  font-family: var(--font-condensed);
+  font-size: 13px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--muted);
+  color: var(--valio-iconic-blue);
 }
 .log-list {
   display: flex;
@@ -1245,13 +1413,13 @@ main {
   grid-template-columns: 54px 116px minmax(145px, 185px) minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
-  padding: 9px 14px;
+  padding: 10px 16px;
   cursor: pointer;
   font-size: 13px;
   min-width: 0;
 }
 .log-row:hover {
-  background: var(--bg);
+  background: var(--valio-light-blue);
 }
 .log-col-time {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -1285,7 +1453,7 @@ main {
 }
 .log-inline-chip {
   font-size: 11px;
-  padding: 1px 6px;
+  padding: 1px 7px;
 }
 .log-col-meta {
   display: inline-flex;
@@ -1297,10 +1465,11 @@ main {
   font-size: 12px;
 }
 .log-meta-pill {
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--bg);
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--valio-light-blue);
   border: 1px solid var(--line);
+  color: var(--valio-iconic-blue);
   font-size: 11px;
   font-weight: 600;
 }
@@ -1315,9 +1484,9 @@ main {
   white-space: normal;
 }
 .log-expanded {
-  padding: 10px 14px 12px 78px;
+  padding: 10px 16px 12px 78px;
   border-top: 1px dashed var(--line);
-  background: #fafcfb;
+  background: var(--valio-light-blue);
 }
 @media (max-width: 760px) {
   .log-table-head {
@@ -1386,25 +1555,31 @@ main {
 }
 .result-links a,
 .buyer-line a {
-  color: var(--green);
+  color: var(--valio-action-blue);
   text-decoration: underline;
+}
+.result-links a:hover,
+.buyer-line a:hover {
+  color: var(--valio-button-hover);
 }
 .disclosure-btn {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   min-height: 32px;
-  padding: 2px 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--ink);
+  padding: 3px 12px;
+  border: 1.5px solid var(--valio-action-blue);
+  border-radius: var(--radius-pill);
+  background: var(--valio-white);
+  color: var(--valio-action-blue);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
 }
 .disclosure-btn:hover {
-  border-color: var(--green);
+  background: var(--valio-light-blue);
+  border-color: var(--valio-button-hover);
+  color: var(--valio-button-hover);
 }
 .admin-summary {
   display: flex;
@@ -1469,20 +1644,26 @@ main {
   /* Phones: a compact header and one row of scenario buttons, so the result fits the first screen. */
   .app-header {
     gap: 8px;
-    padding: 10px 16px;
+    padding: 8px 14px;
   }
-  /* The approver header keeps its "not the agent" line. */
-  :not(.app-approver) > .app-header .brand-sub {
-    display: none;
+  .brand-wordmark {
+    font-size: 15px;
+    padding: 2px 9px;
+  }
+  .brand-name {
+    font-size: 16px;
+  }
+  .brand-sub {
+    font-size: 10px;
   }
   .app-nav {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 5px;
   }
   .app-nav a {
     font-size: 12px;
-    padding: 6px 8px;
+    padding: 5px 10px;
   }
   .composer-actions .btn-primary {
     width: 100%;

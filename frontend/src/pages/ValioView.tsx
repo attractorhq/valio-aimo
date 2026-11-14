@@ -1328,7 +1328,7 @@ export function ValioView() {
         </div>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Catalogue readiness summary">
-          <div className="rounded-xl border border-[var(--line)] bg-[var(--bg)] p-3">
+          <div className="rounded-[24px] border border-[var(--line)] bg-[var(--tint)] p-4">
             <span className="text-xs font-bold uppercase tracking-wider text-[var(--muted)]">
               Catalogue Analysed
             </span>
@@ -1343,7 +1343,7 @@ export function ValioView() {
             </p>
           </div>
 
-          <div className="rounded-xl border border-[var(--auto)] bg-[var(--auto-bg)] p-3">
+          <div className="rounded-[24px] border border-[var(--auto-accent)] bg-[var(--auto-bg)] p-4">
             <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-[var(--auto)]">
               <CheckCircle2 size={14} aria-hidden /> AUTO-Ready Products
             </span>
@@ -1358,7 +1358,7 @@ export function ValioView() {
             </p>
           </div>
 
-          <div className="rounded-xl border border-[var(--block)] bg-[var(--block-bg)] p-3">
+          <div className="rounded-[24px] border border-[var(--block)] bg-[var(--block-bg)] p-4">
             <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-[var(--block)]">
               <ShieldAlert size={14} aria-hidden /> Blocked from AUTO
             </span>
@@ -1375,7 +1375,7 @@ export function ValioView() {
             </p>
           </div>
 
-          <div className="rounded-xl border border-[var(--ask)] bg-[var(--ask-bg)] p-3">
+          <div className="rounded-[24px] border border-[var(--ask)] bg-[var(--ask-bg)] p-4">
             <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-[var(--ask)]">
               <Database size={14} aria-hidden /> Master-Data Traps Caught
             </span>
@@ -1425,10 +1425,10 @@ export function ValioView() {
         </div>
 
         <div className="mt-3 grid gap-3 sm:grid-cols-3" aria-label="AUTO ASK BLOCK breakdown">
-          <div className="rounded-xl border border-[var(--auto)] bg-[var(--auto-bg)] p-3">
+          <div className="rounded-[24px] border border-[var(--auto-accent)] bg-[var(--auto-bg)] p-4">
             <div className="flex items-center justify-between">
               <span className="font-bold text-[var(--auto)]">AUTO · Autonomous Order</span>
-              <span className="rounded bg-white px-2 py-0.5 text-xs font-bold text-[var(--auto)]">
+              <span className="rounded-[12px] bg-white px-2 py-0.5 text-xs font-bold text-[var(--auto)]">
                 {formatPercent(displayedDecisionStats.autoRate)}
               </span>
             </div>
@@ -1443,10 +1443,10 @@ export function ValioView() {
             </p>
           </div>
 
-          <div className="rounded-xl border border-[var(--ask)] bg-[var(--ask-bg)] p-3">
+          <div className="rounded-[24px] border border-[var(--ask)] bg-[var(--ask-bg)] p-4">
             <div className="flex items-center justify-between">
               <span className="font-bold text-[var(--ask)]">ASK · Human Sign-Off</span>
-              <span className="rounded bg-white px-2 py-0.5 text-xs font-bold text-[var(--ask)]">
+              <span className="rounded-[12px] bg-white px-2 py-0.5 text-xs font-bold text-[var(--ask)]">
                 {formatPercent(displayedDecisionStats.askRate)}
               </span>
             </div>
@@ -1462,10 +1462,10 @@ export function ValioView() {
             </p>
           </div>
 
-          <div className="rounded-xl border border-[var(--block)] bg-[var(--block-bg)] p-3">
+          <div className="rounded-[24px] border border-[var(--block)] bg-[var(--block-bg)] p-4">
             <div className="flex items-center justify-between">
               <span className="font-bold text-[var(--block)]">BLOCK · Mandate Refusal</span>
-              <span className="rounded bg-white px-2 py-0.5 text-xs font-bold text-[var(--block)]">
+              <span className="rounded-[12px] bg-white px-2 py-0.5 text-xs font-bold text-[var(--block)]">
                 {formatPercent(displayedDecisionStats.blockRate)}
               </span>
             </div>
@@ -1606,7 +1606,7 @@ export function ValioView() {
               onChange={(e) => setSupplierQuery(e.target.value)}
               placeholder="Search supplier name…"
               aria-label="Filter suppliers by name"
-              className="rounded-lg border border-[var(--line)] bg-[var(--bg)] px-2.5 py-1.5 text-xs"
+              className="rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface)] px-3 py-1.5 text-xs"
             />
             <button
               type="button"
@@ -1620,7 +1620,7 @@ export function ValioView() {
               value={reasonFilter}
               onChange={(e) => setReasonFilter(e.target.value)}
               aria-label="Filter suppliers by blocking reason"
-              className="rounded-lg border border-[var(--line)] bg-[var(--bg)] px-2.5 py-1.5 text-xs font-semibold"
+              className="rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface)] px-3 py-1.5 text-xs font-semibold"
             >
               <option value="ALL">All blocking reasons</option>
               <option value="ALLERGEN_UNKNOWN">ALLERGEN_UNKNOWN (no allergens)</option>

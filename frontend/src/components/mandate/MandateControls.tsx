@@ -234,7 +234,7 @@ export function MandateControls({
           value={limit}
           onChange={(event) => setLimit(event.target.value)}
           disabled={!live || busy}
-          className="rounded-md border border-[var(--line)] px-2 py-1"
+          className="rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface)] px-3 py-1.5"
         />
         <fieldset disabled={!live || busy} className="flex gap-3">
           <legend className="field-label">Allergen mode</legend>

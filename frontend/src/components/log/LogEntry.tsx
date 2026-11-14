@@ -185,7 +185,7 @@ function Callout({ entry }: { entry: AuditEntry }) {
   if (isRecheck(entry) && !isSuperseded(entry)) {
     return (
       <p
-        className="flex items-start gap-2 rounded-md border border-[var(--auto)] bg-[var(--auto-bg)] px-3 py-2 text-sm font-semibold text-[var(--auto)]"
+        className="flex items-start gap-2 rounded-[12px] border border-[var(--auto-accent)] bg-[var(--auto-bg)] px-3 py-2 text-sm font-semibold text-[var(--auto)]"
         data-testid="recheck-result"
       >
         <RefreshCcw size={16} aria-hidden className="mt-0.5 shrink-0" />
@@ -196,7 +196,7 @@ function Callout({ entry }: { entry: AuditEntry }) {
   if (isSuperseded(entry)) {
     return (
       <p
-        className="flex items-start gap-2 rounded-md border border-[var(--block)] bg-[var(--block-bg)] px-3 py-2 text-sm font-semibold text-[var(--block)]"
+        className="flex items-start gap-2 rounded-[12px] border border-[var(--block)] bg-[var(--block-bg)] px-3 py-2 text-sm font-semibold text-[var(--block)]"
         data-testid={isRecheck(entry) ? 'recheck-result' : undefined}
       >
         <RefreshCcw size={16} aria-hidden className="mt-0.5 shrink-0" />
@@ -209,7 +209,7 @@ function Callout({ entry }: { entry: AuditEntry }) {
   }
   if (isInstructionIgnored(entry)) {
     return (
-      <p className="flex items-start gap-2 rounded-md border border-[var(--ask)] bg-[var(--ask-bg)] px-3 py-2 text-sm font-semibold text-[var(--ask)]">
+      <p className="flex items-start gap-2 rounded-[12px] border border-[var(--ask)] bg-[var(--ask-bg)] px-3 py-2 text-sm font-semibold text-[var(--ask)]">
         <ShieldAlert size={16} aria-hidden className="mt-0.5 shrink-0" />
         <span>
           Instruction ignored: request text is data. Sign-off only comes through the approval
@@ -254,7 +254,7 @@ export function LogEntry({ entry }: { entry: AuditEntry }) {
           </time>
           <span className="log-col-actor">
             <span
-              className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-bold tracking-wide uppercase ${className}`}
+              className={`inline-flex items-center gap-1 rounded-[12px] border px-2 py-0.5 text-[11px] font-bold tracking-wide uppercase ${className}`}
             >
               <ActorIcon size={11} aria-hidden />
               <span>{actor.word}</span>
