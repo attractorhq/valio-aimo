@@ -28,6 +28,7 @@ from app.catalog.vocab import (
     FI_SV_TO_EN_SYNONYMS,
     FORMS_BY_LABEL,
     KNOWN_BRANDS,
+    extract_requested_base,
     extract_requested_form,
     resolve_query_concepts,
     split_query_alternatives,
@@ -65,10 +66,10 @@ class ParseResult(BaseModel):
 
 _NUMBER = r"(?<![\w.,])(?P<num>\d{1,3}(?:[   ,]\d{3})+(?!\d)|\d+(?:[.,]\d+)?)"
 _UNIT_GROUPS: tuple[tuple[str, str], ...] = (
-    ("l", r"litres?|liters?|litr(?:aa|an|oja|a)|ltr|l"),
+    ("l", r"litres?|liters?|litr(?:aa|an|oja|a)?|ltr|l"),
     ("ml", r"ml|millilitres?|milliliters?|millilitr\w*"),
     ("dl", r"dl|decilitres?|deciliters?|desilitr\w*"),
-    ("kg", r"kgs?|kilos?|kilograms?|kilogrammes?|kilogramm\w*|kilo(?:a|n)"),
+    ("kg", r"kgs?|kilos?|kilograms?|kilogrammes?|kilogramm\w*|kilo(?:a|n)?"),
     ("g", r"grams?|grammes?|gramm\w*|g"),
     ("pcs", r"pcs|pc|pieces?|packs?|packets?|packages?|bags?|bottles?|cans?|cartons?|tins?|jars?|units?|"
             r"kpl|kappale\w*|pussi\w*|pullo\w*|paketti\w*|pakkau\w*|purkki\w*|purkk\w*|tölk\w*|tlk|"
@@ -79,6 +80,30 @@ _UNIT_GROUPS: tuple[tuple[str, str], ...] = (
 )
 _UNIT = "(?:" + "|".join(f"(?P<u_{name}>{pattern})" for name, pattern in _UNIT_GROUPS) + r")(?!\w)"
 _QUANTITY_RE = re.compile(_NUMBER + r"\s*" + _UNIT, re.IGNORECASE)
+
+# T95 Scope 3: Pack-size phrases ("1 kg bags", "in 5 kg packs", "5 kg pussit") are a pack preference on the
+# current item, never a new item.
+_PACK_UNIT_GROUPS: tuple[tuple[str, str], ...] = _UNIT_GROUPS[:5]
+_PACK_UNIT = "(?:" + "|".join(f"(?P<pu_{name}>{pattern})" for name, pattern in _PACK_UNIT_GROUPS) + r")(?!\w)"
+_PACK_CONTAINER_WORDS = (
+    r"bags?|packs?|packets?|packages?|cartons?|bottles?|cans?|tins?|jars?|tubs?|buckets?|pails?|boxes|box|"
+    r"cases?|crates?|trays?|sacks?|pouches?|pouch|containers?|drums?|units?|pieces?|pcs|pc|"
+    r"pussi\w*|pussei\w*|pakkau\w*|paketti\w*|paketei\w*|purkki\w*|purkk\w*|purkei\w*|tölk\w*|tlk|"
+    r"pullo\w*|pulloi\w*|rasia\w*|rasio\w*|laatikko\w*|laatiko\w*|ltk|kotelo\w*|kartonki\w*|kartongi\w*|"
+    r"säkki\w*|säki\w*|säkk\w*|säkei\w*|ämpäri\w*|ämpärei\w*|tonkka\w*|tonka\w*|tonki\w*|kanisteri\w*|"
+    r"astia\w*|astio\w*|pötkö\w*|kpl|kappale\w*"
+)
+_PACK_PHRASE_RE = re.compile(
+    r"(?:(?:\b(?:packed|packaged|pakattuna)\s+)?\bin\s+)?"
+    + _NUMBER
+    + r"\s*[-–]?\s*"
+    + _PACK_UNIT
+    + r"(?::n)?\s+(?:(?:"
+    + _PACK_CONTAINER_WORDS
+    + r")(?!\w))",
+    re.IGNORECASE,
+)
+_BARE_CONTAINER_RE = re.compile(r"^(?:(?:\bin\s+)?(?:" + _PACK_CONTAINER_WORDS + r")[\s-]*)+$", re.IGNORECASE)
 
 _PRODUCT_ID_RE = re.compile(r"\((\d{6})\)|\b(?:product|tuote|id|no\.?|nr\.?|#)\s*:?\s*#?(\d{6})\b", re.IGNORECASE)
 _FAT_RE = re.compile(r"(?<![\w.,])(\d+(?:[.,]\d+)?)\s*%(?:\s*(?:fat|rasva\w*))?", re.IGNORECASE)
@@ -220,7 +245,8 @@ _PREFERENCES: tuple[tuple[re.Pattern, Preference], ...] = (
 _WEEKDAYS_EN = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 _WEEKDAYS_FI = ("maanantai", "tiistai", "keskiviik", "torstai", "perjantai", "lauantai", "sunnuntai")
 _MONTHS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
-_MONTH_RE = r"(?P<mon>jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?"
+_MONTH_RE = (r"(?P<mon>jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|"
+             r"aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?")
 _DAY_PREFIX = r"(?:(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?,?\s+)?"
 _MONTHS_FI = ("tammi", "helmi", "maalis", "huhti", "touko", "kesä", "heinä", "elo", "syys", "loka", "marras",
               "joulu")
@@ -235,7 +261,8 @@ _DATE_RES: tuple[tuple[str, re.Pattern], ...] = (
     ("today", re.compile(r"\b(?:today|tänään|tänä\s+päivänä)\b", re.IGNORECASE)),
     ("tomorrow", re.compile(r"\b(?:tomorrow|huomenna|huomiseksi|huomiselle|huomiseen)\b", re.IGNORECASE)),
     ("overmorrow", re.compile(r"\b(?:the\s+day\s+after\s+tomorrow|ylihuomenna|ylihuomiseksi)\b", re.IGNORECASE)),
-    ("weekday", re.compile(r"\b(?P<wd>" + "|".join(_WEEKDAYS_EN) + r")\b", re.IGNORECASE)),
+    ("weekday", re.compile(r"\b(?P<wd>" + "|".join(_WEEKDAYS_EN)
+                           + r")\b(?:\s+(?P<wd_day>\d{1,2})(?:st|nd|rd|th)?(?!\w))?", re.IGNORECASE)),
     ("weekday_fi", re.compile(r"\b(?P<wdfi>" + "|".join(_WEEKDAYS_FI) + r")\w*", re.IGNORECASE)),
 )
 
@@ -260,7 +287,10 @@ _STOPWORDS = {
     "illalliseksi", "välipalaksi", "jälkiruoaksi", "jälkiruuaksi", "vakava", "vakavan",
     "jotain", "jotakin", "mitä", "tahansa",
     "mieluiten", "ensisijaisesti", "mielellään", "toiveena", "suoraan", "valmiiksi", "valmiina", "mukaan", "lisäksi",
+    "maybe", "perhaps", "approximately", "ehkä", "roughly",
 }
+_HEDGE_RE = re.compile(r"\b(?:maybe|perhaps|some|something|anything|whatever|approximately|approx|about|around|"
+                       r"roughly|noin|ehkä|jotain|jotakin)\b", re.IGNORECASE)
 # Core Finnish product vocabulary (§7.2). Wider Finnish polish is T25.
 _FINNISH_NOUNS: tuple[tuple[str, str], ...] = (
     ("kevytmaitojuom", "light milk drink"),
@@ -277,6 +307,7 @@ _FINNISH_NOUNS: tuple[tuple[str, str], ...] = (
     ("kerma", "cream"),
     ("juusto", "cheese"),
     ("jogurt", "yoghurt"),
+    ("jugurt", "yogurt"),
     ("rahka", "quark"),
     ("kahvi", "coffee"),
     ("riisi", "rice"),
@@ -839,6 +870,13 @@ def _extract(fragment: str) -> tuple[str, list[Requirement], list[Preference], s
 
     rest = _FAT_RE.sub(take_fat, rest)
 
+    def take_pack_phrase(m: re.Match) -> str:
+        unit = next(name for name, _pattern in _PACK_UNIT_GROUPS if m.group(f"pu_{name}"))
+        packs.append(f"{_plain(_to_decimal(m['num']))} {unit}")
+        return " "
+
+    rest = _PACK_PHRASE_RE.sub(take_pack_phrase, rest)
+
     def take_pack(m: re.Match) -> str:
         packs.append(f"{_plain(_to_decimal(m['num']))} {_unit_of(m)}")
         return " "
@@ -858,6 +896,30 @@ def _extract(fragment: str) -> tuple[str, list[Requirement], list[Preference], s
         if form_pref not in preferences:
             preferences.append(form_pref)
     return rest, requirements, preferences, product_id, packs
+
+
+def _order_quantities(text: str) -> list[re.Match]:
+    """Pack sizes describe an item, not how much the buyer wants to order."""
+    packs = [match.span() for match in _PACK_PHRASE_RE.finditer(text)]
+    return [match for match in _QUANTITY_RE.finditer(text)
+            if not any(start <= match.start() < end for start, end in packs)]
+
+
+def _form_only(what: str | None) -> bool:
+    return bool(what) and all(word.lower() in {
+        "grated", "sliced", "slices", "block", "blocks", "shredded", "strips", "cubed", "cubes",
+        "diced", "whole", "powder", "powdered",
+    } for word in what.split())
+
+
+def _item_name(before: str, after: str, finnish: bool) -> str | None:
+    leading, trailing = _what(_strip_lead(before), finnish), _what(after, finnish)
+    if _form_only(trailing) and leading and not _form_only(leading):
+        return f"{trailing} {leading}"
+    if _form_only(leading) and trailing and not _form_only(trailing):
+        return f"{leading} {trailing}"
+    name = trailing or leading
+    return None if _form_only(name) or (name and _BARE_CONTAINER_RE.fullmatch(name)) else name
 
 
 def _take_exclusions(text: str) -> tuple[str, list[Requirement], str | None]:
@@ -1213,6 +1275,13 @@ def _fallback(
         if pattern.search(clean):
             extra_requirements.extend(r for r in found if r not in extra_requirements)
     for sentence in _SENTENCE_SPLIT.split(clean):
+        if items and _PACK_PHRASE_RE.search(sentence) and not _order_quantities(sentence):
+            rest, requirements, preferences, _product_id, packs = _extract(sentence)
+            if _what(rest, finnish) is None:
+                additions = [*preferences, *(Preference(kind="PACK_SIZE", value=pack) for pack in packs)]
+                items[-1].preferences.extend(pref for pref in additions if pref not in items[-1].preferences)
+                items[-1].requirements.extend(req for req in requirements if req not in items[-1].requirements)
+                continue
         if not _QUANTITY_RE.search(sentence):
             # A sentence without a quantity can still carry a hard requirement ("It must be gluten-free").
             for pattern, found in _REQUIREMENT_RES:
@@ -1224,7 +1293,7 @@ def _fallback(
         fragments: list[str] = []
         pending = ""
         for chunk in _split_chunks(sentence):
-            if _QUANTITY_RE.search(chunk):
+            if _order_quantities(chunk):
                 fragments.append(f"{pending} {chunk}".strip())
                 pending = ""
             elif fragments:
@@ -1234,13 +1303,12 @@ def _fallback(
         for fragment in fragments:
             similar = bool(_SIMILAR_RE.search(fragment))
             fragment = _SIMILAR_RE.sub(" ", fragment)
-            first = _QUANTITY_RE.search(fragment)
-            assert first is not None
+            first = _order_quantities(fragment)[0]
             before, after = fragment[: first.start()], fragment[first.end() :]
             rest_after, req_a, pref_a, id_a, packs = _extract(after)
-            rest_before, req_b, pref_b, id_b, _ = _extract(before)
+            rest_before, req_b, pref_b, id_b, leading_packs = _extract(before)
             requirements = req_b + [r for r in req_a if r not in req_b]
-            what = _what(rest_after, finnish) or _what(_strip_lead(rest_before), finnish)
+            what = _item_name(rest_before, rest_after, finnish)
             unit = _unit_of(first)
             value = _to_decimal(first["num"])
             notes: list[str] = []
@@ -1250,7 +1318,9 @@ def _fallback(
                 target = "kg" if unit == "g" else "l"
                 notes.append(f"{_plain(value)} {unit} read as {_plain(converted)} {target}")
                 value, unit = converted, target
-            preferences = list(dict.fromkeys([*pref_b, *pref_a, *(Preference(kind="PACK_SIZE", value=p) for p in packs)]))
+            preferences = list(dict.fromkeys([
+                *pref_b, *pref_a, *(Preference(kind="PACK_SIZE", value=p) for p in [*leading_packs, *packs]),
+            ]))
             if similar:
                 notes.append(f"Similar products accepted for {what or 'this item'}")
             items.append(_ItemDraft(value, unit, first.group(0), what, id_a or id_b, requirements, preferences, notes))
@@ -1261,7 +1331,17 @@ def _fallback(
                 item.requirements.append(requirement)
 
     # O6: exactly one question, the most important first.
-    safety_question = None
+    weekday_pattern = next(pattern for kind, pattern in _DATE_RES if kind == "weekday")
+    inconsistent_weekday = any(
+        match["wd_day"] and _next_weekday(today, _WEEKDAYS_EN.index(match["wd"].lower())).day != int(match["wd_day"])
+        for match in weekday_pattern.finditer(clean)
+    )
+    safety_question = (
+        "Viikonpäivä ja päivämäärä eivät täsmää: minkä toimituspäivän tarkoitatte?" if finnish
+        else "The weekday and day number do not match: which delivery date do you mean?"
+    ) if inconsistent_weekday else None
+    if not items and _form_only(_what(_extract(clean)[0], finnish)):
+        safety_question = _what_question(clean, finnish, dated=explicit is not None)
     question = None
     if not items:
         rest, found_requirements, *_ = _extract(clean)
@@ -1272,6 +1352,8 @@ def _fallback(
             _how_much_question(what, originals, finnish) if what
             else _what_question(clean, finnish, dated=explicit is not None or deadline is not None)
         )
+        if safety_question is None and _HEDGE_RE.search(_SIMILAR_RE.sub(" ", clean)):
+            safety_question = question
     for item in items:
         if item.unit == "portions":
             safety_question = _portions_question(item.what, item.quantity, finnish)
@@ -1288,6 +1370,22 @@ def _fallback(
             if item.what and (unit_conflict := _alternative_unit_conflict(item.what, finnish)):
                 safety_question = unit_conflict
                 break
+    if safety_question is None:
+        for item in items:
+            if item.what is None:
+                safety_question = _which_product_question(item.raw_quantity, finnish)
+                break
+    if safety_question is None and items and _HEDGE_RE.search(_SIMILAR_RE.sub(" ", clean)):
+        described = ", ".join(f"{item.what or 'the product'} ({item.raw_quantity})" for item in items)
+        safety_question = (
+            f"Voitteko vahvistaa täsmälliset tuotteet ja määrät ennen tilausta: {described}?" if finnish
+            else f"Could you confirm the exact products and quantities before ordering: {described}?"
+        )
+    if safety_question is None and not items and _PACK_PHRASE_RE.search(clean):
+        safety_question = (
+            "Pakkauskoko ei kerro tilausmäärää: kuinka monta pakkausta tai kuinka paljon tuotetta tarvitsette?" if finnish
+            else "The pack size does not specify an order quantity: how many packs or how much product do you need?"
+        )
     if question is None and safety_question is None:
         for item in items:
             if not item.what:
@@ -1616,6 +1714,10 @@ def _from_llm(raw: dict, text: str, today: date, fallback: _Fallback) -> tuple[S
         )]}) for item in request.items
     ]})
     # A hard requirement, certification label or product form the deterministic reading found is never dropped by the LLM.
+    if fallback.request is not None and len(fallback.request.items) != len(request.items) and any(
+        extract_requested_base(item.what) for item in fallback.request.items
+    ):
+        raise ValueError("LLM changed item boundaries for a stated product base")
     if fallback.request is not None and len(fallback.request.items) == len(request.items):
         merged = []
         for llm_item, det_item in zip(request.items, fallback.request.items, strict=True):
@@ -1623,7 +1725,7 @@ def _from_llm(raw: dict, text: str, today: date, fallback: _Fallback) -> tuple[S
             labels = [
                 p
                 for p in det_item.preferences
-                if (p.kind == "LABEL" or (p.kind == "OTHER" and p.value.lower() in FORMS_BY_LABEL))
+                if (p.kind in ("LABEL", "PACK_SIZE") or (p.kind == "OTHER" and p.value.lower() in FORMS_BY_LABEL))
                 and p not in llm_item.preferences
             ]
             merged.append(llm_item.model_copy(update={
@@ -1635,6 +1737,21 @@ def _from_llm(raw: dict, text: str, today: date, fallback: _Fallback) -> tuple[S
                 if p.kind == "OTHER" and p.value.lower() in FORMS_BY_LABEL and p.value not in assumptions:
                     assumptions.append(p.value)
         request = request.model_copy(update={"items": merged, "assumptions": assumptions})
+        # A recognised compound/base and its form cannot be weakened by a model's generic head word.
+        for llm_item, det_item in zip(request.items, fallback.request.items, strict=True):
+            if base := extract_requested_base(det_item.what):
+                if extract_requested_base(llm_item.what) != base:
+                    raise ValueError("LLM dropped or changed a stated product base")
+            if extract_requested_form(det_item.what, include_bases=False):
+                det_concepts = resolve_query_concepts(det_item.what)
+                llm_concepts = resolve_query_concepts(llm_item.what)
+                if det_concepts and (not llm_concepts or det_concepts[0].concept_id != llm_concepts[0].concept_id):
+                    raise ValueError("LLM changed the product noun modified by a stated form")
+    if any(_form_only(item.what) or _BARE_CONTAINER_RE.fullmatch(item.what) for item in request.items):
+        raise ValueError("LLM returned a form or pack container as a product")
+    if (fallback.request is not None and _PACK_PHRASE_RE.search(_normalise_words(text))
+            and len(request.items) != len(fallback.request.items)):
+        raise ValueError("LLM turned a pack-size phrase into an item")
     return request, None
 
 
