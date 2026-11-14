@@ -58,6 +58,7 @@ from app.contracts.common import Contract
 from app.gateway.offers import get_offer as compute_offer
 from app.gateway.proposals import NoOrderError
 from app.valio import IntegrationError
+from app.valio.errors import ValioRateLimited
 from app.valio.record import BRIEF_PRODUCT_IDS
 
 if TYPE_CHECKING:
@@ -233,6 +234,8 @@ class HttpAgentChannel:
                 msg = err.get("message", response.text)
             except Exception:
                 code, msg = "", response.text
+            if code == "VALIO_RATE_LIMITED":
+                raise ValioRateLimited(err["details"]["retryAfterSeconds"])
             if code == "UPSTREAM_ERROR" or response.status_code == 502:
                 raise IntegrationError(msg)
             raise ValueError(f"Agent channel HTTP {response.status_code} ({code}): {msg}")
@@ -451,13 +454,15 @@ def iter_agent_steps(
             interpreter=interpreter,
             explainer=explainer,
         )
-    except IntegrationError:
+    except IntegrationError as exc:
         if not catch_stream_errors:
             raise
         err_detail = {
             "code": "UPSTREAM_UNAVAILABLE",
             "message": "Live price/availability could not be read for this shortlist; nothing was ordered.",
         }
+        if isinstance(exc, ValioRateLimited):
+            err_detail = {"code": exc.code, "message": str(exc)}
         yield AgentStepEvent(
             step=2,
             name="ERROR",

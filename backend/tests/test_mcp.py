@@ -29,6 +29,7 @@ from app.gateway.proposals import ProposalGateway
 from app.main import app
 from app.policy import DEMO_MANDATES, M1, M2, MandateBook
 from app.valio import RecordedValioProvider
+from app.valio.errors import ValioRateLimited
 
 APPROVER = "/v0.1/approver"
 GLUTEN_FREE = {"kind": "CLAIM", "code": "FREE_FROM_GLUTEN"}
@@ -121,6 +122,24 @@ def mcp_env():
     with TestClient(app) as client:
         yield McpRecorder(client), provider, state
     app.dependency_overrides.clear()
+
+
+def test_mcp_rate_limit_is_an_actionable_tool_error(mcp_env):
+    mcp, _, state = mcp_env
+
+    class RateLimitedProvider:
+        def lookup(self, *args, **kwargs):
+            raise ValioRateLimited(30)
+
+    state.gateway.provider = RateLimitedProvider()
+    result = mcp.call_tool("getOffer", {
+        "customerId": M1.customerId, "requestedDate": MONDAY.isoformat(),
+        "items": [{"itemId": "I1", "productId": "SYN-MILK", "quantity": "1", "unit": "l"}],
+    }, expect_error=True)
+    assert result == {"error": {
+        "code": "VALIO_RATE_LIMITED", "message": "Valio API rate limit: retry in 30 s",
+        "details": {"retryAfterSeconds": 30},
+    }}
 
 
 def test_mcp_initialize_and_tools_list_keep_decide_approval_off_agent_channel(mcp_env):

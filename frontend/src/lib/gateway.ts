@@ -186,6 +186,7 @@ export type GatewayErrorCode =
   | 'VERSION_MISMATCH'
   | 'NOT_PENDING'
   | 'UPSTREAM_UNAVAILABLE'
+  | 'VALIO_RATE_LIMITED'
   | 'GATEWAY_ERROR'
 
 export class GatewayError extends Error {
@@ -657,6 +658,11 @@ function mapBackendError(code: string | undefined, message: string, status: numb
         'UPSTREAM_UNAVAILABLE',
         message ||
           'Live price/availability could not be read for this shortlist; nothing was ordered.',
+      )
+    case 'VALIO_RATE_LIMITED':
+      return new GatewayError(
+        'VALIO_RATE_LIMITED',
+        message || 'Valio API rate limit: retry in 30 s',
       )
     default:
       if (status === 404) {

@@ -1,6 +1,7 @@
 """Shortlist-only, bounded, authenticated reads; no redirects, bodies, keys or headers in errors."""
 
 import json
+import math
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Mapping, Sequence
@@ -8,6 +9,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from email.utils import parsedate_to_datetime
 from threading import Lock
 from typing import Literal
 
@@ -16,12 +18,63 @@ from pydantic import ValidationError
 
 from app.config import Settings, get_settings
 
-from .errors import IntegrationError
+from .errors import IntegrationError, ValioRateLimited
 from .vendor import HELSINKI, AvailabilityEnvelope, PriceEnvelope, aware
 
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+class ValioRateLimiter:
+    """Process-wide, thread-safe one-token bucket: 5/s, initially empty, no bursts."""
+
+    def __init__(self, *, monotonic=time.monotonic, sleep=time.sleep):
+        self.monotonic, self.sleep = monotonic, sleep
+        self._lock = Lock()
+        self._next_request_at = monotonic() + 0.2
+        self._blocked_until = 0.0
+
+    def _check_cooldown(self, now: float) -> None:
+        if now < self._blocked_until:
+            raise ValioRateLimited(math.ceil(self._blocked_until - now))
+
+    def check_cooldown(self) -> None:
+        with self._lock:
+            self._check_cooldown(self.monotonic())
+
+    def acquire(self) -> None:
+        while True:
+            with self._lock:
+                now = self.monotonic()
+                self._check_cooldown(now)
+                wait = self._next_request_at - now
+                if wait <= 0:
+                    self._next_request_at = now + 0.2
+                    return
+            # Never hold the lock while waiting: a concurrent 429 must publish its cooldown.
+            self.sleep(wait)
+
+    def block(self, seconds: float) -> None:
+        with self._lock:
+            now = self.monotonic()
+            self._blocked_until = max(self._blocked_until, now + max(30.0, seconds))
+            self._check_cooldown(now)
+
+
+_RATE_LIMITER = ValioRateLimiter()
+
+
+def cooldown_seconds(retry_after: str, now: datetime) -> float:
+    """Honour both Retry-After forms without trusting invalid/nonfinite header values."""
+    try:
+        delay = float(retry_after)
+    except ValueError:
+        try:
+            delay = (aware(parsedate_to_datetime(retry_after)) - aware(now)).total_seconds()
+        except (ValueError, TypeError, OverflowError):
+            return 30.0
+    return max(30.0, delay) if math.isfinite(delay) else 30.0
 
 
 def product_ids(shortlists: Mapping[str, Sequence[str]]) -> tuple[str, ...]:
@@ -104,6 +157,7 @@ class ValioClient:
         ttl_seconds: float = 45, max_retries: int = 2, max_cache_entries: int = 128,
         clock: Callable[[], datetime] = utc_now, monotonic: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
+        rate_limiter: ValioRateLimiter | None = None,
     ):
         if not 30 <= ttl_seconds <= 60 or not 0 <= max_retries <= 4 or max_cache_entries < 1:
             raise ValueError("Use a 30–60 second TTL, 0–4 retries and a positive cache capacity.")
@@ -113,12 +167,14 @@ class ValioClient:
         self.max_retries = max_retries
         self.max_cache_entries = max_cache_entries
         self.clock, self.monotonic, self.sleep = clock, monotonic, sleep
+        self.rate_limiter = rate_limiter if rate_limiter is not None else _RATE_LIMITER
         self._cache: OrderedDict[tuple, tuple[float, bytes, datetime]] = OrderedDict()
         self._cache_lock = Lock()
 
     def _post(self, path, customer, day, ids, *, force_refresh=False):
         if not self.settings.valio_api_key:
             raise IntegrationError("VALIO_API_KEY is required for live challenge API reads.")
+        self.rate_limiter.check_cooldown()
         key = (path, customer, day, ids)
         with self._cache_lock:
             cached = self._cache.get(key)
@@ -133,6 +189,7 @@ class ValioClient:
                 timeout=self.settings.valio_timeout_seconds, follow_redirects=False,
             ) as client:
                 for attempt in range(self.max_retries + 1):
+                    self.rate_limiter.acquire()
                     response = client.post(
                         path, headers={"X-API-Key": self.settings.valio_api_key},
                         json={"customer": customer, "requestedDate": day.isoformat(), "products": list(ids)},
@@ -148,8 +205,9 @@ class ValioClient:
                             while len(self._cache) > self.max_cache_entries:
                                 self._cache.popitem(last=False)
                         return value[1], value[2]
-                    if (response.status_code == 429 or 500 <= response.status_code < 600
-                            ) and attempt < self.max_retries:
+                    if response.status_code == 429:
+                        self.rate_limiter.block(cooldown_seconds(response.headers.get("Retry-After", ""), self.clock()))
+                    if 500 <= response.status_code < 600 and attempt < self.max_retries:
                         try:
                             wait = min(5.0, max(0.0, float(response.headers.get("Retry-After", ""))))
                             if wait != wait:
