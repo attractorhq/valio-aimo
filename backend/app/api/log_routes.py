@@ -14,10 +14,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 
 from app.contracts import AuditEntry, AuditTrail
+from app.gateway.log import aggregate_audit_trails
 
 from .auth import audit_scope
 from .errors import ERROR_RESPONSES
-from .state import GatewayState, get_state
+from .state import GatewayState, find_proposal_state, get_state, iter_audit_sessions
 
 # Same channel as getAuditTrail: read-only, holds no approval capability (checked by the OpenAPI channel test).
 router = APIRouter(prefix="/v0.1", tags=["Agent channel"], responses=ERROR_RESPONSES)
@@ -69,14 +70,26 @@ def export_audit_trail(
     state: State,
     proposalId: str | None = None,
     customerId: str | None = None,
+    scope: Annotated[Literal["session", "all"], Query(description="session (default) or all active sessions")] = "session",
     format: Annotated[Literal["json", "csv"], Query(description="json (AuditTrail) or csv")] = "json",
 ) -> Response:
     if (proposalId is None) == (customerId is None):
         raise HTTPException(status_code=400, detail="Pass exactly one of proposalId or customerId.")
-    audit_scope(request, state, proposalId, customerId)
-    trail = state.gateway.get_audit_trail(proposal_id=proposalId, customer_id=customerId)
-    scope = f"proposal-{proposalId}" if proposalId else f"customer-{customerId}"
-    filename = f"decision-log-{_SAFE_NAME.sub('_', scope)}.{format}"
+    all_sessions = scope == "all"
+    audit_scope(request, state, proposalId, customerId, all_sessions=all_sessions)
+    if all_sessions:
+        if proposalId is not None:
+            owner = find_proposal_state(state, proposalId, all_sessions=True)
+            trail = owner.gateway.get_audit_trail(proposal_id=proposalId)
+        else:
+            logs = [(sid, s.gateway.log) for sid, s in iter_audit_sessions(state)]
+            trail = aggregate_audit_trails(logs, customer_id=customerId)
+    else:
+        trail = state.gateway.get_audit_trail(proposal_id=proposalId, customer_id=customerId)
+    file_scope = f"proposal-{proposalId}" if proposalId else f"customer-{customerId}"
+    if all_sessions:
+        file_scope = f"{file_scope}-all-sessions"
+    filename = f"decision-log-{_SAFE_NAME.sub('_', file_scope)}.{format}"
     headers = {"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"}
     if format == "csv":
         # UTF-8 with BOM so spreadsheet apps read €, ä and ö correctly.

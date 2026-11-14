@@ -6,13 +6,23 @@ import {
   BarChart3,
   CheckCircle2,
   Database,
+  Download,
   Filter,
   RefreshCw,
   ShieldAlert,
   Wrench,
 } from 'lucide-react'
-import { REASON_REGISTRY, type DecisionOutcome, type Product, type Proposal, type ReasonCode, type ReasonEffect } from '../lib/contracts'
-import { formatMoney, reasonChip } from '../lib/format'
+import {
+  REASON_REGISTRY,
+  type AuditTrail,
+  type DecisionOutcome,
+  type Product,
+  type Proposal,
+  type ReasonCode,
+  type ReasonEffect,
+} from '../lib/contracts'
+import { adminHeaders, agentHeaders } from '../lib/demoAccess'
+import { formatMoney, formatTime, reasonChip } from '../lib/format'
 import { gateway } from '../lib/gateway'
 import { LoadingSection, Skeleton } from '../components/Loading'
 import { ALLOW_MOCK } from '../lib/env'
@@ -1893,8 +1903,205 @@ export function ValioView() {
           </table>
         </div>
       </section>
+      {source === 'GATEWAY' && <ValioCustomerAudit />}
       {source === 'GATEWAY' && <ValioAgentActivity />}
     </div>
+  )
+}
+
+type SessionChainInfo = {
+  sessionId: string
+  verified: boolean
+  chainLength: number
+  headHash: string
+  reason?: string | null
+}
+
+type CrossSessionVerification = {
+  verified: boolean
+  chainLength: number
+  headHash: string
+  reason?: string | null
+  sessions?: SessionChainInfo[] | null
+}
+
+const VALIO_BUYERS = [
+  { id: 'nordic-harbour-hotels', label: 'Nordic Harbour Hotels' },
+  { id: 'northbay-school-kitchen', label: 'Northbay School Kitchen' },
+] as const
+
+function valioAuditHeaders(customerId: string): Record<string, string> {
+  const admin = adminHeaders()
+  return Object.keys(admin).length > 0 ? admin : agentHeaders(customerId)
+}
+
+async function fetchValioCustomerAudit(customerId: string): Promise<{
+  trail: AuditTrail
+  verification: CrossSessionVerification
+}> {
+  const headers = { ...valioAuditHeaders(customerId), Accept: 'application/json' }
+  const params = `customerId=${encodeURIComponent(customerId)}&scope=all`
+  const [trailRes, verRes] = await Promise.all([
+    fetch(`/v0.1/audit?${params}`, { headers, signal: AbortSignal.timeout(15000) }),
+    fetch(`/v0.1/audit/verify?${params}`, { headers, signal: AbortSignal.timeout(15000) }),
+  ])
+  const trailBody = await trailRes.json()
+  if (!trailRes.ok) {
+    throw new Error(trailBody.error?.message ?? 'Could not load customer audit trail.')
+  }
+  const verBody = await verRes.json()
+  if (!verRes.ok) {
+    throw new Error(verBody.error?.message ?? 'Could not verify customer audit chain.')
+  }
+  return { trail: trailBody as AuditTrail, verification: verBody as CrossSessionVerification }
+}
+
+function ValioCustomerAudit() {
+  const [customerId, setCustomerId] = useState<string>(VALIO_BUYERS[0].id)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
+
+  const audit = useQuery({
+    queryKey: ['valio-customer-audit', customerId],
+    queryFn: () => fetchValioCustomerAudit(customerId),
+    refetchInterval: 5000,
+    retry: false,
+  })
+
+  async function downloadExport(format: 'json' | 'csv') {
+    setDownloadError(null)
+    try {
+      const params = `customerId=${encodeURIComponent(customerId)}&scope=all&format=${format}`
+      const res = await fetch(`/v0.1/audit/export?${params}`, {
+        headers: valioAuditHeaders(customerId),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error?.message ?? 'Could not export customer audit trail.')
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `decision-log-customer-${customerId}-all-sessions.${format}`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : 'Download failed.')
+    }
+  }
+
+  const entries = audit.data?.trail.entries ?? []
+  const verification = audit.data?.verification
+  const sessions = verification?.sessions ?? []
+
+  return (
+    <section className="panel min-w-0" aria-labelledby="valio-customer-audit-title">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 id="valio-customer-audit-title" className="panel-title mb-0">
+            Buyer audit across sessions
+          </h2>
+          <p className="muted small mt-0.5">
+            Read-only Valio view (<code>scope=all</code>, public demo credentials); each session’s SHA-256 chain is verified separately.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={customerId}
+            onChange={(e) => setCustomerId(e.target.value)}
+            aria-label="Select buyer for cross-session audit"
+            className="rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface)] px-3 py-1.5 text-xs font-semibold"
+          >
+            {VALIO_BUYERS.map((buyer) => (
+              <option key={buyer.id} value={buyer.id}>
+                {buyer.label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => downloadExport('json')}
+            className="log-download-btn"
+          >
+            <Download size={12} aria-hidden />
+            <span>JSON</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => downloadExport('csv')}
+            className="log-download-btn"
+          >
+            <Download size={12} aria-hidden />
+            <span>CSV</span>
+          </button>
+        </div>
+      </div>
+
+      {(audit.error || downloadError) && (
+        <p className="notice notice-error" role="alert">
+          {downloadError ?? (audit.error as Error)?.message}
+        </p>
+      )}
+
+      {verification && (
+        <div
+          className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--line)] pt-2.5 text-xs"
+          role="status"
+          aria-label="Cross-session hash-chain verification"
+        >
+          <span className={verification.verified ? 'font-bold text-[var(--auto)]' : 'font-bold text-[var(--block)]'}>
+            {verification.verified
+              ? `All session chains verified ✓ (${sessions.length} session${sessions.length === 1 ? '' : 's'} · ${verification.chainLength} entries)`
+              : `Hash-chain mismatch: ${verification.reason ?? 'tampered entry detected'}`}
+          </span>
+          {sessions.length > 0 && (
+            <span className="muted font-mono text-[11px]">
+              {sessions
+                .map((s) => `${s.sessionId}: ${s.chainLength} ${s.verified ? '✓' : '✗'}`)
+                .join(' · ')}
+            </span>
+          )}
+        </div>
+      )}
+
+      {entries.length === 0 ? (
+        <p className="muted small mt-3 border-t border-[var(--line)] pt-2.5">
+          No decision-log entries recorded for this buyer across active sessions yet.
+        </p>
+      ) : (
+        <div className="table-scroll mt-3 border-t border-[var(--line)]">
+          <table className="data-table text-xs">
+            <caption className="visually-hidden">Cross-session decision log for selected buyer</caption>
+            <thead>
+              <tr>
+                <th scope="col">Time</th>
+                <th scope="col">Proposal</th>
+                <th scope="col">Actor</th>
+                <th scope="col">Event</th>
+                <th scope="col">Summary</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...entries].reverse().slice(0, 25).map((entry) => (
+                <tr key={`${entry.entryId}-${entry.timestamp}`}>
+                  <td className="whitespace-nowrap font-mono text-[11px] text-[var(--muted)]">
+                    {formatTime(entry.timestamp)}
+                  </td>
+                  <td className="whitespace-nowrap font-mono text-[11px]">
+                    {entry.proposalId ? <code>{entry.proposalId}</code> : '—'}
+                  </td>
+                  <td className="whitespace-nowrap">{entry.actor}</td>
+                  <td className="whitespace-nowrap font-semibold">{entry.event}</td>
+                  <td>{entry.summary}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   )
 }
 

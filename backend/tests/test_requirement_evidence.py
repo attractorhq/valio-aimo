@@ -96,8 +96,8 @@ CASES = {
 
 
 @pytest.mark.parametrize("mandate", [STANDARD, STRICT], ids=["standard", "strict"])
-@pytest.mark.parametrize("requirement", [AE, AM, AN, Requirement(kind="AVOID_ALLERGEN", code="UH")],
-                         ids=["AE", "AM", "AN", "UH-hazelnut"])
+@pytest.mark.parametrize("requirement", [AE, AM, AN, Requirement(kind="AVOID_ALLERGEN", code="SH")],
+                         ids=["AE", "AM", "AN", "SH-hazelnut"])
 @pytest.mark.parametrize("case", list(CASES), ids=list(CASES))
 def test_evidence_matches_the_policy_decision(case, requirement, mandate):
     allergens, declared = CASES[case]
@@ -117,7 +117,7 @@ def test_evidence_matches_the_policy_decision(case, requirement, mandate):
 
 def test_x99_never_proves_a_non_eu14_code():
     p = product(allergens={"X99": "FREE_FROM"})
-    (fact,) = requirement_facts(p, [Requirement(kind="AVOID_ALLERGEN", code="ZZ")], STANDARD)
+    (fact,) = requirement_facts(p, [Requirement(kind="AVOID_ALLERGEN", code="NM")], STANDARD)
     assert fact.level == "UNKNOWN" and fact.value is None
 
 

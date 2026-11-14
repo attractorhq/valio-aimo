@@ -21,7 +21,7 @@ from fastapi import HTTPException, Request
 from app.catalog.build import ROOT_DIR, get_cached_catalog
 from app.config import get_settings
 from app.contracts import Product
-from app.gateway.proposals import ProposalGateway
+from app.gateway.proposals import ProposalGateway, ProposalNotFoundError
 from app.policy import DEMO_MANDATES, MandateBook
 from app.valio import LiveValioProvider, RecordedValioProvider
 
@@ -158,6 +158,12 @@ class SandboxRegistry:
             self._expire(self.monotonic())
             return len(self._states)
 
+    def snapshots(self) -> list[tuple[str, GatewayState]]:
+        """Read-only snapshot of active `(sandbox_id, state)` pairs without mutating LRU order."""
+        with self._lock:
+            self._expire(self.monotonic())
+            return [(sid, state) for sid, (_last_used, state) in self._states.items()]
+
     def reset_all(self) -> int:
         with self._lock:
             count = len(self._states)
@@ -186,6 +192,28 @@ def sandbox_registry() -> SandboxRegistry:
 
 def sandbox_count() -> int:
     return _registry.count() if _registry is not None else 0
+
+
+def iter_audit_sessions(current: GatewayState) -> list[tuple[str, GatewayState]]:
+    """Active `(sandbox_id, state)` pairs for `scope=all` read-only audit queries (T93)."""
+    sessions = _registry.snapshots() if _registry is not None else []
+    if all(state is not current for _, state in sessions):
+        sessions.append((current.sandbox_id, current))
+    return sessions
+
+
+def find_proposal_state(current: GatewayState, proposal_id: str, *, all_sessions: bool = False) -> GatewayState:
+    """Resolve the `GatewayState` holding `proposal_id` (current session only, or across active sessions)."""
+    if not all_sessions:
+        current.gateway.get_proposal(proposal_id)
+        return current
+    for _, candidate in iter_audit_sessions(current):
+        try:
+            candidate.gateway.get_proposal(proposal_id)
+            return candidate
+        except ProposalNotFoundError:
+            continue
+    raise ProposalNotFoundError(proposal_id)
 
 
 def request_sandbox_id(request: Request) -> str | None:
