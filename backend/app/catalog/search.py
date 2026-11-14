@@ -496,15 +496,15 @@ def search_products(
             active_concept = alt_parent or alt_primary
             cat_entries = index.entries_for_prefixes(active_concept.category_prefixes)
             for entry in cat_entries:
-                if match_concept_in_text(alt_primary, entry.text_lower, entry.words) or (
-                    alt_parent is not None and match_concept_in_text(alt_parent, entry.text_lower, entry.words)
+                if match_concept_in_text(alt_primary, entry.text_lower, entry.words, entry.category) or (
+                    alt_parent is not None and match_concept_in_text(alt_parent, entry.text_lower, entry.words, entry.category)
                 ):
                     add_to_pool(entry, alt_q=alt_q, alt_primary=alt_primary, alt_parent=alt_parent)
             # Fallback for synthetic categories (e.g. "dairy", "pasta", "pantry", "synthetic") or cross-category items:
             if len(pool) == before_count:
                 for entry in index.all_entries:
-                    if match_concept_in_text(alt_primary, entry.text_lower, entry.words) or (
-                        alt_parent is not None and match_concept_in_text(alt_parent, entry.text_lower, entry.words)
+                    if match_concept_in_text(alt_primary, entry.text_lower, entry.words, entry.category) or (
+                        alt_parent is not None and match_concept_in_text(alt_parent, entry.text_lower, entry.words, entry.category)
                     ):
                         add_to_pool(entry, alt_q=alt_q, alt_primary=alt_primary, alt_parent=alt_parent)
         elif alt_fam_groups or alt_tok_groups:
@@ -560,7 +560,7 @@ def search_products(
         prod_names = (prod.name, *prod.names.values())
         is_primary_concept = (
             0
-            if (alt_primary is None or match_concept_in_text(alt_primary, entry.text_lower, entry.words))
+            if (alt_primary is None or match_concept_in_text(alt_primary, entry.text_lower, entry.words, entry.category))
             else 1
         )
         # T34 + T87: the buyer's use-changing qualifiers and product form (grated vs sliced, etc.) come
