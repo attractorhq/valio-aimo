@@ -260,6 +260,8 @@ AE = Requirement(kind="AVOID_ALLERGEN", code="AE")
 AF = Requirement(kind="AVOID_ALLERGEN", code="AF")
 AY = Requirement(kind="AVOID_ALLERGEN", code="AY")
 AS = Requirement(kind="AVOID_ALLERGEN", code="AS")
+# Finnish "pähkinä" covers peanuts as well as tree nuts (T40): both codes are required.
+NUTS_FI = (AN, AP)
 
 
 def test_reviewer_sentence_keeps_the_requirement_and_a_clean_product():
@@ -283,8 +285,8 @@ def test_reviewer_sentence_keeps_the_requirement_and_a_clean_product():
     ("50 kg of pasta, no sesame, by Monday", AS),
     ("50 kg of pasta, no milk, by Monday", MILK_FREE),
     ("50 kg of pasta, no gluten, by Monday", GLUTEN_FREE),
-    ("50 kg pastaa ilman pähkinöitä maanantaiksi", AN),
-    ("50 kg pähkinätöntä pastaa maanantaiksi", AN),
+    ("50 kg pastaa ilman pähkinöitä maanantaiksi", NUTS_FI),
+    ("50 kg pähkinätöntä pastaa maanantaiksi", NUTS_FI),
     ("50 kg pastaa, ei maapähkinöitä, maanantaiksi", AP),
     ("50 kg kananmunatonta pastaa maanantaiksi", AE),
     ("50 kg pastaa ilman kalaa maanantaiksi", AF),
@@ -292,14 +294,14 @@ def test_reviewer_sentence_keeps_the_requirement_and_a_clean_product():
     ("50 kg seesamitonta pastaa maanantaiksi", AS),
     ("50 kg pastaa ilman maitoa maanantaiksi", MILK_FREE),
     ("50 kg pastaa ilman gluteenia maanantaiksi", GLUTEN_FREE),
-    ("50 kg pastaa, pähkinäallergia, maanantaiksi", AN),
+    ("50 kg pastaa, pähkinäallergia, maanantaiksi", NUTS_FI),
 ])
 def test_negated_allergens_become_requirements(text, requirement):
     result = parse_request(text, FRIDAY)
     assert result.clarificationQuestion is None
     (item,) = result.request.items
     assert item.what == "pasta"
-    assert item.requirements == [requirement]
+    assert item.requirements == (list(requirement) if isinstance(requirement, tuple) else [requirement])
 
 
 @pytest.mark.parametrize("text", [

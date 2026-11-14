@@ -27,7 +27,7 @@ def shape(text: str):
         "assumptions": request.assumptions if request else None,
         "items": [
             (i.what, i.quantity, i.unit, i.productId,
-             [(r.kind, r.code) for r in i.requirements], sorted((p.kind, p.value) for p in i.preferences))
+             sorted((r.kind, r.code) for r in i.requirements), sorted((p.kind, p.value) for p in i.preferences))
             for i in (request.items if request else [])
         ],
     }
@@ -60,7 +60,8 @@ PAIRS = {
                 ["100 litraa luomumaitoa maanantaiksi"]),
     "explicit-date": ("50 kg of gluten-free macaroni by 20 Nov",
                       ["50 kiloa gluteenitonta makaronia 20. marraskuuta mennessä"]),
-    "allergens": ("50 kg of pasta, no nuts, without eggs, by Monday",
+    # "pähkinä" is peanuts as well as tree nuts (T40).
+    "allergens": ("50 kg of pasta, no nuts, no peanuts, without eggs, by Monday",
                   ["50 kiloa pastaa ilman pähkinöitä, ilman kananmunaa, maanantaiksi"]),
     "milk-free-cheese": ("200 l of light milk and 30 kg of milk-free cheese by Friday",
                          ["200 l kevytmaitoa ja 30 kg maidotonta juustoa perjantaiksi"]),
