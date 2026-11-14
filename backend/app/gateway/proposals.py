@@ -78,6 +78,7 @@ from app.gateway.offers import (
     get_offer,
     shortlists,
     size,
+    with_requirement_facts,
 )
 from app.policy import (
     DEMO_MANDATES,
@@ -743,9 +744,20 @@ class ProposalGateway:
             raise NoOrderError(policy_decision)
 
         verdict_by_line = {v.line.line_id: v for v in policy_decision.lines}
+        items_by_id = {item.itemId: item for item in create_req.request.items}
+
+        def evaluated_facts(product_id: str, item_id: str, facts: Sequence[TrustLabel]) -> list[TrustLabel]:
+            # T41: the requirement facts the policy decided on, so the card, footer and log show the same.
+            product = self.products.get(product_id)
+            if product is None:
+                return list(facts)
+            item = items_by_id.get(item_id)
+            return with_requirement_facts(facts, product, item.requirements if item else [], mandate)
+
         kept_lines = [
             line.model_copy(
                 update={
+                    "facts": evaluated_facts(line.productId, line.itemId, line.facts),
                     "reasons": list(
                         dict.fromkeys([
                             *(ReasonCode(r) for r in verdict_by_line[line.lineId].reasons),
@@ -766,11 +778,10 @@ class ProposalGateway:
         sub_excluded = _rejected_valio_substitutes(
             kept_lines, create_req.request, mandate, self.products, bound_offer.excluded
         )
-        excluded = _merge_excluded(
-            bound_offer.excluded,
-            policy_decision.excluded_products(),
-            sub_excluded,
-        )
+        excluded = [
+            e.model_copy(update={"facts": evaluated_facts(e.productId, e.itemId, e.facts)})
+            for e in _merge_excluded(bound_offer.excluded, policy_decision.excluded_products(), sub_excluded)
+        ]
 
         pid = proposal_id or _default_proposal_id(bound_offer)
         self._partial_items[pid] = effective_partial

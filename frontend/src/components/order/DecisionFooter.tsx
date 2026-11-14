@@ -1,6 +1,7 @@
 import { Ban, CheckCircle2, Hourglass, Info, ShieldCheck } from 'lucide-react'
 import { REASON_REGISTRY, type Mandate, type Proposal, type ReasonCode } from '../../lib/contracts'
 import { formatMoney, reasonChip, reasonText } from '../../lib/format'
+import { proposalRequirementChecks, requirementsStatement } from '../../lib/requirements'
 
 function explainReason(code: ReasonCode, proposal: Proposal, mandate?: Mandate): string {
   const params: Record<string, string> = { total: formatMoney(proposal.totals.exclVat) }
@@ -13,9 +14,20 @@ function explainReason(code: ReasonCode, proposal: Proposal, mandate?: Mandate):
   return /\{\w+\}/.test(text) ? reasonChip(code) : text
 }
 
-function decisionSummary(proposal: Proposal, approver?: string): string {
+/**
+ * The "proven" statement is derived from the same requirement facts the trust cards show (T41): it is
+ * made only when every hard requirement on every line is proven by its evidence.
+ */
+function decisionSummary(
+  proposal: Proposal,
+  statement: ReturnType<typeof requirementsStatement>,
+  approver?: string,
+): string {
+  if (!statement.allProven && proposal.decision !== 'BLOCK') {
+    return `${statement.clause}, so this proposal must not be ordered as it stands.`
+  }
   if (proposal.decision === 'AUTO') {
-    return 'All hard requirements, stock and delivery terms are verified or declared, and the net total is within the buyer mandate.'
+    return `${statement.clause}; stock and delivery terms are verified or declared, and the net total is within the buyer mandate.`
   }
   if (proposal.decision === 'ASK' && proposal.state === 'CONFIRMED_SIMULATED') {
     return `${approver ?? 'The approver'} approved this exact version in the Approver panel; the gateway re-checked it before the simulated confirmation.`
@@ -24,7 +36,7 @@ function decisionSummary(proposal: Proposal, approver?: string): string {
     return 'This proposal version will not be ordered.'
   }
   if (proposal.decision === 'ASK') {
-    return `Every hard requirement is proven; this proposal version waits for ${approver ?? 'Head Chef (demo)'} to sign off the trade-off below.`
+    return `${statement.clause}; this proposal version waits for ${approver ?? 'Head Chef (demo)'} to sign off the trade-off below.`
   }
   return 'Deterministic gateway policy blocked this proposal because it breaches a non-overridable mandate rule.'
 }
@@ -57,6 +69,9 @@ export function DecisionFooter({ proposal, mandate }: { proposal: Proposal; mand
     decision === 'ASK' && ['REJECTED', 'EXPIRED', 'SUPERSEDED'].includes(proposal.state)
   const Icon = confirmed ? CheckCircle2 : decision === 'ASK' && !voided ? Hourglass : Ban
   const tone = confirmed ? 'auto' : voided ? 'block' : decision.toLowerCase()
+  const statement = requirementsStatement(
+    proposalRequirementChecks(proposal, mandate?.forbiddenAllergens),
+  )
 
   return (
     <div className={`outcome outcome-${tone}`}>
@@ -64,7 +79,10 @@ export function DecisionFooter({ proposal, mandate }: { proposal: Proposal; mand
         <Icon size={22} aria-hidden />
         <span>
           <span className="outcome-word">{decision}</span>
-          {decision === 'AUTO' && 'Every fact is proven and the order is inside the mandate.'}
+          {decision === 'AUTO' &&
+            (statement.allProven
+              ? 'Every fact is proven and the order is inside the mandate.'
+              : 'A hard requirement is not proven.')}
           {decision === 'ASK' &&
             (proposal.state === 'PENDING_APPROVAL'
               ? `Waiting for ${approver}`
@@ -73,7 +91,9 @@ export function DecisionFooter({ proposal, mandate }: { proposal: Proposal; mand
         </span>
       </p>
 
-      <p className="mt-2 text-sm">{decisionSummary(proposal, approver)}</p>
+      <p className="mt-2 text-sm" data-testid="decision-summary">
+        {decisionSummary(proposal, statement, approver)}
+      </p>
 
       {proposal.reasons.length > 0 && (
         <ul className="reason-list" aria-label="Reasons">

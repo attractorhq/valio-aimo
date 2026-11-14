@@ -23,8 +23,9 @@ from datetime import datetime, timedelta
 from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP, Decimal
 from typing import Protocol
 
-from app.catalog.normalise import apply_price_ratio_content
+from app.catalog.normalise import allergen_declaration, apply_price_ratio_content
 from app.contracts import (
+    Conflict,
     ContentPerSalesUnit,
     ExcludedProduct,
     GetOfferRequest,
@@ -36,12 +37,15 @@ from app.contracts import (
     Quantity,
     ReasonCode,
     RequestItem,
+    Requirement,
     Totals,
     TrustLabel,
     TrustSource,
     format_date,
 )
 from app.policy import ContentBasis, LineInput, LineVerdict, StockKind, evaluate_line
+from app.policy.requirements import K6_MESSAGE, allergen_status, claim_conflicts, hard_requirements
+from app.trust.labels import SOURCE_CLAIM, allergen_name, claim_label, packaging_label
 from app.valio import ProductFacts, ValioSnapshot
 
 OFFER_VALIDITY = timedelta(minutes=15)
@@ -199,6 +203,67 @@ def _partial_coverage_label(
 def _neutral_item(item_id: str, needed: Decimal, unit: str) -> RequestItem:
     # Offer eligibility only: hard requirements are checked against the structured request at createProposal.
     return RequestItem(itemId=item_id, what="offer item", quantity=needed, unit=unit)
+
+
+# --------------------------------------------------------------------------- requirement evidence (T41)
+
+_ALLERGEN_STATUS_TEXT = {
+    "CONTAINS": ("Contains {name}", "DECLARED"),
+    "MAY_CONTAIN": ("May contain {name}", "DECLARED"),
+    "FREE_FROM": ("Free from {name}", "DECLARED"),
+    "NOT_LISTED": ("Not listed ({name})", "DECLARED"),
+    "UNKNOWN": ("Unknown", "UNKNOWN"),
+}
+
+
+def _allergen_requirement_fact(product: Product, code: str, conflicts: frozenset[str]) -> TrustLabel:
+    status = allergen_status(product, code)  # exactly what rule L4 decides on
+    evidence = allergen_declaration(product, code).evidence  # where it is declared: source, field, method
+    if not (evidence.value == status or (status == "UNKNOWN" and evidence.level == "UNKNOWN")):
+        # The catalogue helper reads the declaration differently: the policy's reading wins, since it decided.
+        text, level = _ALLERGEN_STATUS_TEXT[status]
+        evidence = evidence.model_copy(update={
+            "value": None if status == "UNKNOWN" else status,
+            "display": text.format(name=allergen_name(code)),
+            "level": level,
+            "method": "policy:L4",
+        })
+    if code == "AM" and "K6" in conflicts and evidence.conflict is None:
+        evidence = evidence.model_copy(update={"conflict": Conflict(code="K6", message=K6_MESSAGE)})
+    return evidence.model_copy(update={"fact": f"allergen.{code}"})
+
+
+def _claim_requirement_fact(product: Product, code: str) -> TrustLabel:
+    if code in product.claims:
+        return next((f for f in product.facts if f.fact == f"claim.{code}"), None) or claim_label(code)
+    if code in product.labels:  # rule L4 accepts a packaging label for the claim
+        label = next((f for f in product.facts if f.fact == f"label.{code}"), None) or packaging_label(code)
+        return label.model_copy(update={"fact": f"claim.{code}", "value": True, "method": f"label:{code}"})
+    return TrustLabel(fact=f"claim.{code}", value=False, display="Not claimed by the supplier", level="UNKNOWN",
+                      source=SOURCE_CLAIM, method=None, conflict=None)
+
+
+def requirement_facts(product: Product, requirements: Sequence[Requirement], mandate: Mandate) -> list[TrustLabel]:
+    """One TrustLabel per hard requirement (the item's plus the mandate's forbidden allergens).
+
+    Built from the same evaluation the policy runs in rule L4 (`allergen_status`, claims or labels), so the
+    trust card, the decision text and the decision log show the facts the decision actually used.
+    """
+    conflicts = claim_conflicts(product)
+    return [
+        _claim_requirement_fact(product, r.code) if r.kind == "CLAIM"
+        else _allergen_requirement_fact(product, r.code, conflicts)
+        for r in hard_requirements(requirements, mandate)
+    ]
+
+
+def with_requirement_facts(
+    facts: Sequence[TrustLabel], product: Product, requirements: Sequence[Requirement], mandate: Mandate
+) -> list[TrustLabel]:
+    """Requirement facts first, replacing any fact with the same key, so each key appears once."""
+    evaluated = requirement_facts(product, requirements, mandate)
+    keys = {f.fact for f in evaluated}
+    return [*evaluated, *(f for f in facts if f.fact not in keys)]
 
 
 def _hash_payload(offer_fields: dict) -> str:
