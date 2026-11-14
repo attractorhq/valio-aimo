@@ -1218,17 +1218,12 @@ const FIX_BY_REASON: Partial<Record<ReasonCode, string>> = {
 
 function EffectBadge({ effect, approvable }: { effect: string; approvable?: boolean }) {
   const isAsk = effect === 'ASK'
-  const isBlock = effect === 'BLOCK'
-  const cls = isAsk
-    ? 'bg-[var(--ask-bg)] text-[var(--ask)] border-[var(--ask)]'
-    : isBlock
-      ? 'bg-[var(--block-bg)] text-[var(--block)] border-[var(--block)]'
-      : 'bg-[var(--block-bg)] text-[var(--block)] border-[var(--block)]'
+  const cls = isAsk ? 'text-[var(--ask)]' : 'text-[var(--block)]'
   const note =
     approvable === undefined ? undefined : approvable ? 'Approvable by a human (P2.2)' : 'Never approvable (P2.3)'
   return (
     <span
-      className={`inline-flex items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 text-xs font-bold ${cls}`}
+      className={`inline-flex items-center gap-1 whitespace-nowrap text-xs font-bold ${cls}`}
       title={note}
     >
       {isAsk ? <AlertTriangle size={12} aria-hidden /> : <ShieldAlert size={12} aria-hidden />}
@@ -1245,19 +1240,23 @@ function ReadinessLoading() {
       </div>
       <section className="panel valio-catalogue-panel">
         <h1 className="text-lg font-bold text-[var(--ink)]">
-          Valio Aimo Agent-Readiness View · Data quality = autonomous sales
+          Agent readiness: data quality = autonomous sales
         </h1>
-        <p className="muted small mt-1 max-w-3xl">
-          Autonomous sales (<strong>AUTO</strong>) require verified or declared facts without
-          conflict. Missing allergens, weak pack sizing, unpriced deposits and unsafe substitutes
-          block AUTO.
+        <p className="muted small mt-1">
+          <strong>AUTO</strong> needs verified or declared facts without conflict.
         </p>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-4 grid gap-4 border-t border-[var(--line)] pt-4 sm:grid-cols-2 lg:grid-cols-4 lg:divide-x lg:divide-[var(--line)]">
           {[0, 1, 2, 3].map((i) => (
-            <LoadingSection key={i} label="catalogue statistics" variant="stats" />
+            <LoadingSection
+              key={i}
+              label="catalogue statistics"
+              variant="stats"
+              className={i > 0 ? 'lg:pl-4' : ''}
+            />
           ))}
         </div>
       </section>
+      <p className="muted text-sm">Statistics cover your session only.</p>
       <LoadingSection
         label="decision statistics"
         variant="stats"
@@ -1395,8 +1394,11 @@ export function ValioView() {
           </div>
         </div>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Catalogue readiness summary">
-          <div className="rounded-[24px] border border-[var(--line)] bg-[var(--tint)] p-4">
+        <div
+          className="mt-4 grid gap-4 border-t border-[var(--line)] pt-4 sm:grid-cols-2 lg:grid-cols-4 lg:divide-x lg:divide-[var(--line)]"
+          aria-label="Catalogue readiness summary"
+        >
+          <div className="min-w-0">
             <span className="text-xs font-bold uppercase tracking-wider text-[var(--muted)]">
               Catalogue
             </span>
@@ -1410,23 +1412,23 @@ export function ValioView() {
             </p>
           </div>
 
-          <div className="rounded-[24px] border border-[var(--auto-accent)] bg-[var(--auto-bg)] p-4">
-            <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-[var(--auto)]">
-              <CheckCircle2 size={14} aria-hidden /> AUTO-ready
+          <div className="min-w-0 lg:pl-4">
+            <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-[var(--muted)]">
+              <CheckCircle2 size={14} aria-hidden className="text-[var(--auto)]" /> AUTO-ready
             </span>
             <p className="mt-1 text-2xl font-bold text-[var(--auto)]">
               {catalogSummary.autoReadyProducts.toLocaleString('en-US')}{' '}
               <span className="text-sm font-semibold">({formatPercent(catalogSummary.autoReadyRate)})</span>
             </p>
-            <p className="mt-1 text-xs text-[var(--ink)]">
-              Food: <strong>{catalogSummary.foodAutoReadyProducts.toLocaleString('en-US')}</strong> /{' '}
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              Food: <strong className="text-[var(--ink)]">{catalogSummary.foodAutoReadyProducts.toLocaleString('en-US')}</strong> /{' '}
               {catalogSummary.foodProducts.toLocaleString('en-US')}
             </p>
           </div>
 
-          <div className="rounded-[24px] border border-[var(--block)] bg-[var(--block-bg)] p-4">
-            <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-[var(--block)]">
-              <ShieldAlert size={14} aria-hidden /> Blocked from AUTO
+          <div className="min-w-0 lg:pl-4">
+            <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-[var(--muted)]">
+              <ShieldAlert size={14} aria-hidden className="text-[var(--block)]" /> Blocked from AUTO
             </span>
             <p className="mt-1 text-2xl font-bold text-[var(--block)]">
               {catalogSummary.blockedFromAutoProducts.toLocaleString('en-US')}{' '}
@@ -1434,22 +1436,22 @@ export function ValioView() {
                 ({formatPercent(1 - Number(catalogSummary.autoReadyRate))})
               </span>
             </p>
-            <p className="mt-1 text-xs text-[var(--ink)]">
+            <p className="mt-1 text-xs text-[var(--muted)]">
               {catalogSummary.missingAllergensFood.toLocaleString('en-US')} no allergens ·{' '}
               {catalogSummary.contentWeakNameEstimate.toLocaleString('en-US')} name-only size ·{' '}
               {catalogSummary.contentUnknown.toLocaleString('en-US')} unknown size
             </p>
           </div>
 
-          <div className="rounded-[24px] border border-[var(--ask)] bg-[var(--ask-bg)] p-4">
-            <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-[var(--ask)]">
-              <Database size={14} aria-hidden /> Data traps
+          <div className="min-w-0 lg:pl-4">
+            <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-[var(--muted)]">
+              <Database size={14} aria-hidden className="text-[var(--ask)]" /> Data traps
             </span>
             <p className="mt-1 text-2xl font-bold text-[var(--ask)]">
               {(catalogSummary.dataConflicts + catalogSummary.unsafeSubstitutes).toLocaleString('en-US')}{' '}
               <span className="text-sm font-semibold">traps</span>
             </p>
-            <p className="mt-1 text-xs text-[var(--ink)]">
+            <p className="mt-1 text-xs text-[var(--muted)]">
               <span
                 title={
                   Object.entries(catalogSummary.conflictsByCode)
@@ -1457,10 +1459,10 @@ export function ValioView() {
                     .join(', ') || 'No conflicts'
                 }
               >
-                <strong>{catalogSummary.dataConflicts}</strong> conflicts
+                <strong className="text-[var(--ink)]">{catalogSummary.dataConflicts}</strong> conflicts
               </span>{' '}
-              · <strong>{catalogSummary.unsafeSubstitutes}</strong> unsafe substitutes ·{' '}
-              <strong>{catalogSummary.x99Products}</strong> X99
+              · <strong className="text-[var(--ink)]">{catalogSummary.unsafeSubstitutes}</strong> unsafe substitutes ·{' '}
+              <strong className="text-[var(--ink)]">{catalogSummary.x99Products}</strong> X99
             </p>
           </div>
         </div>
@@ -1498,72 +1500,81 @@ export function ValioView() {
           )}
         </div>
 
-        <div className="mt-3 grid gap-3 sm:grid-cols-3" aria-label="AUTO ASK BLOCK breakdown">
-          <div className="rounded-[24px] border border-[var(--auto-accent)] bg-[var(--auto-bg)] p-4">
+        <div
+          className="mt-4 grid gap-4 border-t border-[var(--line)] pt-4 sm:grid-cols-3 sm:divide-x sm:divide-[var(--line)]"
+          aria-label="AUTO ASK BLOCK breakdown"
+        >
+          <div className="min-w-0">
             <div className="flex items-center justify-between">
-              <span className="font-bold text-[var(--auto)]">AUTO · agent</span>
-              <span className="rounded-[12px] bg-white px-2 py-0.5 text-xs font-bold text-[var(--auto)]">
+              <span className="text-xs font-bold uppercase tracking-wider text-[var(--muted)]">
+                AUTO · agent
+              </span>
+              <span className="text-xs font-bold text-[var(--auto)]">
                 {formatPercent(displayedDecisionStats.autoRate)}
               </span>
             </div>
             <p className="mt-1 text-2xl font-bold text-[var(--auto)]">
               {displayedDecisionStats.byDecision.AUTO}{' '}
-              <span className="text-xs font-normal text-[var(--ink)]">
+              <span className="text-xs font-normal text-[var(--muted)]">
                 ({displayedDecisionStats.byDecisionActive.AUTO} active)
               </span>
             </p>
-            <p className="mt-1 text-xs text-[var(--ink)]">
-              <strong>{formatMoney(displayedDecisionStats.autoValueExclVat)}</strong> excl. VAT
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              <strong className="text-[var(--ink)]">{formatMoney(displayedDecisionStats.autoValueExclVat)}</strong> excl. VAT
             </p>
           </div>
 
-          <div className="rounded-[24px] border border-[var(--ask)] bg-[var(--ask-bg)] p-4">
+          <div className="min-w-0 sm:pl-4">
             <div className="flex items-center justify-between">
-              <span className="font-bold text-[var(--ask)]">ASK · human</span>
-              <span className="rounded-[12px] bg-white px-2 py-0.5 text-xs font-bold text-[var(--ask)]">
+              <span className="text-xs font-bold uppercase tracking-wider text-[var(--muted)]">
+                ASK · human
+              </span>
+              <span className="text-xs font-bold text-[var(--ask)]">
                 {formatPercent(displayedDecisionStats.askRate)}
               </span>
             </div>
             <p className="mt-1 text-2xl font-bold text-[var(--ask)]">
               {displayedDecisionStats.byDecision.ASK}{' '}
-              <span className="text-xs font-normal text-[var(--ink)]">
+              <span className="text-xs font-normal text-[var(--muted)]">
                 ({displayedDecisionStats.pendingApproval} pending)
               </span>
             </p>
-            <p className="mt-1 text-xs text-[var(--ink)]">
-              <strong>{formatMoney(displayedDecisionStats.askValueExclVat)}</strong> excl. VAT
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              <strong className="text-[var(--ink)]">{formatMoney(displayedDecisionStats.askValueExclVat)}</strong> excl. VAT
             </p>
           </div>
 
-          <div className="rounded-[24px] border border-[var(--block)] bg-[var(--block-bg)] p-4">
+          <div className="min-w-0 sm:pl-4">
             <div className="flex items-center justify-between">
-              <span className="font-bold text-[var(--block)]">BLOCK · mandate</span>
-              <span className="rounded-[12px] bg-white px-2 py-0.5 text-xs font-bold text-[var(--block)]">
+              <span className="text-xs font-bold uppercase tracking-wider text-[var(--muted)]">
+                BLOCK · mandate
+              </span>
+              <span className="text-xs font-bold text-[var(--block)]">
                 {formatPercent(displayedDecisionStats.blockRate)}
               </span>
             </div>
             <p className="mt-1 text-2xl font-bold text-[var(--block)]">
               {displayedDecisionStats.byDecision.BLOCK}{' '}
-              <span className="text-xs font-normal text-[var(--ink)]">
+              <span className="text-xs font-normal text-[var(--muted)]">
                 ({displayedDecisionStats.byDecisionActive.BLOCK} active)
               </span>
             </p>
-            <p className="mt-1 text-xs text-[var(--ink)]">
-              <strong>{formatMoney(displayedDecisionStats.blockValueExclVat)}</strong> excl. VAT
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              <strong className="text-[var(--ink)]">{formatMoney(displayedDecisionStats.blockValueExclVat)}</strong> excl. VAT
             </p>
           </div>
         </div>
 
         {(displayedDecisionStats.reasonCounts.length > 0 ||
           displayedDecisionStats.excludedReasonCounts.length > 0) && (
-          <div className="mt-3 grid gap-3 md:grid-cols-2">
-            <div className="rounded-lg border border-[var(--line)] bg-[var(--bg)] p-3">
+          <div className="mt-4 grid gap-6 border-t border-[var(--line)] pt-4 md:grid-cols-2">
+            <div>
               <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--muted)]">
                 Order reasons
               </h3>
               <ul className="mt-2 grid gap-1.5 text-xs">
                 {displayedDecisionStats.reasonCounts.map((r) => (
-                  <li key={r.code} className="flex flex-wrap items-center justify-between gap-2">
+                  <li key={r.code} className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] py-1 last:border-b-0">
                     <span className="inline-flex items-center gap-1.5">
                       <span className="chip">{reasonChip(r.code)}</span>
                       <code className="text-[11px] text-[var(--muted)]">{r.code}</code>
@@ -1576,13 +1587,13 @@ export function ValioView() {
               </ul>
             </div>
 
-            <div className="rounded-lg border border-[var(--line)] bg-[var(--bg)] p-3">
+            <div>
               <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--muted)]">
                 Exclusions ({displayedDecisionStats.totalExcludedCandidates})
               </h3>
               <ul className="mt-2 grid gap-1.5 text-xs">
                 {displayedDecisionStats.excludedReasonCounts.map((r) => (
-                  <li key={r.code} className="flex flex-wrap items-center justify-between gap-2">
+                  <li key={r.code} className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] py-1 last:border-b-0">
                     <span className="inline-flex items-center gap-1.5">
                       <span className="chip">{reasonChip(r.code)}</span>
                       <code className="text-[11px] text-[var(--muted)]">{r.code}</code>

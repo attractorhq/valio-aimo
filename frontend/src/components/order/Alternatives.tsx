@@ -55,14 +55,14 @@ const TIER_LABEL: Record<CandidateTier, string> = {
 function tierBadgeClass(tier: CandidateTier): string {
   switch (tier) {
     case 'RECOMMENDED':
-      return 'border-[var(--auto)] bg-[var(--auto-bg)] text-[var(--auto)]'
+      return 'text-[var(--auto)]'
     case 'BEST':
-      return 'border-[var(--info)] bg-[var(--info-bg)] text-[var(--info)]'
+      return 'text-[var(--info)]'
     case 'BETTER':
-      return 'border-[var(--line)] bg-[var(--bg)] text-[var(--ink)]'
+      return 'text-[var(--ink)]'
     case 'GOOD':
     default:
-      return 'border-[var(--line)] bg-[var(--bg)] text-[var(--muted)]'
+      return 'text-[var(--muted)]'
   }
 }
 
@@ -350,11 +350,11 @@ export function Alternatives({
 
   return (
     <section
-      className="mt-1.5 min-w-0 rounded-[24px] border border-[var(--line)] bg-[var(--tint)] px-3 py-1.5 [overflow-wrap:break-word]"
+      className="mt-2 min-w-0 border-t border-[var(--line)] pt-2.5 [overflow-wrap:break-word]"
       aria-label="Good / Better / Best alternatives"
     >
       <div className="flex flex-wrap items-center justify-between gap-1">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] leading-none">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] leading-none">
           <h3 className="inline-flex items-center gap-1 font-bold text-[var(--ink)]">
             <Sparkles size={11} aria-hidden />
             <span>Alternatives</span>
@@ -362,7 +362,7 @@ export function Alternatives({
           {uniqueRequirements.map((r) => (
             <span
               key={`${r.kind}-${r.code}`}
-              className="inline-flex items-center gap-0.5 rounded-[12px] bg-[var(--auto-bg)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--auto)]"
+              className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-[var(--auto)]"
             >
               <ShieldCheck size={10} aria-hidden />
               <span>{requirementLabel(r)} proven</span>
@@ -371,7 +371,7 @@ export function Alternatives({
           {itemsWithOptions.map((entry) => (
             <span
               key={entry.item.itemId}
-              className="inline-flex flex-wrap items-center gap-0.5 text-[10px]"
+              className="inline-flex flex-wrap items-center gap-1 text-[10px]"
               aria-label={`Summary alternatives for ${entry.item.what}`}
             >
               <strong className="text-[var(--ink)]">{entry.item.what}:</strong>
@@ -379,7 +379,7 @@ export function Alternatives({
                 <span
                   key={cand.productId}
                   title={`${cand.name} (${cand.productId}) — ${cand.tradeoff}`}
-                  className={`inline-flex items-center gap-0.5 rounded-[12px] border px-1.5 py-0.5 text-[10px] font-semibold ${tierBadgeClass(cand.tier)}`}
+                  className={`inline-flex items-center gap-0.5 text-[10px] font-semibold ${tierBadgeClass(cand.tier)}`}
                 >
                   <span>{TIER_LABEL[cand.tier]}</span>
                   {!cand.productId.startsWith('MOCK-') && <span>{cand.productId}</span>}
@@ -394,7 +394,7 @@ export function Alternatives({
           aria-expanded={expanded}
           aria-controls={detailsId}
           onClick={() => setExpanded((prev) => !prev)}
-          className="inline-flex items-center gap-0.5 rounded-full border border-[var(--action)] bg-[var(--surface)] px-2.5 py-0.5 text-[10px] font-semibold text-[var(--action)] hover:bg-[var(--tint)]"
+          className="disclosure-btn"
         >
           <ToggleIcon size={11} aria-hidden />
           <span>{expanded ? 'Hide trade-offs' : 'Show trade-offs'}</span>
@@ -404,15 +404,15 @@ export function Alternatives({
       {expanded && (
         <div
           id={detailsId}
-          className={`mt-2 grid gap-2 border-t border-[var(--line)] pt-2 ${itemsWithOptions.length > 1 ? 'lg:grid-cols-2' : ''}`}
+          className={`mt-2 grid gap-3 border-t border-[var(--line)] pt-2 ${itemsWithOptions.length > 1 ? 'lg:grid-cols-2' : ''}`}
         >
           {itemsWithOptions.map((entry) => (
             <div
               key={entry.item.itemId}
-              className="min-w-0 rounded-[16px] border border-[var(--line)] bg-[var(--surface)] px-2.5 py-1.5"
+              className="min-w-0"
               aria-label={`Alternatives for ${entry.item.what}`}
             >
-              <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-[var(--line)] pb-1">
+              <div className="flex flex-wrap items-center justify-between gap-1.5 pb-1">
                 <div className="text-xs">
                   <strong className="text-[var(--ink)]">{entry.item.what}</strong>
                   <span className="text-[var(--muted)]">
@@ -422,16 +422,16 @@ export function Alternatives({
                 </div>
               </div>
 
-              <ol className="mt-1 grid gap-1" aria-label={`Ranked options for ${entry.item.what}`}>
+              <ol className="grid" aria-label={`Ranked options for ${entry.item.what}`}>
                 {entry.topOptions.map((cand) => (
                   <li
                     key={cand.productId}
-                    className="rounded-[12px] border border-[var(--line)] bg-[var(--bg)] px-2 py-1 text-xs"
+                    className="border-t border-[var(--line)] py-1.5 text-xs"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-1.5">
                       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                         <span
-                          className={`inline-flex items-center rounded-[12px] border px-1.5 py-0.5 text-[10px] font-bold tracking-wide uppercase ${tierBadgeClass(cand.tier)}`}
+                          className={`inline-flex items-center text-[10px] font-bold tracking-wide uppercase ${tierBadgeClass(cand.tier)}`}
                         >
                           {TIER_LABEL[cand.tier]}
                         </span>
@@ -439,7 +439,7 @@ export function Alternatives({
                         <span className="text-[var(--muted)]">· {cand.productId}</span>
                       </div>
                       {cand.substitutionSource && (
-                        <span className="rounded-[12px] border border-[var(--ask)] bg-[var(--ask-bg)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--ask)]">
+                        <span className="text-[10px] font-semibold text-[var(--ask)]">
                           {cand.substitutionSource === 'VALIO'
                             ? 'Valio substitute'
                             : 'Agent substitute'}

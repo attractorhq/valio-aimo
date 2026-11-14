@@ -195,3 +195,60 @@ test('on a phone the request box comes before the mandate panel', async ({ page 
   // The buyer can still be chosen from the top of the page.
   await expect(page.getByRole('link', { name: /Change buyer/ })).toBeVisible()
 })
+
+test('T86 lighter layout: one surface per section, dividers instead of nested cards, and >= 50% fewer boxed elements on / and /valio', async ({
+  page,
+}) => {
+  const countBoxedInMain = () =>
+    page.evaluate(() => {
+      const main = document.querySelector('main')
+      if (!main) return 0
+      const isTransparent = (c: string) => !c || c === 'rgba(0, 0, 0, 0)' || c === 'transparent'
+      let count = 0
+      for (const el of Array.from(main.querySelectorAll('*'))) {
+        const rect = el.getBoundingClientRect()
+        if (rect.width === 0 || rect.height === 0) continue
+        const cs = getComputedStyle(el)
+        if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') continue
+        const hasFullBorder =
+          parseFloat(cs.borderTopWidth) > 0 &&
+          cs.borderTopStyle !== 'none' &&
+          !isTransparent(cs.borderTopColor) &&
+          parseFloat(cs.borderRightWidth) > 0 &&
+          cs.borderRightStyle !== 'none' &&
+          !isTransparent(cs.borderRightColor) &&
+          parseFloat(cs.borderBottomWidth) > 0 &&
+          cs.borderBottomStyle !== 'none' &&
+          !isTransparent(cs.borderBottomColor) &&
+          parseFloat(cs.borderLeftWidth) > 0 &&
+          cs.borderLeftStyle !== 'none' &&
+          !isTransparent(cs.borderLeftColor)
+        const hasBg = !isTransparent(cs.backgroundColor)
+        if (hasFullBorder && hasBg) count++
+      }
+      return count
+    })
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await runOfficialExample(page)
+  const mainCount = await countBoxedInMain()
+  // Down from 58 before T86 (at least 50% reduction requires <= 29; actual is ~10)
+  expect(mainCount).toBeLessThanOrEqual(20)
+
+  await page.goto('/valio')
+  await expect(
+    page.getByRole('heading', { name: /Agent readiness/i }),
+  ).toBeVisible()
+  const valioCount = await countBoxedInMain()
+  // Down from 37 before T86 (at least 50% reduction requires <= 18; actual is ~12)
+  expect(valioCount).toBeLessThanOrEqual(18)
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  for (const path of ['/', '/approver', '/valio', '/log/MOCK-P-B']) {
+    await page.goto(path)
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - window.innerWidth,
+    )
+    expect(overflow).toBeLessThanOrEqual(0)
+  }
+})

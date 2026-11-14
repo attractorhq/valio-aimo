@@ -242,7 +242,7 @@ export function Main() {
     <div className="main-grid">
       {/* Left on desktop: buyer, request and the result. Right: the evidence (the four steps).
           On a phone: request, result, the steps, then the buyer mandate. */}
-      <div className="main-primary">
+      <div className="main-primary panel">
         <aside className="main-side" id="buyer-mandate">
           {mandates.error ? (
             <p className="notice notice-error" role="alert">
@@ -306,11 +306,11 @@ export function Main() {
         )}
         {mandates.isPending && (
           <div className="primary-status">
-            <LoadingSection label="mandate status" variant="status" className="panel mt-3" />
+            <LoadingSection label="mandate status" variant="status" className="mandate-status" />
           </div>
         )}
       </div>
-      <div className="main-flow">
+      <div className="main-flow panel">
         <div className="flow-header">
           <h2 className="panel-title">Evidence</h2>
         </div>
@@ -475,7 +475,7 @@ export function Main() {
               </div>
             )}
             {proposal?.state === 'SUPERSEDED' && supersededNext.data && (
-              <div className="mt-2 rounded-lg border border-[var(--ask)] bg-[var(--ask-bg)] p-3 text-sm">
+              <div className="mt-2 border-t border-[var(--line)] pt-2 text-sm">
                 <strong>New version decided from scratch:</strong> proposal{' '}
                 <code>{supersededNext.data.proposalId}</code> (offer v
                 {supersededNext.data.offerVersion},{' '}
