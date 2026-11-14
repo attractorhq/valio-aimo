@@ -22,10 +22,14 @@ from app.catalog.normalise import allergen_declaration, product_fact
 from app.catalog.vocab import (
     CONCEPTS_BY_ID,
     ProductConcept,
+    ProductForm,
     expand_query_tokens,
     extract_inline_requirements,
+    extract_requested_form,
     match_concept_in_text,
+    product_form_difference,
     resolve_query_concepts,
+    split_query_alternatives,
 )
 from app.contracts import (
     Approver,
@@ -423,32 +427,58 @@ def search_products(
     cleaned_query, inline_reqs = extract_inline_requirements(query_without_id)
     combined_reqs = list(dict.fromkeys([*explicit_reqs, *inline_reqs]))
     applied_reqs = list(hard_requirements(combined_reqs, effective_mandate))
+    requested_form = extract_requested_form(raw_query, explicit_prefs)
 
-    concepts = resolve_query_concepts(cleaned_query)
-    primary_concept: ProductConcept | None = concepts[0] if concepts else None
-    parent_concept: ProductConcept | None = (
-        CONCEPTS_BY_ID.get(primary_concept.parent_concept)
-        if primary_concept and primary_concept.parent_concept
-        else None
+    alternatives = split_query_alternatives(cleaned_query) or (cleaned_query,)
+    alt_specs: list[
+        tuple[
+            str,
+            ProductConcept | None,
+            ProductConcept | None,
+            list[tuple[str, ...]],
+            tuple[tuple[str, ...], ...],
+            ProductForm | None,
+        ]
+    ] = []
+    for alt_q in alternatives:
+        alt_concepts = resolve_query_concepts(alt_q)
+        alt_primary = alt_concepts[0] if alt_concepts else None
+        alt_parent = (
+            CONCEPTS_BY_ID.get(alt_primary.parent_concept)
+            if alt_primary and alt_primary.parent_concept
+            else None
+        )
+        alt_tok_groups, _ = expand_query_tokens(alt_q)
+        alt_fam_groups = query_family_noun_groups(alt_q)
+        alt_form = extract_requested_form(alt_q, explicit_prefs) or requested_form
+        alt_specs.append((alt_q, alt_primary, alt_parent, alt_tok_groups, alt_fam_groups, alt_form))
+
+    primary_concept: ProductConcept | None = alt_specs[0][1] if alt_specs else None
+
+    allow_non_food = include_non_food or any(
+        alt_p is not None and not alt_p.is_food for _, alt_p, *_ in alt_specs
     )
-
-    allow_non_food = include_non_food or (primary_concept is not None and not primary_concept.is_food)
-    token_groups, _ = expand_query_tokens(cleaned_query)
-    family_groups = query_family_noun_groups(cleaned_query)
     requirement_codes = tuple(r.code for r in applied_reqs)
 
     # Candidate pool selection:
     pool: list[_IndexedProduct] = []
     seen_pool: set[str] = set()
 
-    def add_to_pool(entry: _IndexedProduct, *, is_named_id: bool = False) -> None:
+    def add_to_pool(
+        entry: _IndexedProduct,
+        *,
+        is_named_id: bool = False,
+        alt_q: str = cleaned_query,
+        alt_primary: ProductConcept | None = primary_concept,
+        alt_parent: ProductConcept | None = None,
+    ) -> None:
         if not allow_non_food and not entry.is_food:
             return
         if not is_named_id and not same_product_family(
-            cleaned_query,
+            alt_q,
             (entry.product.name, *entry.product.names.values()),
-            concept_id=primary_concept.concept_id if primary_concept else None,
-            parent_concept_id=parent_concept.concept_id if parent_concept else None,
+            concept_id=alt_primary.concept_id if alt_primary else None,
+            parent_concept_id=alt_parent.concept_id if alt_parent else None,
             category=entry.category,
             requirement_codes=requirement_codes,
         ):
@@ -460,35 +490,37 @@ def search_products(
     if target_product_id and target_product_id in index.by_id:
         add_to_pool(index.by_id[target_product_id], is_named_id=True)
 
-    if primary_concept is not None:
-        active_concept = parent_concept or primary_concept
-        cat_entries = index.entries_for_prefixes(active_concept.category_prefixes)
-        for entry in cat_entries:
-            if match_concept_in_text(primary_concept, entry.text_lower, entry.words) or (
-                parent_concept is not None and match_concept_in_text(parent_concept, entry.text_lower, entry.words)
-            ):
-                add_to_pool(entry)
-        # Fallback for synthetic categories (e.g. "dairy", "pasta", "pantry", "synthetic") or cross-category items:
-        if not pool:
-            for entry in index.all_entries:
-                if match_concept_in_text(primary_concept, entry.text_lower, entry.words) or (
-                    parent_concept is not None and match_concept_in_text(parent_concept, entry.text_lower, entry.words)
+    for alt_q, alt_primary, alt_parent, alt_tok_groups, alt_fam_groups, _alt_form in alt_specs:
+        before_count = len(pool)
+        if alt_primary is not None:
+            active_concept = alt_parent or alt_primary
+            cat_entries = index.entries_for_prefixes(active_concept.category_prefixes)
+            for entry in cat_entries:
+                if match_concept_in_text(alt_primary, entry.text_lower, entry.words) or (
+                    alt_parent is not None and match_concept_in_text(alt_parent, entry.text_lower, entry.words)
                 ):
-                    add_to_pool(entry)
-    elif family_groups or token_groups:
-        active_groups = family_groups or tuple(token_groups)
-        cat_prefixes = matching_categories_for_type(cleaned_query)
-        search_space = index.entries_for_prefixes(cat_prefixes) if cat_prefixes else index.all_entries
-        for entry in search_space:
-            if all(family_group_matches(grp, entry.text_lower, entry.words) for grp in active_groups):
-                add_to_pool(entry)
-        if not pool and search_space is not index.all_entries:
-            for entry in index.all_entries:
+                    add_to_pool(entry, alt_q=alt_q, alt_primary=alt_primary, alt_parent=alt_parent)
+            # Fallback for synthetic categories (e.g. "dairy", "pasta", "pantry", "synthetic") or cross-category items:
+            if len(pool) == before_count:
+                for entry in index.all_entries:
+                    if match_concept_in_text(alt_primary, entry.text_lower, entry.words) or (
+                        alt_parent is not None and match_concept_in_text(alt_parent, entry.text_lower, entry.words)
+                    ):
+                        add_to_pool(entry, alt_q=alt_q, alt_primary=alt_primary, alt_parent=alt_parent)
+        elif alt_fam_groups or alt_tok_groups:
+            active_groups = alt_fam_groups or tuple(alt_tok_groups)
+            cat_prefixes = matching_categories_for_type(alt_q)
+            search_space = index.entries_for_prefixes(cat_prefixes) if cat_prefixes else index.all_entries
+            for entry in search_space:
                 if all(family_group_matches(grp, entry.text_lower, entry.words) for grp in active_groups):
-                    add_to_pool(entry)
-    else:
-        for entry in index.all_entries:
-            add_to_pool(entry)
+                    add_to_pool(entry, alt_q=alt_q, alt_primary=None, alt_parent=None)
+            if len(pool) == before_count and search_space is not index.all_entries:
+                for entry in index.all_entries:
+                    if all(family_group_matches(grp, entry.text_lower, entry.words) for grp in active_groups):
+                        add_to_pool(entry, alt_q=alt_q, alt_primary=None, alt_parent=None)
+        else:
+            for entry in index.all_entries:
+                add_to_pool(entry, alt_q=alt_q, alt_primary=None, alt_parent=None)
 
     compliant_entries: list[_IndexedProduct] = []
     excluded_list: list[ExcludedProduct] = []
@@ -517,32 +549,63 @@ def search_products(
         else:
             compliant_entries.append(entry)
 
-    q_lower = cleaned_query.lower()
+    def _entry_alt_score(
+        entry: _IndexedProduct,
+        alt_q: str,
+        alt_primary: ProductConcept | None,
+        alt_tok_groups: list[tuple[str, ...]],
+        alt_form: ProductForm | None,
+    ) -> tuple[int, int, int, int]:
+        prod = entry.product
+        prod_names = (prod.name, *prod.names.values())
+        is_primary_concept = (
+            0
+            if (alt_primary is None or match_concept_in_text(alt_primary, entry.text_lower, entry.words))
+            else 1
+        )
+        # T34 + T87: the buyer's use-changing qualifiers and product form (grated vs sliced, etc.) come
+        # right after the product concept, so exact types/forms fill the shortlist before substitutes.
+        tm = product_type_match(
+            alt_q,
+            prod_names,
+            concept_id=alt_primary.concept_id if alt_primary else None,
+            requirement_codes=requirement_codes,
+        )
+        form_diff = product_form_difference(prod_names, prod.category, alt_form)
+        type_mismatch = (0 if tm.exact else len(tm.differences)) + (1 if form_diff else 0)
+        matched_tokens = sum(1 for grp in alt_tok_groups if _token_group_matches(grp, entry))
+        is_specialty = 0
+        alt_q_lower = alt_q.lower()
+        if alt_primary and alt_primary.prefer_plain_over:
+            for term in alt_primary.prefer_plain_over:
+                if term not in alt_q_lower and term in entry.text_lower:
+                    is_specialty = 1
+                    break
+        return (is_primary_concept, type_mismatch, -matched_tokens, is_specialty)
 
     def rank_key(entry: _IndexedProduct) -> tuple[int, int, int, int, int, int, float, int, str]:
         prod = entry.product
         is_exact_id = 0 if (target_product_id and prod.productId == target_product_id) else 1
-        is_primary_concept = (
-            0
-            if (primary_concept is None or match_concept_in_text(primary_concept, entry.text_lower, entry.words))
-            else 1
-        )
-        # T34: the buyer's use-changing qualifiers (whipping vs cooking cream, dairy vs alternative) come
-        # right after the product concept, so exact types fill the shortlist before substitutes.
-        tm = product_type_match(
-            cleaned_query,
-            (prod.name, *prod.names.values()),
-            concept_id=primary_concept.concept_id if primary_concept else None,
-            requirement_codes=requirement_codes,
-        )
-        type_mismatch = 0 if tm.exact else len(tm.differences)
-        matched_tokens = sum(1 for grp in token_groups if _token_group_matches(grp, entry))
-        is_specialty = 0
-        if primary_concept and primary_concept.prefer_plain_over:
-            for term in primary_concept.prefer_plain_over:
-                if term not in q_lower and term in entry.text_lower:
-                    is_specialty = 1
-                    break
+        prod_names = (prod.name, *prod.names.values())
+        matching_scores = [
+            _entry_alt_score(entry, alt_q, alt_primary, alt_tok_groups, alt_form)
+            for alt_q, alt_primary, alt_parent, alt_tok_groups, _alt_fam, alt_form in alt_specs
+            if same_product_family(
+                alt_q,
+                prod_names,
+                concept_id=alt_primary.concept_id if alt_primary else None,
+                parent_concept_id=alt_parent.concept_id if alt_parent else None,
+                category=entry.category,
+                requirement_codes=requirement_codes,
+            )
+        ]
+        if matching_scores:
+            is_primary_concept, type_mismatch, neg_matched_tokens, is_specialty = min(matching_scores)
+        else:
+            alt_q, alt_primary, _alt_parent, alt_tok_groups, _alt_fam, alt_form = alt_specs[0]
+            is_primary_concept, type_mismatch, neg_matched_tokens, is_specialty = _entry_alt_score(
+                entry, alt_q, alt_primary, alt_tok_groups, alt_form
+            )
         cpsu = prod.contentPerSalesUnit
         if cpsu is None:
             content_rank = 2
@@ -554,7 +617,7 @@ def search_products(
             is_exact_id,
             is_primary_concept,
             type_mismatch,
-            -matched_tokens,
+            neg_matched_tokens,
             is_specialty,
             content_rank,
             -entry.reliability,

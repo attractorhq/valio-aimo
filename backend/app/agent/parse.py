@@ -24,7 +24,14 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from app.agent.injection import IgnoredInstruction, detect_instructions
 from app.agent.llm import LlmInterpreter, call_with_deadline
-from app.catalog.vocab import FI_SV_TO_EN_SYNONYMS, KNOWN_BRANDS
+from app.catalog.vocab import (
+    FI_SV_TO_EN_SYNONYMS,
+    FORMS_BY_LABEL,
+    KNOWN_BRANDS,
+    extract_requested_form,
+    resolve_query_concepts,
+    split_query_alternatives,
+)
 from app.contracts import (
     Preference,
     ReasonCode,
@@ -187,9 +194,14 @@ _CERTIFICATIONS: tuple[tuple[re.Pattern, str, str], ...] = tuple(
 _CERTIFICATION_NAMES = {code: label for _pattern, code, label in _CERTIFICATIONS}
 # Purpose clauses ("for the school", "for our kitchen") describe the buyer, not the product.
 _PURPOSE_RE = re.compile(
-    r"\bfor\s+(?:the|our|a|an|my|this|their)?\s*[^\W\d_]+(?:\s+(?:kitchen|canteen|cafeteria|restaurant|"
+    r"\bfor\s+(?:the|our|a|an|my|this|their)?\s*(?!(?:cooking|whipping|frying|drinking)\b)[^\W\d_]+"
+    r"(?:\s+(?:kitchen|canteen|cafeteria|restaurant|"
     r"staff|team|event|lunch|dinner|breakfast|guests|week|weekend))?",
     re.IGNORECASE,
+)
+_CREAM_PURPOSE_RES: tuple[tuple[re.Pattern, str], ...] = (
+    (re.compile(r"\b(?:cream\s+for\s+cooking|kerma(?:a|n)?\s+ruoanlaittoon)\b", re.IGNORECASE), "cooking cream"),
+    (re.compile(r"\b(?:cream\s+for\s+whipping|kerma(?:a|n)?\s+vatkaukseen)\b", re.IGNORECASE), "whipping cream"),
 )
 
 _PREFERENCES: tuple[tuple[re.Pattern, Preference], ...] = (
@@ -236,11 +248,12 @@ _STOPWORDS = {
     # Time, urgency, meal and vagueness words describe the delivery or the occasion, never the product.
     "immediately", "urgently", "urgent", "automatically", "now", "right", "away", "quickly", "soon", "possible",
     "lunch", "dinner", "breakfast", "brunch", "supper", "severe", "serious",
-    "something", "anything", "whatever",
+    "something", "anything", "whatever", "preferably", "ideally",
     "heti", "pian", "nopeasti", "kiireellisesti", "kiireesti", "pikaisesti", "välittömästi",
     "automaattisesti", "mahdollisimman", "lounaaksi", "lounaalle", "päivälliseksi", "aamiaiseksi",
     "illalliseksi", "välipalaksi", "jälkiruoaksi", "jälkiruuaksi", "vakava", "vakavan",
     "jotain", "jotakin", "mitä", "tahansa",
+    "mieluiten", "ensisijaisesti", "mielellään", "toiveena", "suoraan", "valmiiksi", "valmiina", "mukaan", "lisäksi",
 }
 # Core Finnish product vocabulary (§7.2). Wider Finnish polish is T25.
 _FINNISH_NOUNS: tuple[tuple[str, str], ...] = (
@@ -282,9 +295,37 @@ _FINNISH_FORMS: tuple[tuple[re.Pattern, str], ...] = tuple(
         (r"savustet(?:tu|tua|tun|tuja)", "smoked"),
         (r"pakastet(?:tu|tua|tun|tuja)", "frozen"),
         (r"tuore|tuoretta|tuoreen|tuoreita|tuoreet", "fresh"),
+        # T87: stated product forms (grated, sliced, block, shredded, cubed, whole, powder).
+        (r"(?:tuore)?raaste(?:ena|tta|en|et|ita|eseen|ella|elta|essa|eksi)?|raastet(?:tu|tua|tun|tuja|tuina|tuna|ut)?",
+         "grated"),
+        (r"viipale(?:ena|ina|ita|et|en|eseen|ella|eksi)?|viipaloi(?:tu|tua|tun|tuja|tuna|dut)?|"
+         r"siivu(?:na|ina|ja|t|n)?|siivutet(?:tu|tua|tun|tuja|tuna)?", "sliced"),
+        (r"palana|paloina|kimpale(?:ena|ina|ita|et|en)?|tahko(?:na|ja|t|n)?", "block"),
+        (r"suikale(?:ena|ina|ita|et|en|eseen|ella)?|suikaloi(?:tu|tua|tun|tuja|tuna|dut)?", "shredded"),
+        (r"kuutio(?:na|ina|ita|t|n|iksi)?|kuutioi(?:tu|tua|tun|tuja|tuna|dut)?", "cubed"),
+        (r"kokonai(?:nen|sena|sia|set|sta|sen|siksi)", "whole"),
+        (r"jauhe(?:ena|tta|en|et|ita|eseen|eksi)?", "powder"),
+        (r"juusto-?raaste\w*|raaste-?juust\w*", "grated cheese"),
+        (r"emmental-?raaste\w*|emmentaal-?raaste\w*", "grated Emmental cheese"),
+        (r"mozzarella-?raaste\w*", "grated mozzarella cheese"),
+        (r"cheddar-?raaste\w*", "grated cheddar cheese"),
+        (r"juusto-?viipale\w*|viipale-?juust\w*", "sliced cheese"),
+        (r"emmental-?viipale\w*|emmentaal-?viipale\w*", "sliced Emmental cheese"),
+        (r"juusto-?kuutio\w*|kuutio-?juust\w*", "cubed cheese"),
+        (r"feta-?kuutio\w*|salaattijuusto-?kuutio\w*", "cubed feta cheese"),
+        (r"pala-?juust\w*|juusto-?pala\w*|juusto-?kimpale\w*", "block cheese"),
+        (r"broileri-?suikale\w*|kana-?suikale\w*", "shredded chicken"),
+        (r"liha-?suikale\w*|naudan-?suikale\w*|porsaan-?suikale\w*", "shredded meat"),
+        (r"kinkku-?suikale\w*", "shredded ham"),
+        (r"kasvis-?suikale\w*", "shredded vegetables"),
+        (r"kinkku-?viipale\w*", "sliced ham"),
+        (r"lohi-?viipale\w*", "sliced salmon"),
+        (r"lohi-?kuutio\w*", "cubed salmon"),
+        (r"peruna-?kuutio\w*", "cubed potatoes"),
+        (r"liha-?kuutio\w*", "cubed meat"),
         (r"(?:kirnu|meijeri|ruoka)?voi(?:ta|n|hin|ksi)?", "butter"),
         (r"kermavaah\w*|(?:kuohu|vispi)kerm\w*", "whipping cream"),
-        (r"ruokakerm\w*", "cooking cream"),
+        (r"(?:ruoka|ruoanlaitto)kerm\w*", "cooking cream"),
         (r"kahvikerm\w*", "coffee cream"),
         (r"kevytkerm\w*", "low-fat cream"),
         (r"kermaviil\w*|smetan\w*|ranskankerm\w*", "sour cream"),
@@ -293,14 +334,40 @@ _FINNISH_FORMS: tuple[tuple[re.Pattern, str], ...] = tuple(
         (r"tuorejuust\w*", "cream cheese"),
         (r"kermajuust\w*", "tilsit cheese"),
         (r"sulatejuust\w*", "processed cheese"),
+        (r"raejuust\w*", "cottage cheese"),
+        (r"sinihome-?juust\w*", "blue cheese"),
+        (r"vuohen-?juust\w*|vuohi-?juust\w*", "goat cheese"),
+        (r"salaatti-?juust\w*", "salad cheese"),
+        (r"leipä-?juust\w*", "squeaky cheese"),
+        (r"pizza-?juust\w*", "pizza cheese"),
         (r"maitojauh\w*", "milk powder"),
+        (r"kermajauh\w*", "cream powder"),
+        (r"kaakaojauh\w*", "cocoa powder"),
+        (r"leivinjauh\w*", "baking powder"),
+        (r"perunamuusijauh\w*", "mashed potato powder"),
         (r"maitorahk\w*", "quark"),
         (r"kasvirasvalevit\w*", "vegetable fat spread"),
         (r"levite|levitettä|levitteen|levitteet|levitteitä|levitteenä", "fat spread"),
         (r"piimä|piimää|piimän|piimät|piimiä", "sour milk"),
         (r"voileip\w*|voileiv\w*", "sandwich"),
         (r"suklaa|suklaata|suklaan", "chocolate"),
-        (r"emmentaljuust\w*", "Emmental cheese"),
+        (r"emmental-?juust\w*|emmentaal-?juust\w*", "Emmental cheese"),
+        (r"emmental(?:ia|in|ista|iin|ina)?|emmentaal\w*", "Emmental"),
+        (r"edam-?juust\w*", "Edam cheese"),
+        (r"edam(?:ia|in|ista)?", "Edam"),
+        (r"gouda-?juust\w*", "Gouda cheese"),
+        (r"gouda(?:a|n|sta)?", "Gouda"),
+        (r"cheddar-?juust\w*", "cheddar cheese"),
+        (r"cheddar(?:ia|in|ista)?", "cheddar"),
+        (r"mozzarella-?juust\w*", "mozzarella cheese"),
+        (r"mozzarella(?:a|n|sta)?", "mozzarella"),
+        (r"feta-?juust\w*", "feta cheese"),
+        (r"feta(?:a|n|sta)?", "feta"),
+        (r"halloumi-?juust\w*", "halloumi cheese"),
+        (r"halloumi(?:a|n|sta)?", "halloumi"),
+        (r"brie-?juust\w*", "brie cheese"),
+        (r"brie(?:tä|n)?", "brie"),
+        (r"parmesa(?:an|n)\w*", "parmesan"),
         (r"lohifile\w*", "salmon fillet"),
         (r"kirjolo(?:hi|ht|he)\w*", "rainbow trout"),
         (r"lohi|lohta|lohen|lohia|lohet|loheen|lohesta", "salmon"),
@@ -422,10 +489,33 @@ _EN_HINT_RE = re.compile(
 )
 _MILK_RE = re.compile(r"\bmilk\b", re.IGNORECASE)
 _PLANT_RE = re.compile(r"\b(?:oat|soy|soya|almond|coconut|rice|pea|plant|vegan|vegetable)\b", re.IGNORECASE)
-# "product no. 465039" and the Finnish ordinal date "20. marraskuuta" stay one sentence.
-_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])(?<!\d\.)\s+(?!\d)|\n+")
+# "product no. 465039" and the Finnish ordinal date "20. marraskuuta" stay one sentence,
+# while "18.11. Do not ask..." (two-part date followed by a capitalised sentence) or "…" splits.
+_SENTENCE_SPLIT = re.compile(
+    r"(?<=[.!?])(?<!\d\.)\s+(?!\d)|(?:(?<=\.\d\.)|(?<=\.\d\d\.))\s+(?=[A-ZÅÄÖ])|\s*(?:…|\.{2,})\s*|\n+"
+)
 _CHUNK_SPLIT = re.compile(r",\s+|;\s*|\s+(?:and|ja|sekä|plus|\+|&)\s+", re.IGNORECASE)
 _PUNCTUATION = re.compile(r"[()\[\]{}.,:;!?\"“”«»—–/]+")
+_ALT_SPLIT_RE = re.compile(r"\s+\b(?:tai|or)\b\s+", re.IGNORECASE)
+_ADJECTIVE_FORMS = frozenset({"grated", "sliced", "block", "shredded", "cubed", "whole"})
+_KNOWN_EN_PRODUCT_WORDS = frozenset({
+    "milk", "drink", "light", "skimmed", "semi-skimmed", "whole", "oat", "soy", "soya", "almond",
+    "coconut", "cream", "whipping", "cooking", "coffee", "low-fat", "sour", "cheese", "tilsit",
+    "processed", "cottage", "blue", "goat", "salad", "squeaky", "pizza", "emmental", "edam", "gouda",
+    "cheddar", "mozzarella", "feta", "halloumi", "brie", "camembert", "parmesan", "fontal", "yoghurt",
+    "yogurt", "quark", "butter", "margarine", "vegetable", "fat", "spread", "oil", "rapeseed", "olive",
+    "pasta", "macaroni", "spaghetti", "fusilli", "penne", "lasagne", "lasagna", "tagliatelle", "rigatoni",
+    "fettuccine", "noodles", "rice", "flour", "wheat", "rye", "barley", "spelt", "flakes", "muesli",
+    "granola", "bread", "crispbread", "tea", "green", "black", "cocoa", "chocolate", "sugar", "salt",
+    "honey", "syrup", "juice", "apple", "orange", "water", "salmon", "fillet", "rainbow", "trout",
+    "flounder", "herring", "cod", "fish", "shrimp", "eggs", "egg", "chicken", "turkey", "meat", "minced",
+    "mince", "beef", "pork", "lamb", "reindeer", "ham", "sausage", "bacon", "meatballs", "sauce",
+    "bolognese", "soup", "casserole", "steak", "pie", "cake", "ice", "potatoes", "potato", "tomato",
+    "tomatoes", "carrot", "carrots", "pea", "peas", "cabbage", "mushroom", "mushrooms", "spinach",
+    "liver", "blueberry", "strawberry", "berry", "fresh", "frozen", "smoked", "cold-smoked", "hot-smoked",
+    "salted", "unsalted", "grated", "sliced", "slices", "block", "blocks", "shredded", "strips",
+    "cubed", "cubes", "diced", "powder", "powdered", "barista", "uht", "esl", "natural",
+})
 
 UNIT_WORDS = "litres, kilograms, pieces or cases"
 
@@ -581,6 +671,12 @@ _COMPOUND_MODIFIERS = {
     "nauta": "beef", "naudan": "beef", "porsaan": "pork", "possu": "pork", "kanan": "chicken", "riisi": "rice",
     "mansikka": "strawberry", "suklaa": "chocolate", "omena": "apple", "marja": "berry", "mustikka": "blueberry",
     "vihannes": "vegetable", "kinkku": "ham", "pinaatti": "spinach", "maksa": "liver", "ruis": "rye",
+    "emmental": "Emmental", "emmentaal": "Emmental", "edam": "Edam", "gouda": "Gouda", "cheddar": "cheddar",
+    "mozzarella": "mozzarella", "feta": "feta", "halloumi": "halloumi", "brie": "brie", "parmesan": "parmesan",
+    "parmesaani": "parmesan", "sinihome": "blue", "vuohi": "goat", "vuohen": "goat", "salaatti": "salad",
+    "kaura": "oat", "soija": "soy", "manteli": "almond", "kookos": "coconut", "vehnä": "wheat", "ohra": "barley",
+    "speltti": "spelt", "kirjolohi": "rainbow trout", "kalkkuna": "turkey", "lammas": "lamb", "karitsa": "lamb",
+    "karitsan": "lamb", "poro": "reindeer", "poron": "reindeer",
 }
 _COMPOUND_SPECIAL = {"meat balls": "meatballs", "fish balls": "fish balls", "chicken balls": "chicken balls"}
 
@@ -640,7 +736,11 @@ def _head_compound(lower: str) -> str | None:
         modifier = _modifier_part(lower[:cut].rstrip("-"))
         if modifier is None:
             continue
-        return head if modifier in head else f"{modifier} {head}"
+        if modifier in head:
+            return head
+        if head in _ADJECTIVE_FORMS:
+            return f"{head} {modifier}"
+        return f"{modifier} {head}"
     return None
 
 
@@ -664,6 +764,17 @@ def _translate(token: str) -> tuple[str, bool]:
     for stem, english_terms in FI_SV_TO_EN_SYNONYMS:
         if len(stem) >= 4 and lower.startswith(stem):
             return english_terms[0], True
+    if "-" in token and not any(token.lower() == b.lower() for b in KNOWN_BRANDS):
+        parts = [p for p in token.split("-") if p]
+        if len(parts) >= 2:
+            sub = [_translate(p) for p in parts]
+            if any(k for _, k in sub):
+                words = [eng for eng, _ in sub]
+                if len(words) == 2 and words[1] in _ADJECTIVE_FORMS:
+                    words = [words[1], words[0]]
+                return " ".join(words), True
+    if lower in _KNOWN_EN_PRODUCT_WORDS:
+        return token, True
     return token, False
 
 
@@ -692,6 +803,8 @@ def _extract(fragment: str) -> tuple[str, list[Requirement], list[Preference], s
         return " "
 
     rest = _PRODUCT_ID_RE.sub(take_id, fragment)
+    for pattern, replacement in _CREAM_PURPOSE_RES:
+        rest = pattern.sub(replacement, rest)
     rest, excluded, _unknown = _take_exclusions(rest)
     requirements.extend(excluded)
     for pattern, _found in _DIET_RES:
@@ -729,6 +842,10 @@ def _extract(fragment: str) -> tuple[str, list[Requirement], list[Preference], s
     rest = _PURPOSE_FI_RE.sub(" ", rest)
     rest = _DESTINATION_RE.sub(" ", rest)
     rest = _BENIGN_NEGATION_RE.sub(" ", rest)
+    if req_form := extract_requested_form(rest):
+        form_pref = Preference(kind="OTHER", value=req_form.label)
+        if form_pref not in preferences:
+            preferences.append(form_pref)
     return rest, requirements, preferences, product_id, packs
 
 
@@ -792,20 +909,41 @@ def _unknown_negation(text: str) -> str | None:
     return None
 
 
-def _words(rest: str, finnish: bool = False) -> tuple[str | None, list[str]]:
-    """The item name in English, plus the buyer's own words for it (for a question in their language)."""
+def _words_single(rest: str, finnish: bool = False) -> tuple[str | None, list[str]]:
     raw = [t for t in _PUNCTUATION.sub(" ", rest).split()
            if t.lower().strip("'’") not in _STOPWORDS and not re.fullmatch(r"[-®™'’]+", t)]
     tokens = [(t, *_translate(t)) for t in raw]
     # A product noun translated from Finnish makes the item Finnish even when the request has no other
-    # Finnish hint ("40 kg juustoa hotellin aamiaiselle"), so its destination tail goes too (T74).
-    if finnish or any(known and original.lower() != english.lower() for original, english, known in tokens):
+    # Finnish hint ("40 kg juustoa hotellin aamiaiselle"), so its destination tail goes too (T74, T87).
+    has_finnish_translation = any(known and original.lower() != english.lower() for original, english, known in tokens)
+    if finnish or has_finnish_translation:
         tokens = _cut_finnish_tail(tokens)
     words: list[str] = []
     for _original, english, _known in tokens:
         if not words or words[-1] != english:
             words.append(english)
+    if len(words) >= 2 and words[-1] in _ADJECTIVE_FORMS and words[0] not in _ADJECTIVE_FORMS:
+        words = [words[-1], *words[:-1]]
     return " ".join(words).strip(" -") or None, [original for original, _e, _k in tokens]
+
+
+def _words(rest: str, finnish: bool = False) -> tuple[str | None, list[str]]:
+    """The item name in English, plus the buyer's own words for it (for a question in their language)."""
+    if _ALT_SPLIT_RE.search(rest):
+        parts = [p for p in _ALT_SPLIT_RE.split(rest) if p and p.strip()]
+        if len(parts) >= 2:
+            parsed = [_words_single(p, finnish) for p in parts]
+            non_empty = [(w, origs) for w, origs in parsed if w]
+            if len(non_empty) >= 2:
+                joined_what = " or ".join(w for w, _ in non_empty)
+                joiner = " tai " if finnish else " or "
+                joined_orig: list[str] = []
+                for idx, (_w, origs) in enumerate(non_empty):
+                    if idx > 0:
+                        joined_orig.append(joiner.strip())
+                    joined_orig.extend(origs)
+                return joined_what, joined_orig
+    return _words_single(rest, finnish)
 
 
 def _is_genitive_word(token: tuple[str, str, bool]) -> bool:
@@ -814,7 +952,7 @@ def _is_genitive_word(token: tuple[str, str, bool]) -> bool:
 
 
 def _cut_finnish_tail(tokens: list[tuple[str, str, bool]]) -> list[tuple[str, str, bool]]:
-    """Drop destination and circumstance words ("koulukeittiöön yhdellä oppilaalla") from a Finnish item."""
+    """Drop destination, circumstance and untranslated Finnish leftover words from a Finnish item (T74, T87)."""
 
     def place(original: str, known: bool) -> bool:
         return not known and original[:1].islower() and bool(_FI_PLACE_CASE_RE.fullmatch(original))
@@ -827,18 +965,141 @@ def _cut_finnish_tail(tokens: list[tuple[str, str, bool]]) -> list[tuple[str, st
             if place(tokens[n][0], tokens[n][2]):
                 while n - 1 > known_at[-1] and _is_genitive_word(tokens[n - 1]):
                     n -= 1
-                return tokens[:n]
-        # A genitive left dangling at the end modified something already removed ("… koulun [lounaalle]").
-        end = len(tokens)
-        while end - 1 > known_at[-1] and _is_genitive_word(tokens[end - 1]):
-            end -= 1
-        return tokens[:end]
+                tokens = tokens[:n]
+                break
+        else:
+            # A genitive left dangling at the end modified something already removed ("… koulun [lounaalle]").
+            end = len(tokens)
+            while end - 1 > known_at[-1] and _is_genitive_word(tokens[end - 1]):
+                end -= 1
+            tokens = tokens[:end]
+        # T87: when known product words exist, drop any remaining untranslated lowercase Finnish fragments
+        # (keeping capitalised brand/product-line words).
+        kept_known = [t for t in tokens if t[2] or not t[0][:1].islower()]
+        if kept_known:
+            return kept_known
+        return tokens
     kept = [t for t in tokens if not place(t[0], t[2])]
     return kept or tokens
 
 
 def _what(rest: str, finnish: bool = False) -> str | None:
     return _words(rest, finnish)[0]
+
+
+_INSTRUCTION_BRIDGE_RE = re.compile(
+    r"^(?:[\s,;]*\b(?:so|and|or|then|please|pls|therefore|thus|because|as|since|just|also|"
+    r"ja|sekä|joten|koska|eli|tai|että|niin|it|this|that)\b[\s,;]*|[\s,;]+)+$",
+    re.IGNORECASE,
+)
+_CLAUSE_BOUNDARY_RE = re.compile(r"[.!?;,\n…]|\.{2,}|—|–")
+_INSTRUCTION_LEAD_ONLY_RE = re.compile(
+    r"^(?:[\s,;]*\b(?:this|the|our|order|request|is|was|has|have|been|so|and|because|as|since|then|"
+    r"please|pls|ceo|cfo|coo|manager|purchasing|procurement|head|chef|boss|director|approver|admin|"
+    r"tilaus|tämä|on|jo|joten|koska|sekä|ja)\b[\s,;]*)+$",
+    re.IGNORECASE,
+)
+
+
+def _has_order_content(span_text: str) -> bool:
+    if _QUANTITY_RE.search(span_text) or _NUMERAL_RUN.search(span_text):
+        return True
+    if any(p.search(span_text) for _k, p in _DATE_RES):
+        return True
+    if any(p.search(span_text) for p, _r in _REQUIREMENT_RES) or any(p.search(span_text) for p, _r in _DIET_RES):
+        return True
+    _, excl, _ = _take_exclusions(span_text)
+    return bool(excl)
+
+
+def _cut_instruction_clauses(text: str, ignored: list[IgnoredInstruction]) -> str:
+    """Cut every instruction span (and its surrounding non-item clause) out of `text` before item extraction (T87)."""
+    if not ignored:
+        return text
+    spans: list[list[int]] = [[f.start, f.end] for f in sorted(ignored, key=lambda f: f.start)]
+    merged: list[list[int]] = [spans[0]]
+    for s, e in spans[1:]:
+        prev_s, prev_e = merged[-1]
+        between = text[prev_e:s]
+        if _INSTRUCTION_BRIDGE_RE.fullmatch(between) and not _has_order_content(between):
+            merged[-1][1] = e
+        else:
+            merged.append([s, e])
+
+    boundaries = [0, *(m.start() for m in _CLAUSE_BOUNDARY_RE.finditer(text)), *(m.end() for m in _CLAUSE_BOUNDARY_RE.finditer(text)), len(text)]
+    boundaries = sorted(set(boundaries))
+
+    expanded: list[tuple[int, int]] = []
+    for s, e in merged:
+        clause_start = max((b for b in boundaries if b <= s), default=0)
+        clause_end = min((b for b in boundaries if b >= e), default=len(text))
+        tail = text[e:clause_end]
+        if tail and not _has_order_content(tail):
+            e = clause_end
+        lead = text[clause_start:s]
+        if lead and not _has_order_content(lead) and _INSTRUCTION_LEAD_ONLY_RE.fullmatch(lead):
+            s = clause_start
+        expanded.append((s, e))
+
+    clean = text
+    for s, e in reversed(expanded):
+        clean = clean[:s] + ", " + clean[e:]
+    return clean
+
+
+_LIQUID_CONCEPT_IDS = frozenset({
+    "oat_drink", "soy_drink", "almond_drink", "coconut_milk", "milk", "cream", "oil", "juice",
+})
+_PIECE_CONCEPT_IDS = frozenset({"Disposable tableware", "cleaning_waste"})
+_LIQUID_KEYWORDS_RE = re.compile(r"\b(?:drink|milk|cream|juice|oil|water|lemonade|sour\s+milk|buttermilk)\b", re.IGNORECASE)
+_SOLID_KEYWORDS_RE = re.compile(
+    r"\b(?:cheese|butter|margarine|spread|yoghurt|yogurt|quark|pasta|macaroni|spaghetti|fusilli|penne|"
+    r"lasagne|noodles|rice|flour|flakes|muesli|bread|crispbread|coffee|tea|sugar|salt|salmon|trout|"
+    r"flounder|herring|cod|fish|shrimp|chicken|turkey|meat|mince|minced|beef|pork|lamb|reindeer|ham|"
+    r"sausage|meatballs|sauce|bolognese|casserole|steak|pie|cake|potatoes|potato|eggs)\b",
+    re.IGNORECASE,
+)
+
+
+def _natural_unit_for_alternative(alt: str) -> str | None:
+    concepts = resolve_query_concepts(alt)
+    if concepts:
+        cid = concepts[0].concept_id
+        if cid in _LIQUID_CONCEPT_IDS:
+            return "l"
+        if cid in _PIECE_CONCEPT_IDS:
+            return "pcs"
+        return "kg"
+    if _LIQUID_KEYWORDS_RE.search(alt):
+        return "l"
+    if _SOLID_KEYWORDS_RE.search(alt):
+        return "kg"
+    return None
+
+
+def _alternative_unit_conflict(what: str, finnish: bool) -> str | None:
+    """When 'X or Y' / 'X tai Y' combines products that need different units (e.g. milk in l vs cheese in kg),
+    ask a clarifying question (T87 Scope #3)."""
+    alts = split_query_alternatives(what)
+    if len(alts) < 2:
+        return None
+    units = [(alt, _natural_unit_for_alternative(alt)) for alt in alts]
+    known = [(alt, u) for alt, u in units if u is not None]
+    if len({u for _, u in known}) < 2:
+        return None
+    first_alt, first_u = known[0]
+    second_alt, second_u = next((alt, u) for alt, u in known[1:] if u != first_u)
+    unit_en = {"l": "litres", "kg": "kilograms", "pcs": "pieces"}
+    unit_fi = {"l": "litroina", "kg": "kiloina", "pcs": "kappaleina"}
+    if finnish:
+        return (
+            f"Vaihtoehdot tilataan eri yksiköissä ({first_alt} {unit_fi.get(first_u, first_u)}, "
+            f"{second_alt} {unit_fi.get(second_u, second_u)}): kumpaa tuotetta ja kuinka paljon tarvitsette?"
+        )
+    return (
+        f"{first_alt[:1].upper()}{first_alt[1:]} is ordered in {unit_en.get(first_u, first_u)} and "
+        f"{second_alt} in {unit_en.get(second_u, second_u)}: which product and how much do you need?"
+    )
 
 
 @dataclass
@@ -922,10 +1183,8 @@ def _fallback(
     clock: str | None = None,
 ) -> _Fallback:
     """Deterministic reading. `clock` is the buyer's local time "HH:MM" (for "by 14:00" without a date)."""
-    # Request text is data: instruction-like spans are cut out before anything else reads the text.
-    clean = text
-    for finding in sorted(ignored, key=lambda f: f.start, reverse=True):
-        clean = clean[: finding.start] + ", " + clean[finding.end :]
+    # Request text is data: instruction-like spans and clauses are cut out before anything else reads the text (T87).
+    clean = _cut_instruction_clauses(text, ignored)
     clean = _normalise_words(clean)
     deadline, clean = _take_deadline(clean)
 
@@ -980,7 +1239,7 @@ def _fallback(
                 target = "kg" if unit == "g" else "l"
                 notes.append(f"{_plain(value)} {unit} read as {_plain(converted)} {target}")
                 value, unit = converted, target
-            preferences = pref_b + pref_a + [Preference(kind="PACK_SIZE", value=p) for p in packs]
+            preferences = list(dict.fromkeys([*pref_b, *pref_a, *(Preference(kind="PACK_SIZE", value=p) for p in packs)]))
             if similar:
                 notes.append(f"Similar products accepted for {what or 'this item'}")
             items.append(_ItemDraft(value, unit, first.group(0), what, id_a or id_b, requirements, preferences, notes))
@@ -1012,6 +1271,11 @@ def _fallback(
         for item in items:
             if item.what and (contradiction := _contradiction(item.what, item.requirements, finnish)):
                 safety_question = contradiction
+                break
+    if safety_question is None:
+        for item in items:
+            if item.what and (unit_conflict := _alternative_unit_conflict(item.what, finnish)):
+                safety_question = unit_conflict
                 break
     if question is None and safety_question is None:
         for item in items:
@@ -1182,6 +1446,10 @@ def _item_assumptions(what: str, preferences: list[Preference]) -> list[str]:
     # T52: a stated attribute is required, never silently a soft preference.
     if any(p.kind == "ORGANIC" for p in preferences):
         out.append("Organic required: proven only by an organic label, otherwise offered as a substitute")
+    # T87: a stated product form is shown as a chip ("Grated", "Sliced", ...).
+    for p in preferences:
+        if p.kind == "OTHER" and p.value.lower() in FORMS_BY_LABEL:
+            out.append(p.value)
     # A stated fat % is already shown (and editable) as its own preference chip (T24); the planner treats it
     # as required (T52), so no second chip for the same value.
     return out
@@ -1220,14 +1488,18 @@ def _label_notes(preferences: list[Preference]) -> list[str]:
 
 
 def _clean_name(what: object) -> object:
-    """The LLM's product name without certification or occasion words (T74), as the deterministic reading."""
+    """The LLM's product name without certification, occasion or instruction words (T74, T87)."""
     if not isinstance(what, str):
         return what
-    cleaned = what
+    cleaned = _cut_instruction_clauses(what, detect_instructions(what))
     for pattern, _code, _label in _CERTIFICATIONS:
         cleaned = pattern.sub(" ", cleaned)
     cleaned = _OCCASION_CONTEXT_FI_RE.sub(" ", _OCCASION_CONTEXT_RE.sub(" ", cleaned))
-    cleaned = " ".join(cleaned.split()).strip(" ,;-")
+    cleaned = " ".join(cleaned.split()).strip(" ,;-.")
+    if cleaned and (_ALT_SPLIT_RE.search(cleaned) or _is_finnish(cleaned)):
+        normalised = _what(cleaned, finnish=_is_finnish(cleaned))
+        if normalised:
+            return normalised
     return cleaned or what
 
 
@@ -1332,18 +1604,26 @@ def _from_llm(raw: dict, text: str, today: date, fallback: _Fallback) -> tuple[S
             r for r in fallback.global_requirements if r not in item.requirements
         )]}) for item in request.items
     ]})
-    # A hard requirement the deterministic reading found is never dropped by the LLM.
+    # A hard requirement, certification label or product form the deterministic reading found is never dropped by the LLM.
     if fallback.request is not None and len(fallback.request.items) == len(request.items):
         merged = []
         for llm_item, det_item in zip(request.items, fallback.request.items, strict=True):
             extra = [r for r in det_item.requirements if r not in llm_item.requirements]
-            # A certification label the deterministic reading found is kept too (T74).
-            labels = [p for p in det_item.preferences if p.kind == "LABEL" and p not in llm_item.preferences]
+            labels = [
+                p
+                for p in det_item.preferences
+                if (p.kind == "LABEL" or (p.kind == "OTHER" and p.value.lower() in FORMS_BY_LABEL))
+                and p not in llm_item.preferences
+            ]
             merged.append(llm_item.model_copy(update={
                 "requirements": [*llm_item.requirements, *extra],
                 "preferences": [*llm_item.preferences, *labels],
             }))
-        request = request.model_copy(update={"items": merged})
+        for det_item in fallback.request.items:
+            for p in det_item.preferences:
+                if p.kind == "OTHER" and p.value.lower() in FORMS_BY_LABEL and p.value not in assumptions:
+                    assumptions.append(p.value)
+        request = request.model_copy(update={"items": merged, "assumptions": assumptions})
     return request, None
 
 
@@ -1389,7 +1669,8 @@ def parse_request(
     fallback_reason: str | None = "no_llm"
     if interpreter is not None:
         try:
-            raw = call_with_deadline(interpreter, text, today, deadline_s)
+            clean_for_llm = _cut_instruction_clauses(text, ignored) if ignored else text
+            raw = call_with_deadline(interpreter, clean_for_llm, today, deadline_s)
             if not isinstance(raw, dict):
                 raise ValueError("LLM result is not an object")
             request, question = _from_llm(raw, text, today, fallback)
