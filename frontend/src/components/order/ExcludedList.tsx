@@ -1,6 +1,7 @@
 import { Ban, ShieldAlert } from 'lucide-react'
 import type { Proposal, ReasonCode, RequestItem } from '../../lib/contracts'
 import { reasonChip, requirementLabel } from '../../lib/format'
+import type { ItemPlanSummary } from '../request/AssumptionChips'
 import { TrustBadge, TrustSourceMeta, formatFactDisplay } from '../trust/TrustBadge'
 
 function formatExcludedReasonChip(code: ReasonCode, item?: RequestItem): string {
@@ -20,15 +21,18 @@ export function ExcludedList({
   proposal,
   request: directRequest,
   excluded: directExcluded,
+  plan,
 }: {
   proposal?: Proposal
   request?: Proposal['request']
   excluded?: Proposal['excluded']
+  plan?: ItemPlanSummary[]
 }) {
   const request = directRequest ?? proposal?.request
   const excluded = directExcluded ?? proposal?.excluded ?? []
   const lines = proposal?.lines ?? []
   const itemsById = new Map((request?.items ?? []).map((item) => [item.itemId, item]))
+  const plansByItemId = new Map((plan ?? []).map((p) => [p.item.itemId, p]))
 
   return (
     <div className="grid gap-3">
@@ -37,6 +41,8 @@ export function ExcludedList({
           {request.items.map((item) => {
             const chosen = lines.filter((l) => l.itemId === item.itemId)
             const out = excluded.filter((e) => e.itemId === item.itemId).length
+            const itemPlan = plansByItemId.get(item.itemId)
+            const shortlistIds = itemPlan?.shortlistIds ?? []
             return (
               <li key={item.itemId}>
                 <strong>{item.what}</strong>
@@ -46,6 +52,11 @@ export function ExcludedList({
                     : proposal
                       ? 'No compliant product'
                       : 'Shortlist evaluated'}
+                  {shortlistIds.length > 0 && (
+                    <small className="muted ml-1.5">
+                      Shortlist ({shortlistIds.length}): {shortlistIds.join(', ')}
+                    </small>
+                  )}
                 </span>
                 <span className="muted">
                   {out === 0

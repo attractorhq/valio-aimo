@@ -4,7 +4,7 @@ import re
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Literal
 
 from pydantic import Field
@@ -24,6 +24,7 @@ from app.contracts import (
     Approver,
     ExcludedProduct,
     Mandate,
+    Preference,
     Product,
     ReasonCode,
     RequestItem,
@@ -40,6 +41,91 @@ from app.policy.requirements import (
 
 _WORD_RE = re.compile(r"[\wåäöÅÄÖ%-]+", re.UNICODE)
 _PRODUCT_ID_IN_QUERY_RE = re.compile(r"\b(\d{6})\b")
+_FAT_PCT_RE = re.compile(r"(?<![\w.,])(\d+(?:[.,]\d+)?)\s*%", re.IGNORECASE)
+_SKIMMED_RE = re.compile(r"\b(?:skimmed|fat[- ]?free|rasvaton\w*|fettfri\w*|skummjölk\w*)\b", re.IGNORECASE)
+_SEMI_SKIMMED_RE = re.compile(r"\b(?:semi[- ]skimmed|low[- ]fat|kevytmaito\w*|lättmjölk\w*)\b", re.IGNORECASE)
+_WHOLE_MILK_RE = re.compile(r"\b(?:whole\s+milk\w*|täysmaito\w*|helmjölk\w*)\b", re.IGNORECASE)
+
+
+def parse_fat_percent(raw: str) -> Decimal | None:
+    """Parse a fat percentage string (e.g. '1.5', '1,5 %', '0%') into a normalised Decimal."""
+    clean = raw.strip().replace(",", ".").rstrip("%").strip()
+    if not clean:
+        return None
+    try:
+        return Decimal(clean).normalize()
+    except InvalidOperation:
+        return None
+
+
+def product_fat_percents(product: Product) -> frozenset[Decimal]:
+    """Return proven fat percentage values for a product from its facts, claims, or multilingual names."""
+    text = " ".join(p for p in (product.name, *product.names.values()) if p)
+    found: set[Decimal] = set()
+    for m in _FAT_PCT_RE.finditer(text):
+        d = parse_fat_percent(m.group(1))
+        if d is not None:
+            found.add(d)
+    for f in product.facts:
+        if f.fact in ("fat.percent", "nutrition.fat") and f.value is not None:
+            d = parse_fat_percent(str(f.value))
+            if d is not None:
+                found.add(d)
+    if found:
+        return frozenset(found)
+    if _SEMI_SKIMMED_RE.search(text):
+        return frozenset({Decimal("1.5").normalize()})
+    if _SKIMMED_RE.search(text) or "FREE_FROM_FAT" in product.claims:
+        return frozenset({Decimal("0").normalize()})
+    if _WHOLE_MILK_RE.search(text):
+        return frozenset({Decimal("3.5").normalize()})
+    return frozenset()
+
+
+def requested_fat_percent(
+    preferences: Sequence[Preference] = (),
+    query: str = "",
+) -> Decimal | None:
+    """Resolve an explicit fat percentage preference from `preferences` or inline `query` text."""
+    for pref in preferences:
+        if pref.kind == "FAT_PERCENT":
+            d = parse_fat_percent(pref.value)
+            if d is not None:
+                return d
+    for m in _FAT_PCT_RE.finditer(query):
+        d = parse_fat_percent(m.group(1))
+        if d is not None:
+            return d
+    return None
+
+
+def narrow_candidates_by_fat_preference(
+    candidates: Sequence[Product],
+    preferences: Sequence[Preference] = (),
+    *,
+    query: str = "",
+    target_product_id: str | None = None,
+) -> list[Product]:
+    """Narrow candidates when an explicit FAT_PERCENT preference is present (T24).
+
+    Drops candidates whose fat % is proven different (from product data or name), while keeping
+    products with unknown fat % ranked after proven matches.
+    """
+    target_fat = requested_fat_percent(preferences, query)
+    if target_fat is None:
+        return list(candidates)
+    proven_matches: list[Product] = []
+    unknown_fat: list[Product] = []
+    for prod in candidates:
+        if target_product_id and prod.productId == target_product_id:
+            proven_matches.append(prod)
+            continue
+        fats = product_fat_percents(prod)
+        if not fats:
+            unknown_fat.append(prod)
+        elif target_fat in fats:
+            proven_matches.append(prod)
+    return [*proven_matches, *unknown_fat]
 
 
 class SearchProductsRequest(Contract):
@@ -264,6 +350,7 @@ def search_products(
     query: str | RequestItem | SearchProductsRequest = "",
     requirements: Iterable[Requirement | str] = (),
     *,
+    preferences: Sequence[Preference] = (),
     mandate: Mandate | None = None,
     allergen_mode: Literal["STANDARD", "STRICT"] | None = None,
     forbidden_allergens: Iterable[str] = (),
@@ -281,6 +368,7 @@ def search_products(
         req_obj = query
         raw_query = req_obj.query
         explicit_reqs = [_coerce_requirement(r) for r in (*req_obj.requirements, *requirements)]
+        explicit_prefs = list(preferences)
         mode = allergen_mode or (mandate.allergenMode if mandate else req_obj.allergenMode)
         forbidden = list(dict.fromkeys([*(mandate.forbiddenAllergens if mandate else ()), *req_obj.forbiddenAllergens, *forbidden_allergens]))
         limit = req_obj.limit
@@ -291,6 +379,7 @@ def search_products(
         item_obj = query
         raw_query = item_obj.what
         explicit_reqs = [_coerce_requirement(r) for r in (*item_obj.requirements, *requirements)]
+        explicit_prefs = [*item_obj.preferences, *preferences]
         mode = allergen_mode or (mandate.allergenMode if mandate else "STANDARD")
         forbidden = list(dict.fromkeys([*(mandate.forbiddenAllergens if mandate else ()), *forbidden_allergens]))
         item_id = item_id or item_obj.itemId
@@ -298,6 +387,7 @@ def search_products(
     else:
         raw_query = str(query or "")
         explicit_reqs = [_coerce_requirement(r) for r in requirements]
+        explicit_prefs = list(preferences)
         mode = allergen_mode or (mandate.allergenMode if mandate else "STANDARD")
         forbidden = list(dict.fromkeys([*(mandate.forbiddenAllergens if mandate else ()), *forbidden_allergens]))
 
@@ -457,7 +547,13 @@ def search_products(
         )
 
     compliant_entries.sort(key=rank_key)
-    candidates = [e.product for e in compliant_entries[:limit]]
+    ordered_compliant = narrow_candidates_by_fat_preference(
+        [e.product for e in compliant_entries],
+        explicit_prefs,
+        query=raw_query,
+        target_product_id=target_product_id,
+    )
+    candidates = ordered_compliant[:limit]
 
     # Check Valio-listed substitutes on returned candidates against hard requirements (§7.8, P8 B).
     for cand in candidates:
@@ -508,6 +604,10 @@ __all__ = [
     "SearchProductsRequest",
     "SearchProductsResult",
     "evaluate_product_static_requirements",
+    "narrow_candidates_by_fat_preference",
+    "parse_fat_percent",
+    "product_fat_percents",
+    "requested_fat_percent",
     "searchProducts",
     "search_products",
 ]

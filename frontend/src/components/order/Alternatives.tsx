@@ -286,7 +286,7 @@ function normalisePlanEntries(
       (entry): entry is ItemPlan =>
         Boolean(entry && typeof entry === 'object' && 'item' in entry && 'rankedCandidates' in entry),
     )
-    if (typed.some((p) => p.rankedCandidates.length > 0)) {
+    if (typed.some((p) => p.rankedCandidates.some((rc) => Boolean(rc.tier)))) {
       return typed
     }
   }

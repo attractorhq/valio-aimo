@@ -3,8 +3,10 @@
 All committed tests use synthetic hand-made records (patch P7).
 """
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
+
+import pytest
 
 from app.agent.plan import (
     CandidateObservation,
@@ -16,6 +18,9 @@ from app.agent.plan import (
     rank_candidates,
     requested_type_match,
 )
+from app.agent.run import GatewayAgentChannel, run_agent
+from app.api.state import GatewayState
+from app.catalog.build import DEFAULT_ARTIFACT_PATH, DEFAULT_RAW_DIR, load_catalog
 from app.catalog.normalise import normalise_product
 from app.catalog.search import search_products
 from app.contracts import (
@@ -27,7 +32,9 @@ from app.contracts import (
     TrustLabel,
     TrustSource,
 )
-from app.policy import M1, M2
+from app.eval.runner import ReferenceFixtureProvider
+from app.gateway.proposals import ProposalGateway
+from app.policy import DEMO_MANDATES, M1, M2, MandateBook
 from tests.synthetic.catalog_records import synthetic_product_record
 
 MONDAY = date(2026, 11, 16)
@@ -472,6 +479,119 @@ def test_t34_unqualified_request_keeps_every_cream_type_exact():
     assert requested_type_match(cooking, _cream_item("cream")).exact
 
 
+# ---- T24: fat % preference narrowing in planner and agent run ---------------------------------------
+
+
+def test_t24_planner_narrows_shortlist_and_ranks_unknown_fat_after_proven_matches():
+    p_3pct = _make_milk("SYN-3PCT", name="Synthetic Eila 3 % milk drink 1 l lactose free")
+    p_skim = _make_milk(
+        "SYN-SKIM",
+        name="Synthetic Skimmed milk drink 1 l lactose free",
+        claims=["FREE_FROM_LACTOSE", "FREE_FROM_FAT"],
+    )
+    p_semi = _make_milk("SYN-SEMI", name="Synthetic Arki semi skimmed milk drink 1 l lactose free")
+    p_15pct = _make_milk("SYN-15PCT", name="Synthetic Eila 1.5 % milk drink 1 l lactose free")
+    p_unk_fat = _make_milk("SYN-UNK-FAT", name="Synthetic Milk drink 1 l lactose free")
+
+    pool = [p_3pct, p_skim, p_semi, p_15pct, p_unk_fat]
+    by_id = {p.productId: p for p in pool}
+
+    item_any = RequestItem(
+        itemId="I1",
+        what="milk",
+        quantity=Decimal("1000"),
+        unit="l",
+        requirements=[LACTOSE_FREE],
+    )
+    s_res_any = search_products("milk", requirements=[LACTOSE_FREE], mandate=M1, products=pool)
+    assert "SYN-3PCT" in [c.productId for c in s_res_any.candidates]
+
+    item_15 = item_any.model_copy(update={"preferences": [Preference(kind="FAT_PERCENT", value="1.5")]})
+    # Even if search_products was called without item.preferences (as in `/v0.1/products/search`),
+    # normalise_item_for_planning + rank_candidates narrow out proven-different fat % and rank
+    # unknown fat % after proven matches.
+    s_res_for_plan = search_products("milk", requirements=[LACTOSE_FREE], mandate=M1, products=pool)
+    norm_item, named, _ = normalise_item_for_planning(
+        item_15, search_result=s_res_for_plan, products_by_id=by_id
+    )
+    cand_ids = [c.productId for c in s_res_for_plan.candidates]
+    assert "SYN-3PCT" not in cand_ids
+    assert "SYN-SKIM" not in cand_ids
+    assert cand_ids == ["SYN-15PCT", "SYN-SEMI", "SYN-UNK-FAT"]
+
+    observations = {
+        "SYN-3PCT": _obs("SYN-3PCT", "0.80"),
+        "SYN-SKIM": _obs("SYN-SKIM", "0.85"),
+        "SYN-UNK-FAT": _obs("SYN-UNK-FAT", "0.90"),
+        "SYN-SEMI": _obs("SYN-SEMI", "1.01"),
+        "SYN-15PCT": _obs("SYN-15PCT", "1.05"),
+    }
+    ranked = rank_candidates(
+        pool,
+        item=norm_item,
+        mandate=M1,
+        requested_date=MONDAY,
+        observations=observations,
+        named_product=named,
+    )
+    assert [r.productId for r in ranked] == ["SYN-SEMI", "SYN-15PCT", "SYN-UNK-FAT"]
+    assert ranked[0].matchedPreferences == 1
+    assert ranked[1].matchedPreferences == 1
+    assert ranked[2].matchedPreferences == 0
+
+
+def test_t24_real_catalog_scenario_a_any_fat_to_1_5_pct_changes_backend_shortlist():
+    if not DEFAULT_ARTIFACT_PATH.exists() and not (DEFAULT_RAW_DIR / "products.json").exists():
+        pytest.skip("Real catalogue data not present on this machine")
+
+    catalog = load_catalog()
+    products_by_id = catalog.by_id()
+    now = datetime(2026, 11, 13, 12, 0, tzinfo=UTC)
+    provider = ReferenceFixtureProvider(now=now)
+    gateway = ProposalGateway(
+        products=products_by_id,
+        mandates=MandateBook(DEMO_MANDATES),
+        provider=provider,
+    )
+    state = GatewayState(
+        gateway=gateway,
+        catalog=list(products_by_id.values()),
+        mode="RECORDED",
+        clock=lambda: now,
+    )
+    channel = GatewayAgentChannel(state)
+
+    run_any = run_agent(
+        "nordic-harbour-hotels",
+        "We need 1,000 litres of lactose-free milk by Monday.",
+        channel=channel,
+        now=now,
+    )
+    assert run_any.request is not None
+    assert "Any fat %" in run_any.request.assumptions
+    assert run_any.plan is not None
+    shortlist_any = run_any.plan.items[0].shortlistIds
+    assert "464306" in shortlist_any
+    assert "463335" in shortlist_any
+
+    run_15 = run_agent(
+        "nordic-harbour-hotels",
+        "We need 1,000 litres of lactose-free milk by Monday (1.5 %).",
+        channel=channel,
+        now=now,
+    )
+    assert run_15.request is not None
+    assert "Any fat %" not in run_15.request.assumptions
+    assert [p.value for p in run_15.request.items[0].preferences if p.kind == "FAT_PERCENT"] == ["1.5"]
+    assert run_15.plan is not None
+    shortlist_15 = run_15.plan.items[0].shortlistIds
+    assert "464306" in shortlist_15
+    assert "463335" not in shortlist_15
+    assert shortlist_15 != shortlist_any
+    assert run_15.proposal is not None
+    assert run_15.proposal.decision == "AUTO"
+
+
 # ---- T22: Good / Better / Best alternatives (I3 response logic) -------------------------------------
 
 
@@ -527,4 +647,3 @@ def test_t22_good_better_best_alternatives_tradeoff_and_sour_milk_separation():
     assert ranked[-1].productId == "SYN-SOUR"
     assert ranked[-1].substitutionSource == "AGENT"
     assert "sour milk, not milk" in ranked[-1].tradeoff
-

@@ -23,6 +23,10 @@ from app.catalog.normalise import apply_price_ratio_content
 from app.catalog.search import (
     SearchProductsResult,
     evaluate_product_static_requirements,
+    narrow_candidates_by_fat_preference,
+    parse_fat_percent,
+    product_fat_percents,
+    requested_fat_percent,
 )
 from app.catalog.vocab import (
     CONCEPTS_BY_ID,
@@ -376,11 +380,9 @@ def _matched_preferences_count(product: Product, preferences: Sequence[Preferenc
             ):
                 matched += 1
         elif pref.kind == "FAT_PERCENT":
-            norm_fat = val.replace(",", ".").rstrip("%").strip()
-            for m in _FAT_IN_NAME_RE.finditer(text_lower):
-                if m.group(1).replace(",", ".") == norm_fat:
-                    matched += 1
-                    break
+            target_fat = parse_fat_percent(pref.value)
+            if target_fat is not None and target_fat in product_fat_percents(product):
+                matched += 1
         elif pref.kind == "PACK_SIZE":
             compact = val.replace(" ", "")
             if val in text_lower or compact in text_lower.replace(" ", ""):
@@ -800,6 +802,7 @@ def rank_candidates(
     valio_subs_of_named: frozenset[str] = (
         frozenset(named_product.substitutions) if named_product is not None else frozenset()
     )
+    target_fat = requested_fat_percent(item.preferences, item.what)
 
     scored: list[
         tuple[tuple, Product, CandidateObservation | None, SubstitutionKind | None, str | None, tuple[str, ...]]
@@ -812,6 +815,11 @@ def rank_candidates(
         )
         if static_reasons:
             continue
+
+        prod_fats = product_fat_percents(prod)
+        if target_fat is not None and not named and prod_fats and target_fat not in prod_fats:
+            continue
+        fat_unknown_rank = 1 if (target_fat is not None and not prod_fats) else 0
 
         obs = obs_map.get(prod.productId)
         if obs is not None:
@@ -911,6 +919,7 @@ def rank_candidates(
         sort_key = (
             has_observation,
             sub_rank,
+            fat_unknown_rank,
             crit1_declared,
             crit2_deliverable,
             crit3_price,
@@ -1080,6 +1089,14 @@ def normalise_item_for_planning(
     - Row 24: `40 pcs` of `URTEKRAM gluten-free fusilli 250 g` (`470699`, `0.25 kg` per pack) -> `10 kg`, `productId="470699"`.
     """
     notes: list[str] = []
+    if requested_fat_percent(item.preferences, item.what) is not None:
+        narrowed_candidates = narrow_candidates_by_fat_preference(
+            search_result.candidates,
+            item.preferences,
+            query=item.what,
+            target_product_id=item.productId,
+        )
+        search_result.candidates[:] = narrowed_candidates
     named_prod = _find_named_product_in_results(item, search_result, products_by_id)
     updated_item = item
     if named_prod is not None and updated_item.productId is None:
@@ -1223,11 +1240,8 @@ def build_shortlist_offer_items(
     # Per §7.7 ("same product type first"), if non-substitute candidates exist (substitutionSource is None),
     # do not mix different-product-type agent substitutes into the same item allocation.
     has_direct_candidates = any(rc.substitutionSource is None for rc in ranked_candidates)
-    has_priced_candidates = any(rc.unitPriceExclVat is not None for rc in ranked_candidates)
     for rc in ranked_candidates:
         if has_direct_candidates and rc.substitutionSource == "AGENT" and item.productId is None:
-            continue
-        if has_priced_candidates and rc.unitPriceExclVat is None:
             continue
         add_id(rc.productId)
 

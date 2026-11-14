@@ -1,4 +1,4 @@
-import { Ban, CheckCircle2, Hourglass, Info, ShieldCheck, Quote } from 'lucide-react'
+import { Ban, CheckCircle2, Hourglass, Info, ShieldCheck } from 'lucide-react'
 import type { Mandate, Proposal, ReasonCode } from '../../lib/contracts'
 import { REASON_REGISTRY } from '../../lib/contracts'
 import {
@@ -10,78 +10,9 @@ import {
   formatTime,
   reasonChip,
   reasonText,
-  requirementLabel,
 } from '../../lib/format'
 
-/** Step 1: the structured request, always shown (read-only in this version). */
-export function RequestCard({
-  proposal,
-  request: directRequest,
-}: {
-  proposal?: Proposal
-  request?: Proposal['request']
-}) {
-  const request = directRequest ?? proposal?.request
-  if (!request) return null
-  return (
-    <div className="request-card">
-      <figure className="request-text">
-        <Quote size={14} aria-hidden />
-        <blockquote>{request.requestText}</blockquote>
-        <figcaption>Original request · treated as data</figcaption>
-      </figure>
-      <table className="data-table">
-        <caption className="visually-hidden">Structured request items</caption>
-        <thead>
-          <tr>
-            <th scope="col">Item</th>
-            <th scope="col">Quantity</th>
-            <th scope="col">Hard requirements</th>
-          </tr>
-        </thead>
-        <tbody>
-          {request.items.map((item) => (
-            <tr key={item.itemId}>
-              <th scope="row">
-                {item.what}
-                {item.productId && <small className="muted"> · product {item.productId}</small>}
-              </th>
-              <td className="num">{formatQuantity(item.quantity, item.unit)}</td>
-              <td>
-                {item.requirements?.length ? (
-                  <ul className="chip-list">
-                    {item.requirements.map((r) => (
-                      <li key={`${r.kind}-${r.code}`} className="chip chip-requirement">
-                        {requirementLabel(r)}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <span className="muted">None</span>
-                )}
-                {item.preferences?.length ? (
-                  <p className="muted small">
-                    Preferences: {item.preferences.map((p) => p.value).join(', ')}
-                  </p>
-                ) : null}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <dl className="inline-facts">
-        <div>
-          <dt>Deliver by</dt>
-          <dd>{formatDate(request.requestedDate)}</dd>
-        </div>
-        <div>
-          <dt>Assumptions</dt>
-          <dd>{request.assumptions?.length ? request.assumptions.join(' · ') : 'None'}</dd>
-        </div>
-      </dl>
-    </div>
-  )
-}
+export { RequestCard } from '../request/RequestCard'
 
 /** Step 2: what the lookup checked. Live price/availability is fetched for the shortlist only. */
 export function LookupSummary({ proposal }: { proposal: Proposal }) {
