@@ -143,4 +143,5 @@ def test_organic_and_fat_percent_are_stated_as_required():
     assert "Organic required: proven only by an organic label, otherwise offered as a substitute" in (
         request.assumptions
     )
-    assert "3.5 % fat required: otherwise offered as a substitute" in request.assumptions
+    assert any(p.kind == "FAT_PERCENT" and p.value == "3.5" for i in request.items for p in i.preferences)
+    assert not any("% fat" in a for a in request.assumptions)  # one chip per value: the preference chip

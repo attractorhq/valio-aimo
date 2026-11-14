@@ -990,9 +990,8 @@ def _item_assumptions(what: str, preferences: list[Preference]) -> list[str]:
     # T52: a stated attribute is required, never silently a soft preference.
     if any(p.kind == "ORGANIC" for p in preferences):
         out.append("Organic required: proven only by an organic label, otherwise offered as a substitute")
-    for p in preferences:
-        if p.kind == "FAT_PERCENT":
-            out.append(f"{p.value} % fat required: otherwise offered as a substitute")
+    # A stated fat % is already shown (and editable) as its own preference chip (T24); the planner treats it
+    # as required (T52), so no second chip for the same value.
     return out
 
 
