@@ -4,6 +4,7 @@ import type { Proposal } from '../lib/contracts'
 import { gateway, SCENARIOS, type FlowResult, type ScenarioId } from '../lib/gateway'
 import { formatMoney, reasonChip } from '../lib/format'
 import { MandatePanel } from '../components/flow/MandatePanel'
+import { MandateControls } from '../components/mandate/MandateControls'
 import { RequestComposer } from '../components/flow/RequestComposer'
 import { ModeBadge } from '../components/flow/ModeBadge'
 import { StatusPill, Step, type StepStatus } from '../components/flow/Step'
@@ -38,6 +39,19 @@ function itemCount(proposal: Proposal) {
   return `${n} item${n === 1 ? '' : 's'}`
 }
 
+/** A superseded proposal points to the version decided from scratch after it; show the newest one. */
+async function latestVersion(proposalId: string): Promise<Proposal> {
+  let proposal = await gateway.getProposal(proposalId)
+  for (
+    let hops = 0;
+    proposal.state === 'SUPERSEDED' && proposal.supersededBy && hops < 10;
+    hops++
+  ) {
+    proposal = await gateway.getProposal(proposal.supersededBy)
+  }
+  return proposal
+}
+
 /** The one main view: Request → Lookup → Order → Approval, around a structured flow (not a chat). */
 export function Main() {
   const mandates = useQuery({ queryKey: ['mandates'], queryFn: () => gateway.listMandates() })
@@ -55,7 +69,7 @@ export function Main() {
   // Follow the proposal's state on the agent channel: the approver decides in a separate window.
   const latest = useQuery({
     queryKey: ['proposal', run.data?.proposal.proposalId],
-    queryFn: () => gateway.getProposal(run.data!.proposal.proposalId),
+    queryFn: () => latestVersion(run.data!.proposal.proposalId),
     enabled: Boolean(run.data),
     refetchInterval: (query) =>
       (query.state.data ?? run.data?.proposal)?.state === 'PENDING_APPROVAL' ? 1500 : false,
@@ -91,6 +105,16 @@ export function Main() {
             selected={mandate}
             onSelect={selectMandate}
             disabled={running}
+          />
+        )}
+        {mandate && (
+          <MandateControls
+            mandate={mandate}
+            live={gateway.source === 'GATEWAY'}
+            onChanged={() => {
+              mandates.refetch()
+              latest.refetch()
+            }}
           />
         )}
       </aside>
