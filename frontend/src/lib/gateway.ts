@@ -24,6 +24,7 @@ import scenarioA from '../mocks/scenario-a.json'
 import scenarioB from '../mocks/scenario-b.json'
 import scenarioC from '../mocks/scenario-c.json'
 import { findMockLog, LogNotFound } from '../components/log/logData'
+import { formatApprovalStatement } from '../components/approver/explain'
 
 export type DataSource = 'MOCK' | 'GATEWAY'
 
@@ -410,6 +411,7 @@ export const mockApproverChannel: ApproverChannel = {
     return {
       proposal: record.proposal,
       approver: mandate.approver,
+      approvalStatement: formatApprovalStatement(record.proposal, mandate),
       approvalToken: record.approvalToken,
       approvalUrl,
       qrPayload: approvalUrl,
@@ -456,6 +458,7 @@ export const mockApproverChannel: ApproverChannel = {
     return {
       proposal: record.proposal,
       approver: mandate.approver,
+      approvalStatement: formatApprovalStatement(record.proposal, mandate),
       approvalToken: record.approvalToken,
       approvalUrl,
       qrPayload: approvalUrl,

@@ -74,6 +74,7 @@ export function ApproveMobile() {
           mandate={mandate}
           showQr={false}
           initialToken={decodedToken}
+          initialApprovalStatement={view.data.approvalStatement}
         />
       )}
     </div>
