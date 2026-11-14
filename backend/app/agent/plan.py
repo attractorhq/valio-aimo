@@ -18,7 +18,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from app.catalog.categories import TypeMatch, product_type_match
+from app.catalog.categories import TypeMatch, product_type_match, strip_type_qualifiers
 from app.catalog.normalise import apply_price_ratio_content
 from app.catalog.search import (
     SearchProductsResult,
@@ -31,6 +31,7 @@ from app.catalog.search import (
 from app.catalog.vocab import (
     CONCEPTS_BY_ID,
     ProductConcept,
+    expand_query_tokens,
     extract_inline_requirements,
     match_concept_in_text,
     resolve_query_concepts,
@@ -150,6 +151,7 @@ class RankedCandidate(Contract):
     unknownFactCount: int = 0
     substitutionSource: SubstitutionKind | None = None
     substituteFor: str | None = None
+    exactType: bool = True  # exactly the product type the buyer asked for (T34/T39)
     tradeoff: str
     reasons: list[ReasonCode] = Field(default_factory=list)
 
@@ -755,8 +757,32 @@ def requested_type_match(product: Product, item: RequestItem) -> TypeMatch:
                     if diff not in differences:
                         differences.append(diff)
                     break
+    elif primary is None:
+        # No known product concept (e.g. fish): every product noun the buyer used must be in the name,
+        # so "salmon fillet" never matches a flounder fillet (T39).
+        missing = _missing_query_nouns(item.what, text_lower)
+        if missing:
+            differences.append(f"not {' '.join(missing)}")
 
     return TypeMatch(exact=not differences, differences=tuple(differences))
+
+
+def _missing_query_nouns(what: str, text_lower: str) -> list[str]:
+    """The buyer's product words (qualifiers such as 'fresh' removed) that the product name does not contain."""
+    cleaned, _ = extract_inline_requirements(what)
+    groups, _ = expand_query_tokens(strip_type_qualifiers(cleaned))
+    words = frozenset(_WORD_RE.findall(text_lower))
+    missing: list[str] = []
+    for group in groups:
+        if not any(
+            (" " in term and term in text_lower)
+            or term in words
+            or f"{term}s" in words
+            or (len(term) >= 5 and term in text_lower)
+            for term in group
+        ):
+            missing.append(group[0])
+    return missing
 
 
 def _matches_primary_concept(product: Product, primary: ProductConcept | None, query_lower: str) -> tuple[bool, bool]:
@@ -805,7 +831,7 @@ def rank_candidates(
     target_fat = requested_fat_percent(item.preferences, item.what)
 
     scored: list[
-        tuple[tuple, Product, CandidateObservation | None, SubstitutionKind | None, str | None, tuple[str, ...]]
+        tuple[tuple, Product, CandidateObservation | None, SubstitutionKind | None, str | None, tuple[str, ...], bool]
     ] = []
 
     for prod in candidates:
@@ -930,7 +956,8 @@ def rank_candidates(
             in_brief,
             prod.productId,
         )
-        scored.append((sort_key, prod, obs, sub_source, sub_for, type_match.differences))
+        is_exact_type = exact_type or (target_id is not None and prod.productId == target_id)
+        scored.append((sort_key, prod, obs, sub_source, sub_for, type_match.differences, is_exact_type))
 
     scored.sort(key=lambda entry: entry[0])
 
@@ -938,7 +965,7 @@ def rank_candidates(
     ranked: list[RankedCandidate] = []
     best_comp_price: Decimal | None = None
 
-    for idx, (_key, prod, obs, sub_source, sub_for, type_differences) in enumerate(scored):
+    for idx, (_key, prod, obs, sub_source, sub_for, type_differences, is_exact_type) in enumerate(scored):
         sizing = size(prod, item.quantity, item.unit)
         comp_price, comp_unit = _comparison_price(prod, obs, item.unit)
         if idx == 0:
@@ -1008,6 +1035,7 @@ def rank_candidates(
                 unknownFactCount=unk_count,
                 substitutionSource=sub_source,
                 substituteFor=sub_for,
+                exactType=is_exact_type,
                 tradeoff=tradeoff,
                 reasons=line_reasons,
             )
@@ -1240,8 +1268,13 @@ def build_shortlist_offer_items(
     # Per §7.7 ("same product type first"), if non-substitute candidates exist (substitutionSource is None),
     # do not mix different-product-type agent substitutes into the same item allocation.
     has_direct_candidates = any(rc.substitutionSource is None for rc in ranked_candidates)
+    # T39: a different product type (frozen for fresh, margarine for butter) never fills the remainder of an
+    # item while products of the requested type exist, also when the buyer named a product.
+    has_exact_type = any(rc.exactType for rc in ranked_candidates)
     for rc in ranked_candidates:
         if has_direct_candidates and rc.substitutionSource == "AGENT" and item.productId is None:
+            continue
+        if has_exact_type and not rc.exactType:
             continue
         add_id(rc.productId)
 
