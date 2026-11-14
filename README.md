@@ -8,7 +8,23 @@ A Valio Aimo-side gateway plus a demo purchasing agent for the Valio Aimo Juncti
 
 ## Demo and verification status
 
-The full flow has been verified locally against the live mock API and private recorded captures. **A public deployment has not yet been verified; no public demo URL is claimed here.** See [the submission](docs/SUBMISSION.md), [pitch](docs/PITCH.md), and [rehearsal guide](docs/DEMO.md).
+**Live demo:** https://valio-aimo.attractorfi.workers.dev. One origin serves the UI, `/approver`, `/v0.1` (OpenAPI at `/openapi.json`) and `/mcp`, running against the live mock API. `/health` reports the deployed build. See [the submission](docs/SUBMISSION.md), [pitch](docs/PITCH.md) and [rehearsal guide](docs/DEMO.md).
+
+### Connect an agent (MCP)
+
+The `/mcp` endpoint (Streamable HTTP) exposes only purchasing-agent tools: listMandates, getMandate, searchProducts, getOffer, createProposal, getProposal and getAuditTrail. Approval is not a tool, and calling it is refused.
+
+```bash
+# Claude Code
+claude mcp add --transport http valio-aimo https://valio-aimo.attractorfi.workers.dev/mcp
+
+# Any client: initialise and list tools
+curl -s https://valio-aimo.attractorfi.workers.dev/mcp -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+Cursor and Claude Desktop: add an HTTP MCP server with the URL `https://valio-aimo.attractorfi.workers.dev/mcp`. Demo customers are `nordic-harbour-hotels` and `northbay-school-kitchen`. A proposal that needs sign-off waits in `/approver` for a human.
 
 Expected reference walkthrough: **A AUTO** (€1,010.00) → **B ASK** (€506.16, only `OVER_AUTO_LIMIT`) → **C BLOCK** (€20,200.00, with `INSTRUCTION_IGNORED`). These are checks, not hardcoded decisions or guarantees about today's live data. Run pre-flight before presenting.
 
@@ -196,8 +212,8 @@ Supplier mock observations below were recorded on **13 Nov 2026**, not promises 
 1. **Identity and authority:** per-customer agent credentials, authenticated named approvers via SSO/OIDC, buyer-admin authorisation and audit identities from authentication. Replace demo links as the authority mechanism.
 2. **Durability:** transactional proposal, approval-token consumption, mandate and audit storage in a durable database, with recovery, concurrency controls, retention and monitoring. The current in-memory state is not a production record.
 3. **Real fulfilment:** integrate a supplier order API and explicit idempotency/reconciliation. Challenge confirmations do not create orders or payments.
-4. **Open agent access:** REST/OpenAPI and JSON Schemas work today; an MCP adapter is roadmap, not an implemented service. Forwarding `/mcp` at the edge does not supply MCP tools. Expose only agent-channel operations—never `decideApproval` or confirmation.
-5. **Data assurance:** validate supplier declarations and freshness under production agreements; surface unresolved conflicts and missing evidence instead of allowing a human to waive them. Hash-chain audit evidence and export are roadmap, not current guarantees.
+4. **Open agent access:** REST/OpenAPI 3.1, JSON Schemas and an MCP endpoint (`/mcp`, agent-channel tools only) work today. Production adds scoped agent credentials per buyer and keeps `decideApproval` and confirmation off every agent interface.
+5. **Data assurance:** validate supplier declarations and freshness under production agreements; surface unresolved conflicts and missing evidence instead of allowing a human to waive them. The demo already seals the decision log with a SHA-256 hash chain (`/v0.1/audit/verify`) and exports it as JSON/CSV; production moves it to durable, append-only storage.
 
 ## Repository
 
