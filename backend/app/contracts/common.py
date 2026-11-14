@@ -4,13 +4,45 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, WithJsonSchema
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PlainSerializer,
+    WithJsonSchema,
+)
 
 VERSION = "0.1"
 
 
+def _format_decimal_plain(value: Decimal) -> str:
+    """Format a Decimal in plain fixed-point notation without scientific exponents or trailing '.0'."""
+    norm = value.normalize()
+    return str(int(norm)) if norm == norm.to_integral() else format(norm, "f")
+
+
+PlainDecimal = Annotated[
+    Decimal,
+    PlainSerializer(_format_decimal_plain, return_type=str, when_used="json"),
+]
+
+
 class Contract(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+    @classmethod
+    def __pydantic_init_subclass__(cls, **kwargs: object) -> None:
+        changed = False
+        for field_info in cls.model_fields.values():
+            if field_info.annotation is Decimal:
+                field_info.annotation = PlainDecimal
+                changed = True
+            elif field_info.annotation == (Decimal | None):
+                field_info.annotation = PlainDecimal | None
+                changed = True
+        if changed:
+            cls.model_rebuild(force=True)
+        super().__pydantic_init_subclass__(**kwargs)
 
 
 Money = Annotated[
@@ -22,7 +54,7 @@ Money = Annotated[
 NonNegativeDecimal = Annotated[
     Decimal,
     Field(ge=0, allow_inf_nan=False),
-    PlainSerializer(lambda value: format(value, "f"), return_type=str, when_used="json"),
+    PlainSerializer(_format_decimal_plain, return_type=str, when_used="json"),
     WithJsonSchema({"type": "string", "pattern": r"^\d+(\.\d+)?$"}, mode="serialization"),
 ]
 PositiveDecimal = Annotated[NonNegativeDecimal, Field(gt=0)]

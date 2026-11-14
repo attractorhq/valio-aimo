@@ -323,3 +323,135 @@ def test_health_reports_an_unconfigured_gateway(monkeypatch):
                                                              "unit": "l"}]})
         assert offer.status_code == 503
         assert offer.json()["error"]["code"] == "GATEWAY_UNAVAILABLE"
+
+
+# --------------------------------------------------------------------------- T42: API correctness
+
+
+def _string_values(node):
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if isinstance(v, str):
+                yield k, v
+            else:
+                yield from _string_values(v)
+    elif isinstance(node, list):
+        for item_val in node:
+            yield from _string_values(item_val)
+
+
+def test_t42_customer_audit_trail_lists_every_event_across_multiple_school_proposals(api):
+    client, provider, _ = api
+    # Create multiple school proposals (including a DATE_LATER proposal) and approve one
+    _, created1 = scenario_b(client)
+    p1 = created1.json()
+    view1 = client.client.get(f"{APPROVER}/proposals/{p1['proposalId']}").json()
+    client.client.post(
+        f"{APPROVER}/proposals/{p1['proposalId']}/decision",
+        json={"offerVersion": p1["offerVersion"], "approvalToken": view1["approvalToken"], "action": "APPROVE"},
+    )
+
+    _, created2 = scenario_b(client)
+    p2 = created2.json()
+
+    # Third school proposal where delivery is later than requested
+    provider.stocks["SYN-OAT"] = {
+        **provider.stocks["SYN-OAT"],
+        "scheduleLines": [{
+            "salesBlock": False,
+            "availableAmount": 9999999999,
+            "availableDate": (MONDAY + timedelta(days=1)).isoformat(),
+            "salesUnit": "ST",
+        }],
+    }
+    _, created3 = scenario_b(client)
+    p3 = created3.json()
+    assert "DATE_LATER" in p3["reasons"]
+
+    # Also run a hotel proposal (M1) to verify customer isolation
+    _, created_a = scenario_a(client)
+    pa = created_a.json()
+
+    school_trail = client.get("/v0.1/audit", params={"customerId": M2.customerId}).json()["entries"]
+    school_entry_ids = [e["entryId"] for e in school_trail]
+
+    # Every event from p1, p2, and p3 must appear in the school customer audit trail
+    for prop_id in (p1["proposalId"], p2["proposalId"], p3["proposalId"]):
+        prop_trail = client.get("/v0.1/audit", params={"proposalId": prop_id}).json()["entries"]
+        assert len(prop_trail) >= 3
+        for entry in prop_trail:
+            assert entry["entryId"] in school_entry_ids
+
+    # Alias customerId queries (e.g. 'northbay-school', 'mock-school') resolve to the same complete trail
+    alias_trail = client.get("/v0.1/audit", params={"customerId": "northbay-school"}).json()["entries"]
+    assert [e["entryId"] for e in alias_trail] == school_entry_ids
+
+    # Verify customer chain length matches the returned customer audit entries
+    ver_school = client.get("/v0.1/audit/verify", params={"customerId": M2.customerId}).json()
+    assert ver_school["verified"] is True
+    assert ver_school["chainLength"] == len(school_trail)
+
+    # Global verify chainLength equals M1 entries + M2 entries
+    hotel_trail = client.get("/v0.1/audit", params={"customerId": M1.customerId}).json()["entries"]
+    ver_global = client.get("/v0.1/audit/verify").json()
+    assert ver_global["verified"] is True
+    assert ver_global["chainLength"] == len(school_trail) + len(hotel_trail)
+    assert all(e["proposalId"] != pa["proposalId"] for e in school_trail)
+
+    # Check DATE_LATER log entry has filled delivery & requested dates, never unfilled placeholders
+    p3_trail = client.get("/v0.1/audit", params={"proposalId": p3["proposalId"]}).json()["entries"]
+    decided_entries = [e for e in p3_trail if "DATE_LATER" in e.get("reasons", [])]
+    assert decided_entries
+    for de in decided_entries:
+        assert "{availableDate}" not in de["summary"]
+        assert "{requestedDate}" not in de["summary"]
+        assert "…" not in de["summary"]
+        fact_names = {f["fact"] for f in de["facts"]}
+        assert "delivery.date" in fact_names
+        assert "delivery.requestedDate" in fact_names
+        assert any("Tue 17 Nov" in de["summary"] or "Tuesday" in de["summary"] for _ in (1,))
+        assert any("Mon 16 Nov" in de["summary"] for _ in (1,))
+
+
+def test_t42_no_scientific_notation_exponents_in_quantities_or_money_on_wire():
+    from decimal import Decimal
+
+    from test_agent_run import B_TEXT, ROW8_TEXT, ROW24_TEXT, SyntheticAgentProvider, _build_synthetic_catalog
+
+    from app.contracts import OfferItem, Quantity, RequestItem
+
+    # 1. Direct unit check on normalized Decimals with positive exponents (8E+1, 1.0E+2)
+    q_80 = Quantity(value=Decimal("80").normalize(), unit="kg")
+    q_100 = Quantity(value=Decimal("100.0").normalize(), unit="l")
+    oi = OfferItem(itemId="I1", productId="474235", quantity=Decimal("80").normalize(), unit="kg")
+    ri = RequestItem(itemId="I1", what="macaroni", quantity=Decimal("100").normalize(), unit="kg")
+
+    assert q_80.model_dump(mode="json")["value"] == "80"
+    assert q_100.model_dump(mode="json")["value"] == "100"
+    assert oi.model_dump(mode="json")["quantity"] == "80"
+    assert ri.model_dump(mode="json")["quantity"] == "100"
+    assert '"80"' in q_80.model_dump_json()
+    assert '"100"' in q_100.model_dump_json()
+
+    # 2. Full /v0.1/agent/run wire check for quantities that normalize to 1E+1 / 5E+1 / 8E+1 / 1E+2
+    products = _build_synthetic_catalog()
+    provider = SyntheticAgentProvider()
+    gateway = ProposalGateway(products=products, mandates=MandateBook(DEMO_MANDATES), provider=provider)
+    state = GatewayState(gateway=gateway, catalog=list(products.values()), mode="RECORDED", clock=lambda: NOW)
+    app.dependency_overrides[get_state] = lambda: state
+    app.dependency_overrides[try_state] = lambda: state
+    try:
+        with TestClient(app) as client:
+            for cid, text in (
+                (M2.customerId, B_TEXT),
+                (M1.customerId, ROW8_TEXT),
+                (M2.customerId, ROW24_TEXT),
+            ):
+                resp = client.post("/v0.1/agent/run", json={"customerId": cid, "requestText": text})
+                assert resp.status_code == 200, resp.text
+                payload = resp.json()
+                for key, val in _string_values(payload):
+                    if any(tok in key.lower() for tok in ("quantity", "vat", "price", "value", "lot", "rate", "share")):
+                        assert not re.search(r"\d(?:\.\d+)?[eE][+-]?\d+", val), f"{key}={val!r}"
+    finally:
+        app.dependency_overrides.clear()
