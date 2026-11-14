@@ -9,6 +9,7 @@ import {
 } from '../../lib/format'
 import { TrustBadge } from '../trust/TrustBadge'
 import { TrustCard } from '../trust/TrustCard'
+import { SplitProposalSummary } from '../proposal/SplitProposalSummary'
 import { Alternatives } from './Alternatives'
 
 /**
@@ -38,6 +39,7 @@ export function OrderProposalView({
 
   return (
     <div>
+      <SplitProposalSummary proposal={proposal} offer={offer} request={req} />
       <div className="table-scroll">
         <table className="data-table order-table stack-on-mobile">
           <caption className="visually-hidden">Order proposal lines</caption>

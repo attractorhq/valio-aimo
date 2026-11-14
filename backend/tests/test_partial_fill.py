@@ -84,12 +84,14 @@ def test_partial_stays_when_the_whole_shortlist_cannot_cover_the_need():
 
 
 def test_a_different_type_never_fills_the_remainder_silently():
-    # 'fusilli' is not 'penne': it is not added to the shortlist while a penne exists (T39), so the
-    # remainder stays partial instead of being silently swapped.
+    # T69: when 'penne' is partially available, compliant 'fusilli' tops up the shortfall as an explicit
+    # ASK with SPLIT + AGENT_SUBSTITUTE on the second line, never silently as AUTO.
     item = RequestItem(itemId="I1", what="penne", quantity=Decimal(300), unit="kg", requirements=[GLUTEN_FREE])
     proposal = _decide(item, {"SYN-PENNE-A": 30, "SYN-FUSILLI": 100}, ["SYN-PENNE-A", "SYN-FUSILLI"])
-    assert [ln.productId for ln in proposal.lines] == ["SYN-PENNE-A"]
-    assert ReasonCode.PARTIAL_AVAILABILITY in proposal.reasons
+    assert [ln.productId for ln in proposal.lines] == ["SYN-PENNE-A", "SYN-FUSILLI"]
+    assert proposal.decision == "ASK"
+    assert ReasonCode.SPLIT in proposal.reasons
+    assert ReasonCode.AGENT_SUBSTITUTE in proposal.reasons
 
 
 # ---- feasible order within the hard limit ------------------------------------------------------------
