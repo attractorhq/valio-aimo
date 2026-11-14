@@ -10,7 +10,11 @@ from app.catalog.vocab import (
     QUERY_STOPWORDS,
     expand_query_tokens,
     extract_inline_requirements,
+    extract_requested_form,
     match_concept_in_text,
+    product_form_difference,
+    resolve_query_concepts,
+    split_query_alternatives,
 )
 from app.contracts.common import Contract, RequestUnit
 
@@ -730,6 +734,25 @@ _CHEESE_VARIETIES: tuple[tuple[str, str, tuple[str, ...], tuple[str, ...]], ...]
 
 TYPE_QUALIFIER_GROUPS: tuple[TypeQualifierGroup, ...] = (
     TypeQualifierGroup(
+        group_id="plant_base",
+        concepts=frozenset({"milk", "oat_drink", "soy_drink", "almond_drink", "coconut_milk",
+                            "cream", "sour_cream", "yoghurt", "quark", "cheese", "cream_cheese"}),
+        variants=(
+            TypeVariant("oat", "oat-based", (r"\boats?\b", r"\bkaura\w*", r"\bhavre\w*"),
+                        product_terms=(" oat", "kaura", "havre"),
+                        forbid_terms=(" soy", "soij", "soja", "almond", "manteli", "mandel", "coconut", "kookos", "kokos")),
+            TypeVariant("soy", "soy-based", (r"\bsoya?\b", r"\bsoij\w*", r"\bsoja\w*"),
+                        product_terms=(" soy", "soij", "soja"),
+                        forbid_terms=(" oat", "kaura", "havre", "almond", "manteli", "mandel", "coconut", "kookos", "kokos")),
+            TypeVariant("almond", "almond-based", (r"\balmond\w*", r"\bmanteli\w*", r"\bmandel\w*"),
+                        product_terms=("almond", "manteli", "mandel"),
+                        forbid_terms=(" oat", "kaura", "havre", " soy", "soij", "soja", "coconut", "kookos", "kokos")),
+            TypeVariant("coconut", "coconut-based", (r"\bcoconut\w*", r"\bkookos\w*", r"\bkokos\w*"),
+                        product_terms=("coconut", "kookos", "kokos"),
+                        forbid_terms=(" oat", "kaura", "havre", " soy", "soij", "soja", "almond", "manteli", "mandel")),
+        ),
+    ),
+    TypeQualifierGroup(
         group_id="cream_use",
         concepts=frozenset({"cream"}),
         variants=(
@@ -888,6 +911,7 @@ class TypeMatch:
 
     exact: bool
     differences: tuple[str, ...] = ()
+    related: bool = True
 
 
 def requested_variants(query: str, concept_id: str | None) -> tuple[tuple[TypeQualifierGroup, TypeVariant], ...]:
@@ -916,6 +940,12 @@ _CREAM_FAT_PCT_RE = re.compile(
     r"(?:(?<![\w.,])(\d+(?:[.,]\d+)?)\s*%|\b(?:cooking|ruokakerm\w*|ruoka|matlagningsgrädde\w*|mat)\s+(10|13|14|15|18|20)\b)",
     re.IGNORECASE,
 )
+_NEGATED_PLANT_BASE_RE = re.compile(
+    r"\b(?:(?:soy|soya|oats?|almonds?|coconut)[- ]free|"
+    r"(?:free[- ]from|without|no)\s+(?:soy|soya|oats?|almonds?|coconut)|"
+    r"(?:soija|kaura|manteli|kookos)(?:ton\w*|ttom\w*)|(?:soja|havre|mandel|kokos)fri\w*)\b",
+    re.IGNORECASE,
+)
 
 
 def _extract_cream_fat_pct(text: str) -> str | None:
@@ -934,7 +964,7 @@ def product_type_match(
     requirement_codes: tuple[str, ...] = (),
 ) -> TypeMatch:
     """Check a product against the product type in the buyer's words (names in every language count)."""
-    text = " " + " ".join(n for n in product_names if n).lower() + " "
+    text = " " + _NEGATED_PLANT_BASE_RE.sub(" ", " ".join(n for n in product_names if n).lower()) + " "
     differences: list[str] = []
     for group, variant in requested_variants(query, concept_id):
         proves = not variant.product_terms or any(t in text for t in variant.product_terms)
@@ -1212,6 +1242,66 @@ def same_product_family(
     if not groups:
         return True
     return all(family_group_matches(grp, text_lower, words) for grp in groups)
+
+
+# Related culinary families may be proposed as explicit trade-offs, never silently treated as exact.
+_RELATED_TYPE_CATEGORIES: Mapping[str, tuple[str, ...]] = MappingProxyType({
+    "milk": ("10400", "10402", "10411"),
+    "oat_drink": ("10400", "10402"),
+    "soy_drink": ("10400", "10402"),
+    "almond_drink": ("10400", "10402"),
+    "coconut_milk": ("10400", "10402"),
+    "cream": ("10401", "10406"),
+    "cream_cheese": ("106",),
+    "processed_cheese": ("106",),
+})
+
+
+def proposal_type_match(
+    query: str, product_names: tuple[str, ...], *, category: str, requirement_codes: tuple[str, ...] = (),
+) -> TypeMatch:
+    """Re-derive family/type from buyer words and catalogue evidence, independently of agent metadata."""
+    cleaned, _ = extract_inline_requirements(query)
+    alternatives = split_query_alternatives(cleaned)
+    if not alternatives:
+        return TypeMatch(False, ("Requested product type is unspecified",), related=False)
+    matches: list[TypeMatch] = []
+    text = " ".join(product_names).lower()
+    words = frozenset(_FAMILY_WORD_RE.findall(text))
+    for alternative in alternatives:
+        concepts = resolve_query_concepts(alternative)
+        primary = concepts[0] if concepts else None
+        concept_id = primary.concept_id if primary else None
+        parent_id = primary.parent_concept if primary else None
+        related = same_product_family(
+            alternative, product_names, concept_id=concept_id, parent_concept_id=parent_id,
+            category=category, requirement_codes=requirement_codes,
+        )
+        if not related and concept_id:
+            related = any(category.startswith(prefix) for prefix in _RELATED_TYPE_CATEGORIES.get(concept_id, ()))
+        if not related:
+            matches.append(TypeMatch(False, (f"Unrelated product type: requested {alternative}",), related=False))
+            continue
+        differences = list(product_type_match(
+            alternative, product_names, concept_id=concept_id, requirement_codes=requirement_codes,
+        ).differences)
+        if (
+            concept_id in DAIRY_CONCEPTS
+            and re.search(r"\b(?:plant[- ]based|kasvipohj\w*|växtbaser\w*)", alternative, re.IGNORECASE)
+            and not get_category_profile(category).productType.startswith("plant_")
+            and not any(term in text for term in ALTERNATIVE_PRODUCT_TERMS)
+        ):
+            differences.append("not plant-based")
+        # Category-backed generic matches (T89) remain exact, but a named child type must itself match.
+        if primary and not match_concept_in_text(primary, text, words, category):
+            differences.append(f"not {concept_id.replace('_', ' ')}")
+        requested_form = extract_requested_form(alternative)
+        if requested_form:
+            form_difference = product_form_difference(product_names, category, requested_form)
+            if form_difference:
+                differences.append(form_difference)
+        matches.append(TypeMatch(not differences, tuple(dict.fromkeys(differences))))
+    return min(matches, key=lambda match: (not match.related, not match.exact, len(match.differences)))
 
 
 # ---- T77: material variant choices the buyer did not state -------------------------------------------

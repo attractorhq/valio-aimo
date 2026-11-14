@@ -1,12 +1,14 @@
 """Line rules L1–L14 (brief §6.4, effects per patch P2) for one candidate or offer line."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
 from typing import Literal
 
-from app.contracts import Mandate, Product, Quantity, RequestItem, TrustLabel, format_money
+from app.catalog.categories import proposal_type_match
+from app.contracts import Mandate, Product, Quantity, RequestItem, TrustLabel, TrustSource, format_money
+from app.trust.labels import EU14_ALLERGEN_CODES, allergen_name
 
 from .findings import Finding, ordered_codes
 from .requirements import check_requirements, claim_conflicts, conflict_is_decisive, hard_requirements
@@ -91,6 +93,7 @@ class LineInput:
     substitution: Literal["VALIO", "AGENT"] | None = None
     substitute_for: str | None = None
     product_type_differs: bool = False
+    check_requested_type: bool = False  # Offers have no buyer type; proposals and confirmation re-checks do.
     split_top_up: bool = False
     primary_price_per_unit: Decimal | None = None
     facts: tuple[TrustLabel, ...] = field(default_factory=tuple)
@@ -160,12 +163,44 @@ def evaluate_line(
         found.append(Finding(code, effect, rule, item_id=item.itemId, line_id=line.line_id, detail=detail))
 
     product = line.product
+    type_match = proposal_type_match(
+        item.what, (product.name, *product.names.values()), category=product.category,
+        requirement_codes=tuple(requirement.code for requirement in item.requirements),
+    ) if line.check_requested_type else None
+    type_differences = type_match.differences if type_match else ()
+    type_detail = "; ".join(type_differences) or None
+    unrelated = type_match is not None and not type_match.related
+    type_differs = line.product_type_differs or (type_match is not None and not type_match.exact)
     named = item.productId is not None and item.productId == product.productId
     substitution = line.substitution
-    if substitution is None and (
-        line.split_top_up or line.product_type_differs or (item.productId is not None and not named)
+    if type_differs and not unrelated:
+        substitution = "AGENT"  # A type-changing Valio alternative also needs a human.
+    elif substitution is None and (
+        line.split_top_up or (item.productId is not None and not named)
     ):
         substitution = "AGENT"  # never swap silently (L10/O2/T69)
+    added_facts: list[TrustLabel] = []
+    if type_differences:
+        added_facts.append(TrustLabel(
+            fact="product.typeGuard", value=list(type_differences), display=type_detail,
+            level="DECLARED",
+            source=TrustSource(system="valio-aimo.product-data", field="category, synkkaData.names", retrievedAt=None),
+            method="deterministic-product-type-guard",
+        ))
+    allergen_details: list[str] = []
+    if substitution == "AGENT":
+        # Highlight declared risks, never infer that the requested type was allergen-free.
+        for declaration in product.allergens:
+            if declaration.code in EU14_ALLERGEN_CODES and declaration.status == "CONTAINS":
+                detail = f"Contains {allergen_name(declaration.code)}"
+                allergen_details.append(detail)
+                added_facts.append(declaration.evidence.model_copy(update={
+                    "fact": f"substitute.allergen.{declaration.code}", "display": detail, "value": "CONTAINS",
+                }))
+    if added_facts or substitution != line.substitution:
+        replaced_keys = {fact.fact for fact in added_facts}
+        line = replace(line, substitution=substitution, product_type_differs=type_differs,
+                       facts=tuple(fact for fact in line.facts if fact.fact not in replaced_keys) + tuple(added_facts))
     conflicts = _conflict_codes(line)
     requirements = hard_requirements(item.requirements, mandate)
     cutoff_passed = line.closing_time is not None and line.closing_time < now
@@ -212,7 +247,8 @@ def evaluate_line(
 
     # L10–L11: substitutes must prove every hard requirement.
     if substitution == "AGENT":
-        add("AGENT_SUBSTITUTE", "ASK", "L10", guard_detail)  # Mandate.autoAcceptAgentSubstitutes is always false
+        details = [detail for detail in (type_detail, guard_detail, *allergen_details) if detail]
+        add("AGENT_SUBSTITUTE", "ASK", "L10", "; ".join(details) or None)
     if substitution == "VALIO":
         if requirement_findings:
             add("SUBSTITUTE_REJECTED", "EXCLUDE", "L11", requirement_findings[0].detail)
@@ -232,7 +268,7 @@ def evaluate_line(
         add("LOW_RELIABILITY", "ASK", "L13")
 
     # L14 (K4): units that cannot be converted exactly.
-    if line.unit_mismatch or "K4" in conflicts:
-        add("UNIT_MISMATCH", "EXCLUDE", "L14")
+    if line.unit_mismatch or "K4" in conflicts or unrelated:
+        add("UNIT_MISMATCH", "EXCLUDE", "L14", type_detail if unrelated else None)
 
     return LineVerdict(line=line, findings=tuple(found))
