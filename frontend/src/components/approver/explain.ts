@@ -81,8 +81,32 @@ export function formatApprovalStatement(proposal: Proposal, mandate?: Mandate): 
   return null
 }
 
+/**
+ * AGENT_SUBSTITUTE in plain words: what the buyer asked for next to what each substitute line really is,
+ * so the approver sees the product-type difference (e.g. a frozen fillet for "fresh salmon fillet").
+ */
+export function substituteStatement(proposal: Proposal): string | null {
+  const parts: string[] = []
+  for (const line of proposal.lines) {
+    const item = proposal.request.items.find((i) => i.itemId === line.itemId)
+    if (!item) continue
+    const isAgentSubstitute =
+      line.substitutionSource === 'AGENT' ||
+      (line.reasons ?? []).includes('AGENT_SUBSTITUTE') ||
+      (item.productId != null &&
+        item.productId !== line.productId &&
+        line.substitutionSource !== 'VALIO')
+    if (isAgentSubstitute) parts.push(`you asked for “${item.what}”; this line is ${line.name}`)
+  }
+  return parts.length ? `Not exactly what you asked for: ${parts.join('; ')}.` : null
+}
+
 /** The reason in plain language, filled from the registry template where the values are known. */
 export function plainReason(code: ReasonCode, proposal: Proposal, mandate?: Mandate): string {
+  if (code === 'AGENT_SUBSTITUTE') {
+    const statement = substituteStatement(proposal)
+    if (statement) return statement
+  }
   if (code === 'OVER_AUTO_LIMIT' && mandate) {
     return `${formatMoney(proposal.totals.exclVat)} is above your ${formatMoney(mandate.autoApproveLimitEur)} auto-approve limit.`
   }

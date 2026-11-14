@@ -676,6 +676,7 @@ class TypeVariant:
     query_patterns: tuple[str, ...]  # regexes on the buyer's words (EN/FI/SV)
     product_terms: tuple[str, ...] = ()  # the product proves the variant if its names contain one of these
     forbid_terms: tuple[str, ...] = ()  # the product disproves the variant if its names contain one of these
+    forbid_label: str | None = None  # how to name a disproving term that belongs to no other variant
 
 
 @dataclass(frozen=True)
@@ -684,6 +685,33 @@ class TypeQualifierGroup:
     concepts: frozenset[str]  # requested concepts the group applies to; empty = any
     variants: tuple[TypeVariant, ...]
 
+
+_FROZEN_TERMS = ("frozen", "pakaste", "pakastet", "jäädytet", "fryst", "iqf")
+_SMOKED_TERMS = ("smoked", "savu", "savustet", "rökt")
+_CURED_TERMS = ("graavi", "gravad", "graved", "marinated", "cured", "lightly salted", "kevytsuolat")
+_PROCESSED_CHEESE_TERMS = (
+    "processed", "sulatejuust", "sulate ", "smältost", "juustoa sisältäv", "cheese-containing", "imitation",
+)
+_SPREAD_TERMS = (
+    "margarin", "margariin", "levite", "rasvaseos", "spread", "blend", "bregott", "oivariini", "keiju", "flora",
+    "becel", "kasvivoima", "plant power",
+)
+# (id, label, query patterns, product terms)
+_CHEESE_VARIETIES: tuple[tuple[str, str, tuple[str, ...], tuple[str, ...]], ...] = (
+    ("emmental", "Emmental", (r"\bemmental\w*", r"\bemmentaal\w*"), ("emmental", "emmentaal")),
+    ("edam", "Edam", (r"\bedam\w*",), ("edam",)),
+    ("gouda", "Gouda", (r"\bgouda\w*",), ("gouda",)),
+    ("mozzarella", "mozzarella", (r"\bmozzarell\w*",), ("mozzarell",)),
+    ("feta", "feta", (r"\bfeta\w*",), ("feta",)),
+    ("cheddar", "cheddar", (r"\bcheddar\w*",), ("cheddar",)),
+    ("halloumi", "halloumi", (r"\bhalloumi\w*",), ("halloumi",)),
+    ("parmesan", "parmesan", (r"\bparmesa\w*", r"\bparmigiano\b"), ("parmesa", "parmigiano")),
+    ("brie", "brie", (r"\bbrie\b",), ("brie",)),
+    ("camembert", "camembert", (r"\bcamembert\w*",), ("camembert",)),
+    ("blue", "blue cheese", (r"\bblue cheese\b", r"\bsinihome\w*", r"\bgorgonzola\b", r"\broquefort\b"),
+     ("blue cheese", "sinihome", "gorgonzola", "roquefort")),
+    ("fontal", "fontal", (r"\bfontal\w*",), ("fontal",)),
+)
 
 TYPE_QUALIFIER_GROUPS: tuple[TypeQualifierGroup, ...] = (
     TypeQualifierGroup(
@@ -732,6 +760,68 @@ TYPE_QUALIFIER_GROUPS: tuple[TypeQualifierGroup, ...] = (
                 "drink", "drink",
                 (r"\bdrinks?\b", r"juoma\w*\b", r"dryck\w*\b"),
                 forbid_terms=("cooking", "ruoka", "matlagning", "fraiche", "yoghurt", "jogurt"),
+            ),
+        ),
+    ),
+    # T39: fresh vs frozen / smoked / cured (fish, meat, vegetables …), stated by the buyer.
+    TypeQualifierGroup(
+        group_id="product_state",
+        concepts=frozenset(),
+        variants=(
+            TypeVariant(
+                "fresh", "fresh",
+                (r"\bfresh\b", r"\btuore(tta|ita|et|a)?\b", r"\bfärska?\b"),
+                forbid_terms=(*_FROZEN_TERMS, *_SMOKED_TERMS, *_CURED_TERMS),
+            ),
+            TypeVariant(
+                "frozen", "frozen",
+                (r"\bfrozen\b", r"\bpakaste\w*", r"\bpakastet\w*", r"\bjäädytet\w*", r"\bfryst\w*", r"\biqf\b"),
+                product_terms=_FROZEN_TERMS,
+            ),
+            TypeVariant(
+                "smoked", "smoked",
+                (r"\bsmoked\b", r"\w*savu\w*", r"\w*savustet\w*", r"\w*rökt\w*"),
+                product_terms=_SMOKED_TERMS,
+            ),
+            TypeVariant(
+                "cured", "cured or marinated",
+                (r"\bgraavi\w*", r"\bgravad\w*", r"\bgraved\b", r"\bmarinated\b", r"\bcured\b"),
+                product_terms=_CURED_TERMS,
+            ),
+        ),
+    ),
+    # T39: a named cheese variety is a hard type; a mix with another variety or a processed cheese is not it.
+    TypeQualifierGroup(
+        group_id="cheese_variety",
+        concepts=frozenset(),
+        variants=tuple(
+            TypeVariant(
+                variety_id, label, patterns, product_terms=terms,
+                forbid_terms=(
+                    *_PROCESSED_CHEESE_TERMS,
+                    *(t for other_id, _, _, other_terms in _CHEESE_VARIETIES if other_id != variety_id
+                      for t in other_terms),
+                ),
+                forbid_label="processed cheese",
+            )
+            for variety_id, label, patterns, terms in _CHEESE_VARIETIES
+        ),
+    ),
+    # T39: butter is not margarine, a fat spread or a butter-oil blend.
+    TypeQualifierGroup(
+        group_id="butter_vs_spread",
+        concepts=frozenset({"butter"}),
+        variants=(
+            TypeVariant(
+                "butter", "butter",
+                (r"\bbutter\b", r"\bvoi(ta|n|lla|ssa|hin)?\b", r"\w*voita\b", r"\bsmör\w*"),
+                product_terms=("butter", "voi", "smör"),
+                forbid_terms=_SPREAD_TERMS,
+            ),
+            TypeVariant(
+                "spread", "margarine or fat spread",
+                (r"\bmargarin\w*", r"\bmargariin\w*", r"\blevite\w*", r"\brasvaseos\w*", r"\bspreads?\b"),
+                product_terms=_SPREAD_TERMS,
             ),
         ),
     ),
@@ -802,7 +892,14 @@ def product_type_match(
             (v for v in group.variants if v is not variant and v.product_terms and any(t in text for t in v.product_terms)),
             None,
         )
-        differences.append(f"{other.label}, not {variant.label}" if other else f"not {variant.label}")
+        if other is not None and proves and variant.product_terms:
+            differences.append(f"mixed with {other.label}, not only {variant.label}")
+        elif other is not None:
+            differences.append(f"{other.label}, not {variant.label}")
+        elif disproves and variant.forbid_label:
+            differences.append(f"{variant.forbid_label}, not {variant.label}")
+        else:
+            differences.append(f"not {variant.label}")
     if (
         concept_id in DAIRY_CONCEPTS
         and not asked_for_alternative(query, requirement_codes)
@@ -810,3 +907,14 @@ def product_type_match(
     ):
         differences.append("plant-based or blended alternative, not dairy")
     return TypeMatch(exact=not differences, differences=tuple(differences))
+
+
+def strip_type_qualifiers(query: str) -> str:
+    """The query without the use-changing qualifier words (fresh, frozen, whipping …): what remains names
+    the product itself (e.g. "salmon fillet")."""
+    q = query.lower()
+    for group in TYPE_QUALIFIER_GROUPS:
+        for variant in group.variants:
+            for pattern in variant.query_patterns:
+                q = re.sub(pattern, " ", q)
+    return " ".join(q.split())

@@ -647,3 +647,22 @@ def test_t22_good_better_best_alternatives_tradeoff_and_sour_milk_separation():
     assert ranked[-1].productId == "SYN-SOUR"
     assert ranked[-1].substitutionSource == "AGENT"
     assert "sour milk, not milk" in ranked[-1].tradeoff
+
+
+def test_t39_split_lines_never_mix_in_a_different_product_type():
+    fresh = _make_cream("SYN-WHIP-A", WHIP, "Synteettinen vispikerma 1 l")
+    fresh_b = _make_cream("SYN-WHIP-B", "Synthetic whipping cream 2 l lactose free", "Synteettinen kuohukerma 2 l")
+    cooking = _make_cream("SYN-COOK", "Synthetic cooking cream 1 l lactose free", "Synteettinen ruokakerma 1 l")
+    for named in (None, "SYN-WHIP-A"):
+        item = _cream_item().model_copy(update={"productId": named})
+        ranked = rank_candidates(
+            [fresh, fresh_b, cooking], item=item, mandate=M1, requested_date=MONDAY,
+            observations={p.productId: _obs(p.productId) for p in (fresh, fresh_b, cooking)},
+        )
+        assert {r.productId: r.exactType for r in ranked} == {"SYN-WHIP-A": True, "SYN-WHIP-B": True, "SYN-COOK": False}
+        offer_items = build_shortlist_offer_items(item, ranked_candidates=ranked)
+        assert "SYN-COOK" not in [o.productId for o in offer_items], named
+    # With no product of the requested type left, the substitute is still offered (as AGENT_SUBSTITUTE).
+    ranked = rank_candidates([cooking], item=_cream_item(), mandate=M1, requested_date=MONDAY,
+                             observations={"SYN-COOK": _obs("SYN-COOK")})
+    assert [o.productId for o in build_shortlist_offer_items(_cream_item(), ranked_candidates=ranked)] == ["SYN-COOK"]
