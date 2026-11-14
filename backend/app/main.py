@@ -12,6 +12,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import GatewayState, GatewayUnavailable, agent_router, approver_router, register_error_handlers
+from app.api.log_routes import router as log_router
 from app.api.mandate_routes import router as mandate_router
 from app.api.state import try_state
 from app.config import get_settings
@@ -51,6 +52,7 @@ register_error_handlers(app)
 app.include_router(agent_router)
 app.include_router(approver_router)
 app.include_router(mandate_router)
+app.include_router(log_router)
 
 
 @app.get("/health", tags=["Operations"], operation_id="health")
