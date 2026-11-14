@@ -260,8 +260,8 @@ AE = Requirement(kind="AVOID_ALLERGEN", code="AE")
 AF = Requirement(kind="AVOID_ALLERGEN", code="AF")
 AY = Requirement(kind="AVOID_ALLERGEN", code="AY")
 AS = Requirement(kind="AVOID_ALLERGEN", code="AS")
-# Finnish "pähkinä" covers peanuts as well as tree nuts (T40): both codes are required.
-NUTS_FI = (AN, AP)
+# General "nut" / Finnish "pähkinä" covers peanuts as well as tree nuts (T40, T99): both codes are required.
+NUTS = (AN, AP)
 
 
 def test_reviewer_sentence_keeps_the_requirement_and_a_clean_product():
@@ -270,14 +270,15 @@ def test_reviewer_sentence_keeps_the_requirement_and_a_clean_product():
     )
     assert ReasonCode.INSTRUCTION_IGNORED in result.reasons
     assert ReasonCode.CLARIFICATION_NEEDED not in result.reasons
-    assert items_of(result) == [("milk", Decimal(50), "l", [AN])]
+    assert items_of(result) == [("milk", Decimal(50), "l", list(NUTS))]
 
 
 @pytest.mark.parametrize(("text", "requirement"), [
-    ("50 kg of pasta, no nuts, by Monday", AN),
-    ("50 kg of pasta without nuts by Monday", AN),
-    ("50 kg of nut-free pasta by Monday", AN),
-    ("50 kg of pasta, nut allergy, by Monday", AN),
+    ("50 kg of pasta, no nuts, by Monday", NUTS),
+    ("50 kg of pasta without nuts by Monday", NUTS),
+    ("50 kg of nut-free pasta by Monday", NUTS),
+    ("50 kg of pasta, nut allergy, by Monday", NUTS),
+    ("50 kg of tree-nut-free pasta by Monday", AN),
     ("50 kg of pasta, no peanuts, by Monday", AP),
     ("50 kg of pasta without eggs by Monday", AE),
     ("50 kg of pasta free of fish by Monday", AF),
@@ -285,8 +286,8 @@ def test_reviewer_sentence_keeps_the_requirement_and_a_clean_product():
     ("50 kg of pasta, no sesame, by Monday", AS),
     ("50 kg of pasta, no milk, by Monday", MILK_FREE),
     ("50 kg of pasta, no gluten, by Monday", GLUTEN_FREE),
-    ("50 kg pastaa ilman pähkinöitä maanantaiksi", NUTS_FI),
-    ("50 kg pähkinätöntä pastaa maanantaiksi", NUTS_FI),
+    ("50 kg pastaa ilman pähkinöitä maanantaiksi", NUTS),
+    ("50 kg pähkinätöntä pastaa maanantaiksi", NUTS),
     ("50 kg pastaa, ei maapähkinöitä, maanantaiksi", AP),
     ("50 kg kananmunatonta pastaa maanantaiksi", AE),
     ("50 kg pastaa ilman kalaa maanantaiksi", AF),
@@ -294,7 +295,7 @@ def test_reviewer_sentence_keeps_the_requirement_and_a_clean_product():
     ("50 kg seesamitonta pastaa maanantaiksi", AS),
     ("50 kg pastaa ilman maitoa maanantaiksi", MILK_FREE),
     ("50 kg pastaa ilman gluteenia maanantaiksi", GLUTEN_FREE),
-    ("50 kg pastaa, pähkinäallergia, maanantaiksi", NUTS_FI),
+    ("50 kg pastaa, pähkinäallergia, maanantaiksi", NUTS),
 ])
 def test_negated_allergens_become_requirements(text, requirement):
     result = parse_request(text, FRIDAY)

@@ -11,7 +11,7 @@ from app.contracts import ReasonCode, Requirement
 NOW = datetime(2026, 11, 14, 9, tzinfo=ZoneInfo("Europe/Helsinki"))
 BASE_FI = "60 kg pastaa ja 30 litraa kaurajuomaa maanantaiksi. "
 BASE_EN = "60 kg pasta and 30 litres oat drink by Monday. "
-NUTS = {"AN", "AP"}  # Finnish pähkinä covers tree nuts and peanuts (existing T40 vocabulary).
+NUTS = {"AN", "AP"}  # General "nut" / Finnish "pähkinä" covers tree nuts and peanuts (T40, T99).
 
 
 @pytest.mark.parametrize(("base", "exclusion", "codes"), [
@@ -42,7 +42,9 @@ NUTS = {"AN", "AP"}  # Finnish pähkinä covers tree nuts and peanuts (existing 
     (BASE_FI, "Ryhmällä pähkinäallergia.", NUTS),
     (BASE_FI, "Lapsella on laktoosi-intoleranssi.", {"FREE_FROM_LACTOSE"}),
     (BASE_FI, "Maidottomalle.", {"AM"}),
-    (BASE_EN, "No nuts.", {"AN"}),
+    (BASE_EN, "No nuts.", NUTS),
+    (BASE_EN, "No tree nuts.", {"AN"}),
+    (BASE_EN, "No peanuts.", {"AP"}),
     (BASE_EN, "No milk or eggs.", {"AM", "AE"}),
     (BASE_EN, "Without peanuts, tree nuts or sesame.", {"AP", "AN", "AS"}),
     (BASE_EN, "Without any traces of milk.", {"AM"}),

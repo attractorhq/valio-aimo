@@ -110,17 +110,21 @@ _FAT_RE = re.compile(r"(?<![\w.,])(\d+(?:[.,]\d+)?)\s*%(?:\s*(?:fat|rasva\w*))?"
 
 # Hard requirements: (requirements, English words, Finnish stems). Every phrasing below maps to the same
 # requirements: "X-free", "no X", "without X", "free of X", "X allergy", Finnish "X-ton/-tön",
-# "ilman X", "ei X", "X-allergia". Order matters: peanut before nut, kananmuna before muna.
+# "ilman X", "ei X", "X-allergia". Order matters: peanut and tree nut before nut, kananmuna before muna.
 _AN = Requirement(kind="AVOID_ALLERGEN", code="AN")
 _AP = Requirement(kind="AVOID_ALLERGEN", code="AP")
+_TREE_NUT_EN = r"tree(?:[\s-]+)?nuts?"
+_TREE_NUT_FI = r"puupähkinä|puupähkinö"
+_GENERAL_NUT_EN = r"(?<!tree\s)(?<!tree-)(?<!tree)nuts?"
+_GENERAL_NUT_FI = r"pähkinä|pähkinö"
 _ALLERGEN_VOCAB: tuple[tuple[tuple[Requirement, ...], str | None, str | None], ...] = (
     ((Requirement(kind="CLAIM", code="FREE_FROM_LACTOSE"),), r"lactose", r"laktoosi"),
     ((Requirement(kind="CLAIM", code="FREE_FROM_GLUTEN"),), r"gluten", r"gluteeni"),
     ((Requirement(kind="AVOID_ALLERGEN", code="AM"),), r"milk|dairy", r"maido|maito|maitotuottee"),
     ((_AP,), r"peanuts?", r"maapähkinä|maapähkinö"),
-    ((_AN,), r"(?:tree[\s-]?)?nuts?", None),
-    # Finnish "pähkinä" covers peanuts as well as tree nuts: both EU-14 codes are required.
-    ((_AN, _AP), None, r"pähkinä|pähkinö"),
+    ((_AN,), _TREE_NUT_EN, _TREE_NUT_FI),
+    # General "nut" / Finnish "pähkinä" covers both tree nuts (AN) and peanuts (AP) (T40, T99).
+    ((_AN, _AP), _GENERAL_NUT_EN, _GENERAL_NUT_FI),
     ((Requirement(kind="AVOID_ALLERGEN", code="AE"),), r"eggs?", r"kananmuna|kananmuni|muna|muni"),
     ((Requirement(kind="AVOID_ALLERGEN", code="AF"),), r"fish", r"kala"),
     ((Requirement(kind="AVOID_ALLERGEN", code="AC"),), r"crustaceans?|shellfish", r"äyriäise|äyriäi"),
@@ -144,17 +148,18 @@ def _requirement_pattern(en: str | None, fi: str | None) -> str:
         parts += [
             rf"\b(?:{en})[\s-]?free\b",
             rf"\b{_NEGATION_EN}(?:{en})\b",
-            rf"\b(?:{en})\s+allerg(?:y|ies|ic)\b|\ballergic\s+to\s+(?:{en})\b",
+            rf"\b(?:{en})[\s-]+allerg(?:y|ies|ic)\b|\ballergic\s+to\s+(?:{en})\b",
         ]
     if fi:
         parts += [
             rf"\b(?:{fi})(?:ton|tön|tto|ttö)\w*",
             rf"\b{_NEGATION_FI}(?:{fi})\w*",
-            rf"\b(?:{fi})\w*allergi\w*",
+            rf"\b(?:{fi})-?\w*allergi\w*",
         ]
     return "|".join(parts)
 
 
+_TREE_NUT_MENTION_RE = re.compile(rf"\b(?:{_TREE_NUT_EN}|(?:{_TREE_NUT_FI})\w*)\b", re.IGNORECASE)
 _REQUIREMENTS: tuple[tuple[str, tuple[Requirement, ...]], ...] = (
     *((_requirement_pattern(en, fi), requirements) for requirements, en, fi in _ALLERGEN_VOCAB),
     (r"\bnon[\s-]?dairy\b", (Requirement(kind="AVOID_ALLERGEN", code="AM"),)),
@@ -176,7 +181,7 @@ _DIET_RES = (
 )
 _REQUIREMENT_LABELS = {
     "FREE_FROM_LACTOSE": "lactose-free", "FREE_FROM_GLUTEN": "gluten-free", "AM": "milk-free",
-    "AE": "egg-free", "AP": "peanut-free", "AN": "nut-free", "AY": "soy-free", "AF": "fish-free",
+    "AE": "egg-free", "AP": "peanut-free", "AN": "tree-nut-free", "AY": "soy-free", "AF": "fish-free",
     "AC": "crustacean-free", "UM": "mollusc-free", "AS": "sesame-free", "BC": "celery-free",
     "BM": "mustard-free", "NL": "lupin-free", "AU": "sulphite-free", "UW": "wheat-free",
     "VEGAN": "vegan", "VEGETARIAN": "vegetarian",
@@ -1190,6 +1195,95 @@ def _split_chunks(sentence: str) -> list[str]:
     return [c for c in _CHUNK_SPLIT.split(sentence) if c and c.strip()]
 
 
+_GLOBAL_CLAUSE_HINT_RE = re.compile(
+    r"\b(?:everything|all(?:\s+(?:of\s+)?(?:the\s+|these\s+|our\s+)?(?:items?|products?|lines?|goods|order|them|it))?|"
+    r"both(?:\s+(?:of\s+)?(?:the\s+|these\s+)?(?:items?|products?|lines?|them))?|"
+    r"every\s+(?:item|product|line)|the\s+(?:whole|entire)\s+order|"
+    r"(?:must|should|need(?:s)?\s+to|ha(?:s|ve)\s+to)\s+(?:all\s+|both\s+)?be|"
+    r"kaikki(?:\s+tuotteet)?|kaiken|kaikkien(?:\s+tuotteiden)?|molemmat(?:\s+tuotteet)?|"
+    r"molempien(?:\s+tuotteiden)?|koko\s+tilau(?:s|ksen)|"
+    r"(?:pitää|täytyy|tulee)\s+olla|on\s+oltava|ei(?:vät)?\s+saa\s+sisältää|ei\s+saa\s+olla)\b",
+    re.IGNORECASE,
+)
+_LEADING_CLAUSE_SEP_RE = re.compile(r"[,;:—–]|\s+-\s+")
+_TRAILING_CLAUSE_SEP_RE = re.compile(
+    r"[,;:—–]|\s+-\s+"
+    r"|\s+(?:and|ja|sekä|plus|\+|&)\s+(?=(?:everything|all\b|both\b|every\s+(?:item|product|line)|"
+    r"the\s+(?:whole|entire)\s+order|(?:must|should|need(?:s)?\s+to|ha(?:s|ve)\s+to)\s+(?:all\s+|both\s+)?be\b|"
+    r"kaikki\b|kaiken\b|kaikkien\b|molemmat\b|molempien\b|koko\s+tilau|"
+    r"(?:pitää|täytyy|tulee)\s+olla\b|on\s+oltava\b|ei(?:vät)?\s+saa\s+sisältää\b))",
+    re.IGNORECASE,
+)
+_CONSTRAINT_CLAUSE_WORDS_RE = re.compile(
+    r"\b(?:and|or|nor|ja|sekä|tai|eikä|plus|"
+    r"everything|items?|products?|lines?|goods|orders?|whole|entire|every|them|these|those|"
+    r"needs?|has|have|ought|shall|will|strictly|completely|totally|fully|absolutely|"
+    r"tuotteet|tuotteiden|tuotteen|tuotteita|tilaus|tilauksen|koko|molemmat|molempien|kaiken|kaikkien|"
+    r"oltava|tulee|täysin|ehdottomasti|varmasti|"
+    r"one|two|child|children|kids?|pupils?|students?|guests?|persons?|people|patients?|diners?|customers?|"
+    r"staff|members?|suffers?|suffering|"
+    r"lapsi|lapsella|lapsista|oppilas|oppilaalla|oppilaista|potilas|potilaalla|potilailla|"
+    r"asiakas|asiakkaalla|henkilö|henkilöllä|vieras|vieraalla|ryhmä|ryhmällä|yksi|yhdellä)\b",
+    re.IGNORECASE,
+)
+
+
+def _pure_constraint_clause(clause: str, finnish: bool) -> list[Requirement] | None:
+    """Return hard requirements when `clause` states only dietary/allergen constraints (plus optional date/context),
+    with no quantity, product noun, pack size or soft preference."""
+    if _order_quantities(clause) or _unknown_negation(clause):
+        return None
+    rest, requirements, preferences, product_id, packs = _extract(clause)
+    for pattern, found in _DIET_RES:
+        if pattern.search(clause):
+            requirements.extend(r for r in found if r not in requirements)
+    if not requirements or preferences or product_id is not None or packs:
+        return None
+    cleaned = _CONSTRAINT_CLAUSE_WORDS_RE.sub(" ", rest)
+    return requirements if _what(cleaned, finnish) is None else None
+
+
+def _take_leading_global_clauses(sentence: str, finnish: bool) -> tuple[str, list[Requirement]]:
+    """Strip explicit request-wide constraint clauses before the first item ('Everything must be nut-free: …')."""
+    collected: list[Requirement] = []
+    while quantities := _order_quantities(sentence):
+        before_first = sentence[: quantities[0].start()]
+        seps = list(_LEADING_CLAUSE_SEP_RE.finditer(before_first))
+        if not seps:
+            break
+        matched = False
+        starts = [0, *(s.end() for s in seps[:-1])]
+        for start in starts:
+            for sep in reversed(seps):
+                if sep.start() <= start:
+                    continue
+                segment = before_first[start : sep.start()]
+                if _GLOBAL_CLAUSE_HINT_RE.search(segment) and (reqs := _pure_constraint_clause(segment, finnish)):
+                    collected.extend(r for r in reqs if r not in collected)
+                    sentence = f"{sentence[:start]} {sentence[sep.end():]}".strip()
+                    matched = True
+                    break
+            if matched:
+                break
+        if not matched:
+            break
+    return sentence, collected
+
+
+def _take_trailing_constraint_clause(sentence: str, finnish: bool) -> tuple[str, list[Requirement], bool]:
+    """Strip a trailing constraint clause after the last item; return (rest_sentence, reqs, explicit_global)."""
+    quantities = _order_quantities(sentence)
+    if not quantities:
+        return sentence, [], False
+    last_end = quantities[-1].end()
+    after_last = sentence[last_end:]
+    for sep in _TRAILING_CLAUSE_SEP_RE.finditer(after_last):
+        tail = after_last[sep.end() :]
+        if reqs := _pure_constraint_clause(tail, finnish):
+            return sentence[: last_end + sep.start()], reqs, bool(_GLOBAL_CLAUSE_HINT_RE.search(tail))
+    return sentence, [], False
+
+
 # --------------------------------------------------------------------------- questions (buyer's language)
 
 UNIT_WORDS_FI = "litroina, kiloina, kappaleina tai laatikkoina"
@@ -1271,6 +1365,7 @@ def _fallback(
 
     items: list[_ItemDraft] = []
     extra_requirements: list[Requirement] = []
+    pending_tails: list[tuple[int, list[Requirement]]] = []
     for pattern, found in _DIET_RES:
         if pattern.search(clean):
             extra_requirements.extend(r for r in found if r not in extra_requirements)
@@ -1284,12 +1379,19 @@ def _fallback(
                 continue
         if not _QUANTITY_RE.search(sentence):
             # A sentence without a quantity can still carry a hard requirement ("It must be gluten-free").
-            for pattern, found in _REQUIREMENT_RES:
-                if pattern.search(sentence):
-                    extra_requirements.extend(r for r in found if r not in extra_requirements)
-            _rest, found, _unknown = _take_exclusions(sentence)
+            rest_sentence, found, _unknown = _take_exclusions(sentence)
             extra_requirements.extend(r for r in found if r not in extra_requirements)
+            for pattern, found in _REQUIREMENT_RES:
+                if pattern.search(rest_sentence):
+                    extra_requirements.extend(r for r in found if r not in extra_requirements)
+                    rest_sentence = pattern.sub(" ", rest_sentence)
             continue
+        sentence, leading_global = _take_leading_global_clauses(sentence, finnish)
+        extra_requirements.extend(r for r in leading_global if r not in extra_requirements)
+        sentence, trailing_reqs, trailing_explicit = _take_trailing_constraint_clause(sentence, finnish)
+        if trailing_reqs and trailing_explicit:
+            extra_requirements.extend(r for r in trailing_reqs if r not in extra_requirements)
+            trailing_reqs = []
         fragments: list[str] = []
         pending = ""
         for chunk in _split_chunks(sentence):
@@ -1324,6 +1426,14 @@ def _fallback(
             if similar:
                 notes.append(f"Similar products accepted for {what or 'this item'}")
             items.append(_ItemDraft(value, unit, first.group(0), what, id_a or id_b, requirements, preferences, notes))
+        if trailing_reqs and items:
+            pending_tails.append((len(items) - 1, trailing_reqs))
+
+    for idx, tail_reqs in pending_tails:
+        if idx == len(items) - 1 and len(items) > 1:
+            extra_requirements.extend(r for r in tail_reqs if r not in extra_requirements)
+        else:
+            items[idx].requirements.extend(r for r in tail_reqs if r not in items[idx].requirements)
 
     for item in items:
         for requirement in extra_requirements:
@@ -1708,10 +1818,13 @@ def _from_llm(raw: dict, text: str, today: date, fallback: _Fallback) -> tuple[S
         {"requestText": text, "requestedDate": requested, "items": items, "assumptions": assumptions}
     )
     # Request-wide constraints apply even when the LLM splits/merges items differently from the fallback.
+    pair_nut_with_peanut = not _TREE_NUT_MENTION_RE.search(text)
     request = request.model_copy(update={"items": [
-        item.model_copy(update={"requirements": [*item.requirements, *(
-            r for r in fallback.global_requirements if r not in item.requirements
-        )]}) for item in request.items
+        item.model_copy(update={"requirements": list(dict.fromkeys([
+            *item.requirements,
+            *([_AP] if pair_nut_with_peanut and _AN in item.requirements else []),
+            *(r for r in fallback.global_requirements if r not in item.requirements),
+        ]))}) for item in request.items
     ]})
     # A hard requirement, certification label or product form the deterministic reading found is never dropped by the LLM.
     if fallback.request is not None and len(fallback.request.items) != len(request.items) and any(
