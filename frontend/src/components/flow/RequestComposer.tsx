@@ -40,7 +40,7 @@ export function RequestComposer({
           placeholder="e.g. 90 kg of gluten-free macaroni and 80 litres of gluten-free oat drink by Monday."
         />
         <div className="composer-actions">
-          <div className="scenario-buttons" role="group" aria-label="Demo scenarios">
+          <div className="scenario-buttons" role="group" aria-label="Scenarios">
             {scenarios.map((s) => (
               <button
                 type="button"

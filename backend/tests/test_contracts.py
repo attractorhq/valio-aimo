@@ -206,11 +206,11 @@ def test_capability_fields_rejected_in_agent_response_and_input(field):
 def test_approver_view_is_the_only_credential_bearing_model():
     proposal = Proposal.model_validate(mock("scenario-b.json"))
     view = ApproverView(
-        proposal=proposal, approver={"name": "Synthetic Head Chef", "role": "Head Chef (demo)"},
+        proposal=proposal, approver={"name": "Synthetic Head Chef", "role": "Head Chef"},
         approvalToken="synthetic-single-use-permission", expiresAt=proposal.validUntil,
     )
     assert_schema(ApproverView, view.model_dump(mode="json"))
-    assert view.permissionNotice == "Demo approval link — single use"
+    assert view.permissionNotice == "Single-use approval link"
     assert "approvalToken" not in proposal.model_dump_json()
     models_with_credentials = {
         name for name, schema in schemas().items()

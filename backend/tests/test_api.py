@@ -135,7 +135,7 @@ def test_scenario_b_ask_then_approver_approves(api):
     view = client.client.get(f"{APPROVER}/proposals/{proposal['proposalId']}")
     assert view.status_code == 200, view.text
     view = view.json()
-    assert view["permissionNotice"] == "Demo approval link — single use"
+    assert view["permissionNotice"] == "Single-use approval link"
     client.tokens.append(view["approvalToken"])
     calls_before = len(provider.calls)
 

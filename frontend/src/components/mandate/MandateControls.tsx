@@ -117,21 +117,19 @@ export function MandateStatus({ mandate, live }: { mandate: Mandate; live: boole
 
   return (
     <section className="panel mt-3" aria-labelledby="mandate-status-heading">
-      <h2 id="mandate-status-heading" className="panel-title inline-flex items-center gap-2">
-        <Lock size={14} aria-hidden /> Mandate v{mandate.version} · read-only
-      </h2>
-      {changed && differences.length > 0 ? (
+      <div className="flex items-center justify-between gap-3">
+        <h2 id="mandate-status-heading" className="panel-title inline-flex items-center gap-2">
+          <Lock size={14} aria-hidden /> Mandate v{mandate.version} · read-only
+        </h2>
+        <Link to="/admin" className="small whitespace-nowrap font-semibold text-[var(--green)] underline">
+          Buyer admin
+        </Link>
+      </div>
+      {changed && differences.length > 0 && (
         <p className="notice small mt-1" role="note">
           {changedFromDefaultText(differences)}
         </p>
-      ) : (
-        <p className="muted small">Unchanged from default mandate.</p>
       )}
-      <p className="small mt-2">
-        <Link to="/admin" className="font-semibold text-[var(--green)] underline">
-          Buyer admin (demo, no login)
-        </Link>
-      </p>
     </section>
   )
 }
@@ -201,10 +199,7 @@ export function MandateControls({
       <h2 id="mandate-controls-heading" className="panel-title inline-flex items-center gap-2">
         <SlidersHorizontal size={16} aria-hidden /> Buyer admin controls
       </h2>
-      <p className="muted small">
-        Policy is changed by a human buyer admin, never by the agent. Open proposals are re-decided
-        immediately, and the change is logged.
-      </p>
+      <p className="muted small">Only a human admin changes it; open proposals are re-decided and logged.</p>
       {live && changed && differences.length > 0 && (
         <div className="notice small mt-2" role="note">
           <p>{changedFromDefaultText(differences)}</p>
@@ -214,7 +209,7 @@ export function MandateControls({
             onClick={() => reset.mutate()}
             disabled={busy}
           >
-            <RotateCcw size={14} aria-hidden /> Reset to default mandate
+            <RotateCcw size={14} aria-hidden /> Reset to default
           </button>
         </div>
       )}
@@ -295,7 +290,7 @@ export function MandateControls({
 
 /**
  * T46 `/admin` view: buyer-admin mandate controls moved off the buyer page and explicitly labelled
- * "Buyer admin (demo, no login)".
+ * "Buyer admin".
  */
 export function BuyerAdmin() {
   const mandates = useQuery({ queryKey: ['mandates'], queryFn: () => gateway.listMandates() })
@@ -322,14 +317,10 @@ export function BuyerAdmin() {
     <div className="approver-page">
       <header className="panel flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold">Buyer admin (demo, no login)</h1>
-          <p className="muted small mt-1">
-            Demo buyer-admin role — no authentication; production uses SSO/OIDC. Change or reset a
-            buyer mandate here; the buyer view stays read-only.
-          </p>
+          <h1 className="text-xl font-bold">Buyer admin</h1>
         </div>
         <Link to="/" className="font-semibold text-[var(--green)] underline">
-          Back to the buyer view
+          Buyer view
         </Link>
       </header>
       <div className="main-grid">

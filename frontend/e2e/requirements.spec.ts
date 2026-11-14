@@ -43,9 +43,8 @@ test('the card rows and the footer statement read the same requirement facts', a
   expect(statement.allProven).toBe(true)
   expect(statement.hasRequirements).toBe(true)
   await expect(page.getByTestId('decision-summary')).toContainText(statement.clause)
-  await expect(page.getByTestId('decision-summary')).toContainText(
-    'Every hard requirement (gluten-free) is proven, but this order was not auto-approved because the order total (€506.16 excl. VAT) is above your €500.00 auto-approve limit.',
-  )
+  // The 'why' is said once, in the result card (T83: each thing once per view).
+  await expect(page.getByTestId('result-why')).toContainText('auto-approve limit')
 })
 
 test('an Unknown requirement fact can never be called proven', () => {

@@ -230,7 +230,7 @@ class ApproverView(Contract):
     approvalUrl: str | None = None
     qrPayload: str | None = None
     expiresAt: AwareDatetime
-    permissionNotice: Literal["Demo approval link — single use"] = "Demo approval link — single use"
+    permissionNotice: Literal["Single-use approval link"] = "Single-use approval link"
 
 
 class OfferItem(Contract):

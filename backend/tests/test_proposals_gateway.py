@@ -385,7 +385,7 @@ def test_scenario_b_ask_approver_approves_rechecks_and_confirms():
     assert proposal.decision == "ASK"
     assert proposal.state == "PENDING_APPROVAL"
     assert proposal.reasons == [ReasonCode.OVER_AUTO_LIMIT]
-    assert proposal.approverRole == "Head Chef (demo)"
+    assert proposal.approverRole == "Head Chef"
     assert (proposal.totals.exclVat, proposal.totals.vat, proposal.totals.inclVat) == (
         Decimal("506.16"),
         Decimal("68.33"),
@@ -667,7 +667,7 @@ def test_recheck_supersedes_on_every_p1_3_difference(failure_kind):
         mandates.change(
             M1.customerId,
             {"autoApproveLimitEur": "500.00"},
-            actor="human:Buyer admin (demo)",
+            actor="human:Buyer admin",
             now=NOW,
         )
     elif failure_kind == "stock":
