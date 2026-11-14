@@ -15,9 +15,125 @@ const WEEKDAY_NAMES = [
   'Saturday',
 ] as const
 
+const DEFAULT_MANDATE_LIMITS: Record<
+  string,
+  { autoApproveLimitEur: string; hardLimitEur: string; minReliability: string }
+> = {
+  'nordic-harbour-hotels': {
+    autoApproveLimitEur: '1500.00',
+    hardLimitEur: '5000.00',
+    minReliability: '0.80',
+  },
+  'mock-hotels': {
+    autoApproveLimitEur: '1500.00',
+    hardLimitEur: '5000.00',
+    minReliability: '0.80',
+  },
+  'northbay-school-kitchen': {
+    autoApproveLimitEur: '500.00',
+    hardLimitEur: '3000.00',
+    minReliability: '0.80',
+  },
+  'mock-school': {
+    autoApproveLimitEur: '500.00',
+    hardLimitEur: '3000.00',
+    minReliability: '0.80',
+  },
+}
+
 function parseIsoDay(iso: string): Date {
   const [y, m, d] = iso.slice(0, 10).split('-').map(Number)
   return new Date(Date.UTC(y, m - 1, d))
+}
+
+function resolveAutoLimitEur(proposal: Proposal, mandate?: Mandate): string | undefined {
+  return (
+    mandate?.autoApproveLimitEur ?? DEFAULT_MANDATE_LIMITS[proposal.customerId]?.autoApproveLimitEur
+  )
+}
+
+function resolveHardLimitEur(proposal: Proposal, mandate?: Mandate): string | undefined {
+  return mandate?.hardLimitEur ?? DEFAULT_MANDATE_LIMITS[proposal.customerId]?.hardLimitEur
+}
+
+function resolveMinReliability(proposal: Proposal, mandate?: Mandate): string | undefined {
+  return mandate?.minReliability ?? DEFAULT_MANDATE_LIMITS[proposal.customerId]?.minReliability
+}
+
+function latestDeliveryIso(proposal: Proposal): string | undefined {
+  if (proposal.lines.length === 0) return undefined
+  const later = proposal.lines.find((l) => l.deliveryDate > proposal.requestedDate)
+  if (later) {
+    return proposal.lines.reduce(
+      (max, l) => (l.deliveryDate > max ? l.deliveryDate : max),
+      later.deliveryDate,
+    )
+  }
+  return proposal.lines[0].deliveryDate
+}
+
+function extractReliabilityPercent(proposal: Proposal): string | undefined {
+  for (const line of proposal.lines) {
+    for (const fact of line.facts ?? []) {
+      if (fact.fact !== 'reliability') continue
+      if (typeof fact.value === 'number' && Number.isFinite(fact.value)) {
+        const pct = fact.value <= 1 ? Math.round(fact.value * 1000) / 10 : Math.round(fact.value * 10) / 10
+        return `${pct} %`
+      }
+      if (typeof fact.value === 'string' && fact.value.trim() !== '') {
+        const num = Number(fact.value)
+        if (Number.isFinite(num)) {
+          const pct = num <= 1 ? Math.round(num * 1000) / 10 : Math.round(num * 10) / 10
+          return `${pct} %`
+        }
+      }
+      const match = (fact.display ?? '').match(/(\d+(?:[.,]\d+)?\s*%)/)
+      if (match) return match[1].replace(/\s+/g, ' ')
+    }
+  }
+  return undefined
+}
+
+function partialAvailabilityReasonText(proposal: Proposal): string {
+  const deliveredByItem = new Map<string, number>()
+  const linesByItem = new Map<string, Proposal['lines']>()
+  for (const line of proposal.lines) {
+    deliveredByItem.set(
+      line.itemId,
+      (deliveredByItem.get(line.itemId) ?? 0) + Number(line.deliveredQuantity.value),
+    )
+    const group = linesByItem.get(line.itemId) ?? []
+    group.push(line)
+    linesByItem.set(line.itemId, group)
+  }
+
+  const parts: string[] = []
+  for (const item of proposal.request.items) {
+    const deliv = deliveredByItem.get(item.itemId) ?? 0
+    const req = Number(item.quantity)
+    const itemLines = linesByItem.get(item.itemId) ?? []
+    if (deliv > 0 && deliv < req) {
+      parts.push(
+        `Only ${formatNumber(String(deliv))} ${item.unit} of ${item.what} in stock; ${formatNumber(String(req))} ${item.unit} needed.`,
+      )
+    } else if (itemLines.length >= 2) {
+      const first = itemLines[0]
+      const restNames = itemLines
+        .slice(1)
+        .map((l) => l.name)
+        .join(' + ')
+      parts.push(
+        reasonText('PARTIAL_AVAILABILITY', {
+          available: `${formatNumber(first.deliveredQuantity.value)} ${first.deliveredQuantity.unit}`,
+          needed: `${formatNumber(item.quantity)} ${item.unit}`,
+          otherProduct: restNames,
+        }),
+      )
+    }
+  }
+
+  if (parts.length > 0) return parts.join(' ')
+  return 'Available stock covers only part of the requested quantity.'
 }
 
 /** Plain-language summary of what approving this proposal version means (patch P8 B2, P10). */
@@ -142,12 +258,172 @@ export function plainReason(
   }
   if (code === 'AGENT_SUBSTITUTE') return substituteStatement(proposal)
   if (code === 'VALIO_SUBSTITUTE') return valioSubstituteStatement(proposal)
-  if (code === 'OVER_AUTO_LIMIT' && mandate) {
-    return `${formatMoney(proposal.totals.exclVat)} is above your ${formatMoney(mandate.autoApproveLimitEur)} auto-approve limit.`
+  if (code === 'OVER_AUTO_LIMIT') {
+    const autoLimit = resolveAutoLimitEur(proposal, mandate)
+    if (mandate) {
+      return `${formatMoney(proposal.totals.exclVat)} is above your ${formatMoney(mandate.autoApproveLimitEur)} auto-approve limit.`
+    }
+    if (autoLimit) {
+      return `${formatMoney(proposal.totals.exclVat)} is above your ${formatMoney(autoLimit)} auto-approve limit.`
+    }
+    return `${formatMoney(proposal.totals.exclVat)} excl. VAT is above the buyer's auto-approve limit.`
+  }
+  if (code === 'OVER_HARD_LIMIT') {
+    const hardLimit = resolveHardLimitEur(proposal, mandate)
+    if (hardLimit) {
+      return reasonText(code, {
+        total: formatMoney(proposal.totals.exclVat),
+        limit: formatMoney(hardLimit),
+      })
+    }
+    return `${formatMoney(proposal.totals.exclVat)} excl. VAT is above the buyer's hard limit. No agent or approver can override this.`
+  }
+  if (code === 'DATE_LATER') {
+    const delivIso = latestDeliveryIso(proposal)
+    if (delivIso) {
+      return reasonText('DATE_LATER', {
+        availableDate: formatDate(delivIso),
+        requestedDate: formatDate(proposal.requestedDate),
+      })
+    }
+    return `Earliest available delivery is later than your requested date (${formatDate(proposal.requestedDate)}).`
+  }
+  if (code === 'PARTIAL_AVAILABILITY') {
+    return partialAvailabilityReasonText(proposal)
+  }
+  if (code === 'LOW_RELIABILITY') {
+    const pct = extractReliabilityPercent(proposal)
+    if (pct) {
+      return reasonText('LOW_RELIABILITY', { pct })
+    }
+    const minRel = resolveMinReliability(proposal, mandate)
+    if (minRel) {
+      return `Historical delivery reliability is below your ${Math.round(Number(minRel) * 100)} % mandate threshold.`
+    }
+    return 'Historical delivery reliability is below the buyer mandate threshold.'
+  }
+  if (code === 'REQUOTED') {
+    return 'Re-checked live against current price, stock, cut-off and mandate before ordering.'
   }
   const text = reasonText(code, { total: formatMoney(proposal.totals.exclVat) })
   if (/\{\w+\}/.test(text)) return null
   return text.trim().toLowerCase() === reasonChip(code).trim().toLowerCase() ? null : text
+}
+
+/**
+ * Plain-language clauses explaining each reason why a proposal was not automatically approved (T86).
+ */
+export function explainWhyNotAuto(
+  proposal: Proposal,
+  mandate?: Mandate,
+  options?: { omitTotalAmount?: boolean },
+): string {
+  const codes = approvalReasons(proposal)
+  const clauses: string[] = []
+
+  for (const code of codes) {
+    if (code === 'OVER_AUTO_LIMIT') {
+      const limit = resolveAutoLimitEur(proposal, mandate)
+      if (options?.omitTotalAmount) {
+        clauses.push(
+          limit
+            ? `the order total exceeds your ${formatMoney(limit)} auto-approve limit`
+            : 'the order total exceeds the auto-approve limit',
+        )
+      } else {
+        clauses.push(
+          limit
+            ? `the order total (${formatMoney(proposal.totals.exclVat)} excl. VAT) is above your ${formatMoney(limit)} auto-approve limit`
+            : `the order total (${formatMoney(proposal.totals.exclVat)} excl. VAT) is above the auto-approve limit`,
+        )
+      }
+      continue
+    }
+    if (code === 'DATE_LATER') {
+      const delivIso = latestDeliveryIso(proposal)
+      clauses.push(
+        delivIso
+          ? `earliest delivery is ${formatDate(delivIso)} instead of requested ${formatDate(proposal.requestedDate)}`
+          : `earliest delivery is later than requested ${formatDate(proposal.requestedDate)}`,
+      )
+      continue
+    }
+    if (code === 'PARTIAL_AVAILABILITY') {
+      const deliveredByItem = new Map<string, number>()
+      for (const line of proposal.lines) {
+        deliveredByItem.set(
+          line.itemId,
+          (deliveredByItem.get(line.itemId) ?? 0) + Number(line.deliveredQuantity.value),
+        )
+      }
+      const itemShortfalls: string[] = []
+      for (const item of proposal.request.items) {
+        const deliv = deliveredByItem.get(item.itemId) ?? 0
+        const req = Number(item.quantity)
+        if (deliv > 0 && deliv < req) {
+          itemShortfalls.push(
+            `only ${formatNumber(String(deliv))} ${item.unit} of the requested ${formatNumber(String(req))} ${item.unit} of ${item.what} is available in stock`,
+          )
+        }
+      }
+      if (itemShortfalls.length > 0) {
+        clauses.push(itemShortfalls.join(' and '))
+      } else {
+        clauses.push('available stock for the primary product covers only part of the requested quantity')
+      }
+      continue
+    }
+    if (code === 'AGENT_SUBSTITUTE') {
+      const sub = substituteStatement(proposal)
+      if (sub) {
+        const detail = sub.replace(/^Not exactly what you asked for:\s*/i, '').replace(/\.$/, '')
+        clauses.push(`a substitute product was selected (${detail})`)
+      } else {
+        clauses.push('a substitute product was selected instead of the exact requested item')
+      }
+      continue
+    }
+    if (code === 'VALIO_SUBSTITUTE') {
+      const sub = valioSubstituteStatement(proposal)
+      if (sub) {
+        const detail = sub
+          .replace(/^Listed by Valio Aimo as a substitute:\s*/i, '')
+          .replace(/\.$/, '')
+        clauses.push(`a Valio Aimo-listed substitute was selected (${detail})`)
+      } else {
+        clauses.push('a Valio Aimo-listed substitute product was selected')
+      }
+      continue
+    }
+    if (code === 'SUPPLIER_STOCK_UNKNOWN') {
+      clauses.push("stock ships from the supplier's warehouse with an unverified quantity")
+      continue
+    }
+    if (code === 'QUANTITY_BASIS_WEAK') {
+      clauses.push('pack size was estimated from the product name')
+      continue
+    }
+    if (code === 'LOW_RELIABILITY') {
+      const pct = extractReliabilityPercent(proposal)
+      clauses.push(
+        pct
+          ? `historical delivery reliability (${pct}) is below the mandate threshold`
+          : 'historical delivery reliability is below the mandate threshold',
+      )
+      continue
+    }
+  }
+
+  if (clauses.length === 0) {
+    return 'a mandate trade-off requires human sign-off'
+  }
+  if (clauses.length === 1) {
+    return clauses[0]
+  }
+  if (clauses.length === 2) {
+    return `${clauses[0]} and ${clauses[1]}`
+  }
+  return `${clauses.slice(0, -1).join(', ')}, and ${clauses[clauses.length - 1]}`
 }
 
 /** Each reason code once, in first-seen order: a chip is never shown twice. */
