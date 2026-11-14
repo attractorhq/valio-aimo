@@ -1,6 +1,7 @@
 import { Ban, CheckCircle2, Hourglass, Info, ShieldCheck } from 'lucide-react'
 import type { Mandate, Proposal, ReasonCode } from '../../lib/contracts'
 import { REASON_REGISTRY } from '../../lib/contracts'
+import { uniqueReasons } from '../approver/explain'
 import {
   formatClock,
   formatDate,
@@ -247,7 +248,7 @@ export function ResultBanner({ proposal, logHref }: { proposal: Proposal; logHre
       </ul>
       {proposal.reasons.length > 0 && (
         <ul className="chip-list" aria-label="Decision reasons">
-          {proposal.reasons.map((code) => (
+          {uniqueReasons(proposal.reasons).map((code) => (
             <li key={code} className="chip bg-[var(--surface)]">
               {reasonChip(code)}
             </li>

@@ -2,8 +2,14 @@ import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { UserRoundCheck } from 'lucide-react'
 import { approverChannel, gateway, type ApproverItem } from '../lib/gateway'
-import { formatClock, formatMoney } from '../lib/format'
+import { formatClock, formatMoney, reasonChip } from '../lib/format'
 import { ApprovalCard } from '../components/approver/ApprovalCard'
+import {
+  approvalReasons,
+  contextReasons,
+  productSummary,
+  rowStatement,
+} from '../components/approver/explain'
 
 const STATE_WORD: Record<string, string> = {
   PENDING_APPROVAL: 'Waiting for you',
@@ -84,29 +90,57 @@ export function Approver() {
             </p>
           ) : (
             <ul className="approver-queue">
-              {items.map(({ proposal }) => (
-                <li key={proposal.proposalId}>
-                  <button
-                    type="button"
-                    className={`queue-item ${proposal.proposalId === selected?.proposal.proposalId ? 'selected' : ''}`}
-                    aria-current={
-                      proposal.proposalId === selected?.proposal.proposalId ? 'true' : undefined
-                    }
-                    onClick={() => setSelectedId(proposal.proposalId)}
-                  >
-                    <strong>
-                      {formatMoney(proposal.totals.exclVat)} · v{proposal.offerVersion}
-                    </strong>
-                    <span className="muted small">
-                      {proposal.lines.length} line{proposal.lines.length === 1 ? '' : 's'} · created{' '}
-                      {formatClock(proposal.createdAt)}
-                    </span>
-                    <span className={`queue-state queue-state-${proposal.state.toLowerCase()}`}>
-                      {STATE_WORD[proposal.state] ?? proposal.state}
-                    </span>
-                  </button>
-                </li>
-              ))}
+              {items.map(({ proposal }) => {
+                // Enough to triage without opening the card (T45): who, what, why, and what
+                // approving means. Each reason chip appears once.
+                const reasons = [...approvalReasons(proposal), ...contextReasons(proposal)]
+                const statement = rowStatement(proposal, mandate)
+                return (
+                  <li key={proposal.proposalId}>
+                    <button
+                      type="button"
+                      className={`queue-item ${proposal.proposalId === selected?.proposal.proposalId ? 'selected' : ''}`}
+                      aria-current={
+                        proposal.proposalId === selected?.proposal.proposalId ? 'true' : undefined
+                      }
+                      onClick={() => setSelectedId(proposal.proposalId)}
+                    >
+                      <span className="flex flex-wrap items-center justify-between gap-2">
+                        <strong>
+                          {formatMoney(proposal.totals.exclVat)} · v{proposal.offerVersion}
+                        </strong>
+                        <span className={`queue-state queue-state-${proposal.state.toLowerCase()}`}>
+                          {STATE_WORD[proposal.state] ?? proposal.state}
+                        </span>
+                      </span>
+                      <span className="small font-semibold">
+                        {mandate?.organisationName ?? proposal.customerId}
+                      </span>
+                      <span className="small" data-testid="queue-products">
+                        {productSummary(proposal)}
+                      </span>
+                      {reasons.length > 0 && (
+                        <span className="chip-list" aria-label="Reasons">
+                          {reasons.map((code) => (
+                            <span key={code} className="chip">
+                              {reasonChip(code)}
+                            </span>
+                          ))}
+                        </span>
+                      )}
+                      {statement && (
+                        <span className="small" data-testid="queue-statement">
+                          {statement}
+                        </span>
+                      )}
+                      <span className="muted small">
+                        {proposal.lines.length} line{proposal.lines.length === 1 ? '' : 's'} ·
+                        created {formatClock(proposal.createdAt)}
+                      </span>
+                    </button>
+                  </li>
+                )
+              })}
             </ul>
           )}
         </section>

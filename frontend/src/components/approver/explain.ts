@@ -101,24 +101,70 @@ export function substituteStatement(proposal: Proposal): string | null {
   return parts.length ? `Not exactly what you asked for: ${parts.join('; ')}.` : null
 }
 
-/** The reason in plain language, filled from the registry template where the values are known. */
-export function plainReason(code: ReasonCode, proposal: Proposal, mandate?: Mandate): string {
-  if (code === 'AGENT_SUBSTITUTE') {
-    const statement = substituteStatement(proposal)
-    if (statement) return statement
-  }
+/** VALIO_SUBSTITUTE in plain words: which line Valio Aimo lists as the substitute for what. */
+function valioSubstituteStatement(proposal: Proposal): string | null {
+  const parts = proposal.lines
+    .filter(
+      (line) =>
+        line.substitutionSource === 'VALIO' || (line.reasons ?? []).includes('VALIO_SUBSTITUTE'),
+    )
+    .map((line) => {
+      const item = proposal.request.items.find((i) => i.itemId === line.itemId)
+      const original = line.substituteFor ?? item?.productId ?? item?.what
+      return original ? `${line.name} for ${original}` : line.name
+    })
+  return parts.length ? `Listed by Valio Aimo as a substitute: ${parts.join('; ')}.` : null
+}
+
+/**
+ * The reason in plain language, filled from the registry template where the values are known.
+ * `null` when there is nothing to say beyond the chip itself, so a chip is never followed by its own
+ * label ("Agent substitute Agent substitute").
+ */
+export function plainReason(
+  code: ReasonCode,
+  proposal: Proposal,
+  mandate?: Mandate,
+): string | null {
+  if (code === 'AGENT_SUBSTITUTE') return substituteStatement(proposal)
+  if (code === 'VALIO_SUBSTITUTE') return valioSubstituteStatement(proposal)
   if (code === 'OVER_AUTO_LIMIT' && mandate) {
     return `${formatMoney(proposal.totals.exclVat)} is above your ${formatMoney(mandate.autoApproveLimitEur)} auto-approve limit.`
   }
   const text = reasonText(code, { total: formatMoney(proposal.totals.exclVat) })
-  return /\{\w+\}/.test(text) ? reasonChip(code) : text
+  if (/\{\w+\}/.test(text)) return null
+  return text.trim().toLowerCase() === reasonChip(code).trim().toLowerCase() ? null : text
+}
+
+/** Each reason code once, in first-seen order: a chip is never shown twice. */
+export function uniqueReasons(codes: readonly ReasonCode[]): ReasonCode[] {
+  return [...new Set(codes)]
 }
 
 /** Only approvable trade-offs (P2.2) are ever shown for sign-off; INFO codes are context. */
 export function approvalReasons(proposal: Proposal): ReasonCode[] {
-  return proposal.reasons.filter((code) => REASON_REGISTRY[code].approvable)
+  return uniqueReasons(proposal.reasons.filter((code) => REASON_REGISTRY[code].approvable))
 }
 
 export function contextReasons(proposal: Proposal): ReasonCode[] {
-  return proposal.reasons.filter((code) => REASON_REGISTRY[code].effect === 'INFO')
+  return uniqueReasons(proposal.reasons.filter((code) => REASON_REGISTRY[code].effect === 'INFO'))
+}
+
+/** The product names of a proposal for a queue row: the first two, then "+N". */
+export function productSummary(proposal: Proposal): string {
+  const names = [...new Set(proposal.lines.map((line) => line.name))]
+  return names.length <= 2
+    ? names.join(', ')
+    : `${names.slice(0, 2).join(', ')} +${names.length - 2}`
+}
+
+/** One statement per queue row: what approving means, else the first reason in plain words. */
+export function rowStatement(proposal: Proposal, mandate?: Mandate): string | null {
+  return (
+    formatApprovalStatement(proposal, mandate) ??
+    approvalReasons(proposal)
+      .map((code) => plainReason(code, proposal, mandate))
+      .find((text): text is string => Boolean(text)) ??
+    null
+  )
 }

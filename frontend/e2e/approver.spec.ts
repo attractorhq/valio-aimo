@@ -281,3 +281,19 @@ test('B2 partial-delivery proposal shows "Approving means 95 kg instead of 120 k
     'Approving means 95 kg instead of 120 kg, on Monday instead of today.',
   )
 })
+
+test('a queue row shows the customer, the products, each reason once and what approving means', async ({
+  page,
+}) => {
+  await runScenarioB(page)
+  await page.goto('/approver')
+  const row = page.locator('.approver-queue button').filter({ hasText: '€506.16' }).first()
+  await expect(row).toContainText('Synthetic School Kitchen (demo mock)')
+  await expect(row.getByTestId('queue-products')).toHaveText(
+    'Synthetic gluten-free macaroni 5 kg, Synthetic gluten-free oat drink 1 l',
+  )
+  await expect(row.getByText('Above auto-approve limit', { exact: true })).toHaveCount(1)
+  await expect(row.getByTestId('queue-statement')).toHaveText(
+    '€506.16 is above your €500.00 auto-approve limit. Everything else is verified or declared.',
+  )
+})
