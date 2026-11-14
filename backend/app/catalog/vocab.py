@@ -486,6 +486,8 @@ FI_SV_TO_EN_SYNONYMS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("hunaja", ("honey",)),
     ("honung", ("honey",)),
     ("suola", ("salt",)),
+    ("majoneesi", ("mayonnaise", "mayo", "majonnäs")),
+    ("majonnäs", ("mayonnaise", "mayo", "majoneesi")),
     ("jauhelihakastik", ("meat sauce", "bolognese", "minced meat sauce")),
     ("jauheliha", ("minced meat", "mince", "ground meat", "ground beef")),
     ("luomu", ("organic", "ekologisk")),

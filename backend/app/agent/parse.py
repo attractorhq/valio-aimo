@@ -138,10 +138,16 @@ _REQUIREMENTS: tuple[tuple[str, tuple[Requirement, ...]], ...] = (
 )
 _REQUIREMENT_RES = tuple((re.compile(p, re.IGNORECASE), r) for p, r in _REQUIREMENTS)
 _DIET_RES = (
-    (re.compile(r"\b(?:keliaak(?:ikko|iko)\w*|co?eliacs?)\b", re.IGNORECASE),
+    (re.compile(r"\b(?:keliaki\w*|keliaak(?:ikko|iko)\w*|keliakist\w*|gluteeni-?allergi\w*|co?eliacs?)\b",
+                re.IGNORECASE),
      (Requirement(kind="CLAIM", code="FREE_FROM_GLUTEN"),)),
-    (re.compile(r"\b(?:maidottom(?:alle|ille)|milk[\s-]+allergic)\b", re.IGNORECASE),
+    (re.compile(r"\b(?:maito-?allergi\w*|maidottom(?:alle|ille)|milk[\s-]+allergic)\b", re.IGNORECASE),
      (Requirement(kind="AVOID_ALLERGEN", code="AM"),)),
+    (re.compile(r"\b(?:kanan)?muna-?allergi\w*\b", re.IGNORECASE),
+     (Requirement(kind="AVOID_ALLERGEN", code="AE"),)),
+    (re.compile(r"\bpähkinä-?allergi\w*\b", re.IGNORECASE), (_AN, _AP)),
+    (re.compile(r"\blaktoosi[\s-]?intolerans\w*\b", re.IGNORECASE),
+     (Requirement(kind="CLAIM", code="FREE_FROM_LACTOSE"),)),
 )
 _REQUIREMENT_LABELS = {
     "FREE_FROM_LACTOSE": "lactose-free", "FREE_FROM_GLUTEN": "gluten-free", "AM": "milk-free",
@@ -386,6 +392,11 @@ _FINNISH_FORMS: tuple[tuple[re.Pattern, str], ...] = tuple(
         (r"kaakao\w*", "cocoa"),
         (r"sokeri\w*", "sugar"),
         (r"suola|suolaa", "salt"),
+        (r"sinappi|sinappi(?:a|in|en|na)|sinapi(?:n|t|sta|lla|lle)", "mustard"),
+        (r"tomaatti(?:a|in|na)?|tomaat(?:in|it|tia|teja|ista)", "tomato"),
+        (r"porkkana(?:a|n|t|na|sta)?|porkkanoi(?:ta|ssa)", "carrot"),
+        (r"kurkku(?:a|un|na)?|kurku(?:n|t|sta)|kurkkuja", "cucumber"),
+        (r"sipuli(?:a|n|t|in|sta|na|en|lla|lle|ksi)|sipuleita|sipuli", "onion"),
     )
 )
 # After the product noun of a Finnish request, a word in a place case (illative, adessive, allative,
