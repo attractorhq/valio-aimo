@@ -32,6 +32,7 @@ from app.gateway.proposals import ProposalGateway
 from app.main import app
 from app.policy import DEMO_MANDATES, M1, M2, MandateBook
 from app.valio import IntegrationError, RawBatch, RecordedValioProvider, normalise_batch
+from app.valio.errors import ValioRateLimited
 
 HEL = "+02:00"
 NOW = datetime.fromisoformat(f"2026-11-13T21:52:02{HEL}")
@@ -931,6 +932,44 @@ def test_upstream_failure_mid_flow_returns_502_in_json_and_clean_error_event_in_
     assert rows[-1]["type"] == "error"
     assert rows[-1]["name"] == "ERROR"
     assert rows[-1]["error"]["code"] == "UPSTREAM_UNAVAILABLE"
+
+
+@pytest.mark.parametrize("accept", ["application/json", "application/x-ndjson", "text/event-stream"])
+def test_rate_limit_keeps_actionable_message_without_recorded_fallback(synthetic_api, accept):
+    client, state = synthetic_api
+
+    class RateLimitedProvider:
+        recorded_at = None
+
+        def lookup(self, *args, **kwargs):
+            raise ValioRateLimited(17)
+
+    state.gateway.provider = RateLimitedProvider()
+    response = client.post(
+        "/v0.1/agent/run", headers={"Accept": accept},
+        json={"customerId": M1.customerId, "requestText": A_TEXT},
+    )
+    if accept == "application/json":
+        assert response.status_code == 503
+        assert response.headers["Retry-After"] == "17"
+        with pytest.raises(ValioRateLimited) as exc:
+            HttpAgentChannel._check(response)
+        assert exc.value.retry_after == 17
+        detail = response.json()["error"]
+    elif accept == "application/x-ndjson":
+        assert response.status_code == 200  # Headers precede the supplier read.
+        rows = [json.loads(line) for line in response.text.splitlines()]
+        assert rows[-1]["type"] == "error"
+        detail = rows[-1]["error"]
+        assert all(row["type"] != "result" for row in rows)
+    else:
+        assert response.status_code == 200
+        block = response.text.strip().split("\n\n")[-1]
+        assert block.startswith("event: error\n")
+        detail = json.loads(block.split("data: ", 1)[1])["error"]
+        assert "event: result" not in response.text
+    assert detail["code"] == "VALIO_RATE_LIMITED"
+    assert detail["message"] == "Valio API rate limit: retry in 17 s"
 
 
 # --------------------------------------------------------------------------- 3. Real recorded fixtures (`data/fixtures/`)

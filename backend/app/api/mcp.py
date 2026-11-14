@@ -44,6 +44,7 @@ from app.gateway.proposals import (
 )
 from app.policy import M1, M2
 from app.valio import IntegrationError
+from app.valio.errors import ValioRateLimited
 from app.valio.record import BRIEF_PRODUCT_IDS
 
 from .state import GatewayState, GatewayUnavailable, try_state
@@ -644,6 +645,9 @@ def _format_domain_error(exc: Exception) -> dict[str, Any]:
     if isinstance(exc, KeyError):
         msg = str(exc.args[0]) if exc.args else str(exc)
         return {"error": {"code": "NOT_FOUND", "message": f"Unknown customer or resource: {msg}"}}
+    if isinstance(exc, ValioRateLimited):
+        return {"error": {"code": exc.code, "message": str(exc),
+                          "details": {"retryAfterSeconds": exc.retry_after}}}
     if isinstance(exc, IntegrationError):
         return {"error": {"code": "UPSTREAM_ERROR", "message": str(exc)}}
     if isinstance(exc, GatewayUnavailable):

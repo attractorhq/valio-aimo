@@ -41,7 +41,17 @@ snapshot = recorded.lookup(
 
 `ValioClient` requires 1–20 shortlisted IDs **per request item**, deduplicates across items, and caps a batch at 1,000 unique IDs. It makes one price and one availability POST per evaluation (except bounded retries). It maps logical customers with existing `VALIO_CUSTOMER_IDS`, falling back to the configured upstream `VALIO_CUSTOMER_ID` as the original adapter did. Cache keys include upstream customer, date, endpoint and canonical product set. Only bound, valid-JSON success envelopes are cached; mutable callers do not share cached objects.
 
-The default TTL is 45 s (configurable 30–60), with at most 128 cached responses. HTTP 429/5xx retries twice with 0.25/0.5 s backoff; numeric Retry-After is honoured up to 5 s. Authentication/redirect errors do not retry. Network errors do not silently switch to fixtures. Timeouts use `VALIO_TIMEOUT_SECONDS`; settings and API keys are server-only. Raw bodies, headers and credentials are never included in integration errors. All dynamic redirects are refused.
+The default TTL is 45 s (configurable 30–60), with at most 128 cached responses. HTTP 5xx retries twice with 0.25/0.5 s backoff; numeric Retry-After for these retries is honoured up to 5 s. Authentication/redirect errors do not retry. Network errors do not silently switch to fixtures. Timeouts use `VALIO_TIMEOUT_SECONDS`; settings and API keys are server-only. Raw bodies, headers and credentials are never included in integration errors. All dynamic redirects are refused.
+
+### Rate limits (official Valio answer, 14 Nov)
+
+Valio blocks callers for **30 seconds** after HTTP 429. The first 429 therefore stops immediately, with **no retry**, and starts a shared cooldown of `max(30 s, Retry-After)`. Numeric seconds and HTTP-date headers are supported; absent, invalid or nonfinite values use 30 s. Subsequent 429s may extend, never shorten, the cooldown.
+
+All `ValioClient` instances share a thread-safe, process-wide one-token bucket refilled at **5 requests/s**. It starts empty and does not accumulate burst capacity: 20 rapid reads take at least 4 s. Every upstream attempt (including 5xx retries and force-refresh rechecks) uses the bucket. Cached successes do not consume tokens. Waiting callers recheck the cooldown before sending; requests already in flight cannot be cancelled.
+
+During cooldown, even cached/force-refresh reads fail fast without sleeping for the block or contacting Valio. REST returns HTTP **503**, code **`VALIO_RATE_LIMITED`**, message `Valio API rate limit: retry in N s`, `Retry-After: N`, and `error.details.retryAfterSeconds`. MCP tool errors and agent stream errors preserve the code and message (a stream already started retains HTTP 200). The UI displays that message; no fixture fallback occurs. Normal service resumes after the monotonic cooldown expires.
+
+The limiter is shared across threads/clients **within one Python process**, not across workers or replicas. Multiple independently deployed processes using the same upstream identity would need a distributed limiter or a smaller per-process budget.
 
 ## Private fixture recorder
 

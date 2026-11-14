@@ -8,11 +8,27 @@ from synthetic.valio import DAY, NOW, envelopes
 
 from app.config import Settings
 from app.valio import IntegrationError, LiveValioProvider, ValioClient
+from app.valio.client import ValioRateLimiter
+
+
+class FakeTime:
+    def __init__(self):
+        self.now = 0.0
+        self.waits = []
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.waits.append(seconds)
+        self.now += seconds
 
 
 def client_for(handler, **kwargs):
     settings = Settings(valio_api_key="synthetic-key", valio_customer_id="UPSTREAM-A",
                         valio_customer_ids={"buyer-a": "UPSTREAM-A", "buyer-b": "UPSTREAM-B"})
+    timer = FakeTime()
+    kwargs.setdefault("rate_limiter", ValioRateLimiter(monotonic=timer.monotonic, sleep=timer.sleep))
     return ValioClient(settings, transport=httpx.MockTransport(handler), clock=lambda: NOW, **kwargs)
 
 
@@ -129,7 +145,7 @@ def test_cache_is_bounded():
     assert len(client._cache) == 2
 
 
-@pytest.mark.parametrize("status", [429, 500, 503])
+@pytest.mark.parametrize("status", [500, 503])
 def test_bounded_backoff_then_success(status):
     waits, calls = [], []
     attempts = [0]
@@ -151,7 +167,7 @@ def test_retry_after_is_bounded():
     good = successful_handler(calls)
     def handle(request):
         attempts[0] += 1
-        return httpx.Response(429, headers={"Retry-After": "99999"}) if attempts[0] == 1 else good(request)
+        return httpx.Response(503, headers={"Retry-After": "99999"}) if attempts[0] == 1 else good(request)
     client_for(handle, sleep=waits.append).fetch({"I1": ["SYN-A"]}, DAY, "buyer-a")
     assert waits == [5.0]
 
@@ -165,7 +181,7 @@ def test_failure_no_redirect_no_credentials_in_errors_or_logs(status, caplog):
         return httpx.Response(status, text="synthetic-key private-body", headers={"Location": "https://other.invalid"})
     with pytest.raises(IntegrationError) as exc:
         client_for(handle, sleep=lambda _: None).fetch({"I1": ["SYN-A"]}, DAY, "buyer-a")
-    assert len(calls) == (3 if status in (429, 500) else 1)
+    assert len(calls) == (3 if status == 500 else 1)
     assert "synthetic-key" not in str(exc.value) + caplog.text
     assert "private-body" not in str(exc.value) + caplog.text
     assert all(request.url.host == "junction26.valioaimo.fi" for request in calls)

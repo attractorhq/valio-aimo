@@ -25,6 +25,7 @@ from app.gateway.proposals import (
     ProposalNotFoundError,
 )
 from app.valio import IntegrationError
+from app.valio.errors import ValioRateLimited
 
 from .state import GatewayUnavailable
 
@@ -45,7 +46,7 @@ ERROR_RESPONSES = {
     409: {"model": ErrorResponse, "description": "Conflict with the current proposal state"},
     422: {"model": ErrorResponse, "description": "Validation failed, or no confirmable order"},
     502: {"model": ErrorResponse, "description": "Valio Aimo API error"},
-    503: {"model": ErrorResponse, "description": "Gateway not configured"},
+    503: {"model": ErrorResponse, "description": "Gateway not configured or Valio rate limited"},
 }
 
 
@@ -86,6 +87,12 @@ _HTTP_CODES = {400: "BAD_REQUEST", 403: "FORBIDDEN", 404: "NOT_FOUND", 405: "MET
 
 
 def register_error_handlers(app: FastAPI) -> None:
+    @app.exception_handler(ValioRateLimited)
+    async def rate_limited(_: Request, exc: ValioRateLimited):
+        response = error(503, exc.code, str(exc), {"retryAfterSeconds": exc.retry_after})
+        response.headers["Retry-After"] = str(exc.retry_after)
+        return response
+
     @app.exception_handler(StarletteHTTPException)
     async def http_error(_: Request, exc: StarletteHTTPException):
         return error(exc.status_code, _HTTP_CODES.get(exc.status_code, "HTTP_ERROR"), str(exc.detail))
