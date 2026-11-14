@@ -2,7 +2,7 @@
 
 **Status:** the flow is verified locally; a public deployment has not yet been verified. Present from the local stack until the architect supplies a verified URL. The amounts below are reference expectations, not outputs to hardcode or assert when current data differs.
 
-Run `scripts/preflight` immediately before presenting. GREEN: use the live mock API. RED: show the differences, launch an actual private recorded capture, and show its capture time. Say: “This is a recorded replay, not a live quote.” Never use the synthetic UI fallback as live evidence. [The rehearsal guide](DEMO.md) contains the detailed window layout and commands.
+Verify `scripts/demo` immediately before presenting. In live mode, use the live mock API; if cut-offs have passed or the live mock API differs, launch an actual private recorded capture and show its capture time. Say: “This is a recorded replay, not a live quote.” Never use the synthetic UI fallback as live evidence. [The rehearsal guide](DEMO.md) contains the detailed window layout and commands.
 
 ## Spoken script and screen cues
 
@@ -34,7 +34,7 @@ Switch to `/approver`. Point out the exact version, quantity, date, total and �
 
 > The approval belongs to these exact terms. Before confirming, the server re-checks. If a decisive term changes, this approval is void and a new proposal is decided from scratch. The language model never decides AUTO, ASK or BLOCK.
 
-“Monday confirmed” refers to the checked mock delivery date, not a real supplier booking. If pre-flight or the screen differs, explain the actual result rather than recite an outdated amount.
+“Monday confirmed” refers to the checked mock delivery date, not a real supplier booking. If the screen differs, explain the actual result rather than recite an outdated amount.
 
 ### 1:55–2:25 — C: BLOCK
 
@@ -65,7 +65,7 @@ The comparison is the policy decision for the same terms, not a promise that ind
 | Working end-to-end demo | 30% | A → B → C in one interface; B approved in a separate human view; server re-check and final simulated confirmation. |
 | Solving the user's need | 20% | Kitchen quantities and date, physical-to-sales-unit sizing, dietary requirements, a clear total, and an exact reason when human attention is needed. |
 | Autonomy and controls | 20% | Buyer mandate, deterministic AUTO/ASK/BLOCK, exact-version single-use approval, no agent approval capability, and C's hard-limit/instruction boundary. |
-| Robustness to exceptions | 15% | Rejected supplier-listed substitute, excluded missing evidence, price-change supersession, live pre-flight and honest recorded fallback; request interpretation has a deterministic fallback. |
+| Robustness to exceptions | 15% | Rejected supplier-listed substitute, excluded missing evidence, price-change supersession, and honest recorded fallback; request interpretation has a deterministic fallback. |
 | Openness and path to production | 15% | OpenAPI 3.1, JSON Schemas, independent REST client and decision log; explicit SSO/OIDC, scoped credentials, durable storage, real-order integration and MCP roadmap. |
 
 ## Evidence discipline for Q&A

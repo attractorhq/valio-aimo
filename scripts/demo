@@ -1,18 +1,16 @@
 #!/usr/bin/env python3
-"""Demo kit for Verified or Ask (T18, Patch P5.2/P5.3/P8/P12).
+"""Demo kit for Verified or Ask (T18, Patch P8/P12).
 
 Runs:
-1. Live pre-flight check (A, B, C, B2) against the Valio Aimo API (or recorded fallback when red/offline).
-2. Demo-state reset (restores mandates M1/M2 to default limits/modes and clears pending approvals).
-3. End-to-end Playwright browser test (`frontend/e2e/demo.spec.ts`: A AUTO → B ASK + Approver v1 → C BLOCK)
+1. Demo-state reset (restores mandates M1/M2 to default limits/modes and clears pending approvals).
+2. End-to-end Playwright browser test (`frontend/e2e/demo.spec.ts`: A AUTO → B ASK + Approver v1 → C BLOCK)
    3× in a row against a target URL (deployed Cloudflare Worker or an automatically started local stack).
-4. Openness check (`scripts/second-client`) against the same gateway.
+3. Openness check (`scripts/second-client`) against the same gateway.
 
 Usage:
-  scripts/demo                                         # pre-flight + local gateway + 3× e2e + second-client
-  scripts/demo https://valio-aimo.<acct>.workers.dev   # pre-flight + reset + 3× e2e against deployed URL
+  scripts/demo                                         # local gateway + 3× e2e + second-client
+  scripts/demo https://valio-aimo.<acct>.workers.dev   # reset + 3× e2e against deployed URL
   scripts/demo --reset [URL]                           # only reset demo state on URL (default: http://localhost:8000)
-  scripts/demo --preflight                             # only run live pre-flight check
   scripts/demo --mode recorded                         # force RECORDED mode fallback (P5.3) for local demo
 """
 
@@ -169,23 +167,17 @@ def ensure_local_catalog() -> None:
         subprocess.run([str(ROOT / "scripts/build-catalog")], cwd=ROOT, check=True)
 
 
-def run_preflight_check(force_mode: str | None = None) -> tuple[bool, str]:
-    """Run pre-flight check and return `(green, recommended_mode)`."""
+def resolve_local_mode(force_mode: str | None = None) -> str:
+    """Resolve LIVE or RECORDED mode for the local stack."""
     from app.config import get_settings
-    from app.eval.preflight import format_preflight_table, run_preflight
-    from app.eval.runner import ReferenceFixtureProvider
 
     ensure_local_catalog()
-    settings = get_settings()
-    use_reference = not bool(settings.valio_api_key)
-    live_provider = ReferenceFixtureProvider() if use_reference else None
-    report = run_preflight(live_provider=live_provider)
-    print(format_preflight_table(report))
     if force_mode:
         chosen = force_mode.upper()
         print(f"demo: mode explicitly set to {chosen}.")
-        return report.green, chosen
-    return report.green, report.recommended_mode
+        return chosen
+    settings = get_settings()
+    return "LIVE" if settings.valio_api_key else "RECORDED"
 
 
 def wait_for_http(url: str, timeout_s: float = 30.0, require_ready: bool = False) -> None:
@@ -304,16 +296,7 @@ def main() -> None:
         action="store_true",
         help="Only reset demo state (mandates M1/M2 + pending approvals) on target URL",
     )
-    parser.add_argument(
-        "--preflight",
-        action="store_true",
-        help="Only run the live pre-flight check and exit",
-    )
     args = parser.parse_args()
-
-    if args.preflight:
-        run_preflight_check(args.mode)
-        return
 
     if args.reset:
         target_api = args.api_url or args.url or os.environ.get("GATEWAY_URL", "http://localhost:8000")
@@ -324,7 +307,7 @@ def main() -> None:
         )
         return
 
-    _, recommended_mode = run_preflight_check(args.mode)
+    recommended_mode = resolve_local_mode(args.mode)
     backend_proc: subprocess.Popen | None = None
     vite_proc: subprocess.Popen | None = None
 

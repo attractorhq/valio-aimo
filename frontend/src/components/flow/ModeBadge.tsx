@@ -1,11 +1,11 @@
-import { useState } from 'react'
-import { Activity, Database, FlaskConical, Radio } from 'lucide-react'
+import { Database, FlaskConical, Radio } from 'lucide-react'
 import type { Proposal } from '../../lib/contracts'
 import type { DataSource } from '../../lib/gateway'
 import { formatTime } from '../../lib/format'
-import { Eval, RECORDED_CAPTURE_TIME, type PresentationMode } from '../../pages/Eval'
 
-/** Where the data came from: live API, recorded responses, or synthetic UI mocks, plus the Pre-flight panel. */
+const RECORDED_CAPTURE_TIME = '2026-11-13T21:50:00+02:00'
+
+/** Where the data came from: live API, recorded responses, or synthetic UI mocks. */
 export function ModeBadge({
   source,
   proposal,
@@ -15,11 +15,7 @@ export function ModeBadge({
   proposal?: Proposal
   healthMode?: 'LIVE' | 'RECORDED'
 }) {
-  const [showPreflight, setShowPreflight] = useState(false)
-  const [overrideMode, setOverrideMode] = useState<PresentationMode | null>(null)
-
-  const effectiveMode =
-    overrideMode ?? proposal?.mode ?? (source === 'GATEWAY' ? healthMode : undefined)
+  const effectiveMode = proposal?.mode ?? (source === 'GATEWAY' ? healthMode : undefined)
   const recordedTime = proposal?.recordedAt ?? RECORDED_CAPTURE_TIME
 
   return (
@@ -43,20 +39,7 @@ export function ModeBadge({
             Recorded{recordedTime ? ` · captured ${formatTime(recordedTime)}` : ''}
           </span>
         )}
-        {/* T57: no eval score in the buyer view. It is a developer metric, kept inside Pre-flight. */}
-        <button
-          type="button"
-          aria-expanded={showPreflight}
-          onClick={() => setShowPreflight((prev) => !prev)}
-          className="mode-badge cursor-pointer border-[var(--action)] bg-[var(--surface)] text-[var(--action)] hover:bg-[var(--tint)]"
-        >
-          <Activity size={13} aria-hidden />
-          <span>Pre-flight</span>
-        </button>
       </div>
-      {showPreflight && (
-        <Eval mode={effectiveMode ?? 'RECORDED'} onModeChange={(next) => setOverrideMode(next)} />
-      )}
     </div>
   )
 }

@@ -26,7 +26,7 @@ curl -s https://valio-aimo.attractorfi.workers.dev/mcp -H 'Content-Type: applica
 
 Cursor and Claude Desktop: add an HTTP MCP server with the URL `https://valio-aimo.attractorfi.workers.dev/mcp`. Demo customers are `nordic-harbour-hotels` and `northbay-school-kitchen`. A proposal that needs sign-off waits in `/approver` for a human.
 
-Expected reference walkthrough: **A AUTO** (€1,010.00) → **B ASK** (€506.16, only `OVER_AUTO_LIMIT`) → **C BLOCK** (€20,200.00, with `INSTRUCTION_IGNORED`). These are checks, not hardcoded decisions or guarantees about today's live data. Run pre-flight before presenting.
+Expected reference walkthrough: **A AUTO** (€1,010.00) → **B ASK** (€506.16, only `OVER_AUTO_LIMIT`) → **C BLOCK** (€20,200.00, with `INSTRUCTION_IGNORED`). These are checks, not hardcoded decisions or guarantees about today's live data.
 
 ## Run locally
 
@@ -172,8 +172,7 @@ A copy-pasteable `curl` + `jq` equivalent is in `docs/API.md` → *Second client
 ```bash
 scripts/check                      # guard + ruff + pytest + frontend build (the merge gate)
 scripts/eval                       # 24-row report; inspect source, failures AND pending rows
-scripts/preflight                  # live mock API A/B/C/B2; inspect GREEN/RED, not just exit status
-scripts/demo                       # local pre-flight + reset + 3 rehearsals + second client
+scripts/demo                       # local reset + 3 rehearsals + second client
 # In frontend/ (install Chromium once with npx playwright install chromium):
 # npm run test:e2e                 # synthetic UI tests plus the demo flow
 # npm run test:live                # opt-in gateway browser tests
@@ -190,11 +189,11 @@ To report a recorded-data score, supply permitted private captures and run `scri
 
 For context, the architect's [T18 review](https://github.com/attractorhq/valio-aimo/pull/62#issuecomment-6870722109) reports three consecutive local live rehearsals, three on a real recorded capture, and 46/46 browser tests. Those are local results, not deployment evidence.
 
-Before presenting, run `scripts/preflight`. GREEN permits a live walkthrough; RED means show the differences and use an explicitly labelled private recorded capture, with its capture time. `scripts/preflight --reference` is only an offline self-test. The browser's simulated passed-cut-off preview is not proof that the backend changed source; check backend health and launch the actual recorded source as above. See [the stage guide](docs/DEMO.md) for rehearsal timing.
+Before presenting, verify backend health (`/health`) and run `scripts/demo` to confirm live or recorded readiness. If presenting in recorded mode, launch the actual private recorded capture and state its capture time openly. See [the stage guide](docs/DEMO.md) for rehearsal timing.
 
 ## Assumptions & observed behaviour
 
-Supplier mock observations below were recorded on **13 Nov 2026**, not promises about current responses. Re-run pre-flight before relying on them.
+Supplier mock observations below were recorded on **13 Nov 2026**, not promises about current responses.
 
 | Observation or constraint | Gateway consequence |
 |---|---|

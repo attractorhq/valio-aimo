@@ -60,12 +60,11 @@ async function fakeClarificationGateway(page: Page) {
   })
 }
 
-test('the buyer view shows no eval score badge', async ({ page }) => {
+test('the buyer view shows no eval score badge or pre-flight button', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByLabel('Data mode')).toBeVisible()
   await expect(page.getByText(/Eval \d+\/24/)).toHaveCount(0)
-  // Pre-flight stays available on demand.
-  await expect(page.getByRole('button', { name: 'Pre-flight', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Pre-flight', exact: true })).toHaveCount(0)
 })
 
 test('after a clarification the Lookup step shows only "Not started", no lone digit', async ({
