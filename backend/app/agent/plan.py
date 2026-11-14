@@ -20,6 +20,7 @@ from pydantic import Field
 
 from app.catalog.categories import (
     TypeMatch,
+    matches_product_concept,
     missing_family_nouns,
     product_type_match,
     same_product_family,
@@ -869,8 +870,7 @@ def _matches_primary_concept(product: Product, primary: ProductConcept | None, q
     if primary is None:
         return True, False
     text_lower = " ".join(p for p in (product.name, *product.names.values()) if p).lower()
-    words = frozenset(_WORD_RE.findall(text_lower))
-    matches = match_concept_in_text(primary, text_lower, words)
+    matches = matches_product_concept(primary.concept_id, text_lower, category=product.category)
     is_specialty = False
     if primary.prefer_plain_over:
         for term in primary.prefer_plain_over:

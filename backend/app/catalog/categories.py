@@ -655,6 +655,28 @@ def is_food_category(category: str, record: dict | None = None) -> bool:
     return True
 
 
+def matches_product_concept(concept_id: str, text_lower: str, *, category: str = "") -> bool:
+    """Match a type, accepting its subtypes but never a sibling via a shared category.
+
+    Category profiles identify families such as cheese even when a name only says
+    Gouda. Broad groups (e.g. grains/pasta/flour or soft drinks/juice/water) are not
+    proof of an individual type. Explicit name exclusions still take precedence.
+    """
+    concept = CONCEPTS_BY_ID.get(concept_id)
+    if concept is None or any(term in text_lower for term in concept.exclude_stems):
+        return False
+    words = frozenset(_FAMILY_WORD_RE.findall(text_lower))
+    if match_concept_in_text(concept, text_lower, words):
+        return True
+    if any(
+        matches_product_concept(child.concept_id, text_lower)
+        for child in CONCEPTS_BY_ID.values() if child.parent_concept == concept_id
+    ):
+        return True
+    profile = get_category_profile(category)
+    return profile.productType == concept_id and profile.isFood == concept.is_food
+
+
 def matching_categories_for_type(query: str) -> tuple[str, ...]:
     """Return matching 5-digit and 3-digit category prefixes for a product-type keyword in EN/FI/SV."""
     needle = (query or "").strip().lower()
@@ -1174,15 +1196,14 @@ def same_product_family(
     if category == "synthetic" and re.match(r"^synthetic\s+syn-[\w-]+$", (product_names[0] or "").strip(), re.IGNORECASE):
         return True
 
-    words = frozenset(_FAMILY_WORD_RE.findall(text_lower))
     q_lower = (query or "").lower()
 
     if concept_id is not None:
-        primary = CONCEPTS_BY_ID.get(concept_id)
-        parent = CONCEPTS_BY_ID.get(parent_concept_id) if parent_concept_id else None
         matches_concept = (
-            (primary is not None and match_concept_in_text(primary, text_lower, words))
-            or (parent is not None and match_concept_in_text(parent, text_lower, words))
+            matches_product_concept(concept_id, text_lower, category=category)
+            or (parent_concept_id is not None and matches_product_concept(
+                parent_concept_id, text_lower, category=category,
+            ))
         )
         if not matches_concept:
             return False
