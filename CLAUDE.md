@@ -125,6 +125,12 @@ scripts/judge <public-url>   # architect only: blind judge panel → judging/rep
    - `/api/price` returns prices outside `validFrom..validTo`, so check validity yourself;
    - an unknown id gives `error: true` and empty `scheduleLines`.
    - Record any change in README "Assumptions & observed behaviour".
+   - **Official answers from Valio Aimo (14 Nov):**
+     - closingTime is the cut-off for availableDate. The mock data does **not** shift during the weekend, so every Mon 16 Nov delivery passes its cut-off on **Sun 15 Nov 17:00**: after that, the live demo needs recorded mode.
+     - availableAmount ≥ 999999 means availability unknown, and Valio allows any quantity. Empty means not available.
+     - allowedLotSize 0.01 means 1.
+     - HTTP 429 blocks the caller for 30 s, and Valio asks every team to honour it; a few hundred calls per minute is fine.
+     - Valio's systems have no approval gates today: the mandate is new, explicit, buyer-owned control.
 6. **API etiquette:**
    - narrow down from static data first;
    - live price/availability only for the shortlist (≤ 20 per item, one batched call each);

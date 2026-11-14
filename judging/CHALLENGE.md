@@ -75,3 +75,55 @@ Preferred tech: AI agents (agentic/tool-use frameworks), open data/interop stand
 | Openness and credible path toward production | 15% | Open, documented standards rather than a proprietary format, clear visibility of assumptions, well-justified technical choices, and a credible view of next development steps. |
 
 Prizes: 1st €4,000 · 2nd €2,000 · 3rd €1,000.
+
+## Printed challenge flyer (Valio Aimo, Junction 2026)
+
+Build the prototype that lets an AI purchasing agent buy food from a wholesaler: safely, openly, and with the right human approval.
+
+**The idea.** Ordering is moving from people clicking through a webshop to AI agents buying on their behalf. Valio Aimo serves 20,000+ professional kitchens with 25,000 products from 700 suppliers. We want to define how an outside agent can work with our systems on open standards, not inside someone else's black box.
+
+**The flow your solution must run:**
+1. Request: the agent asks for what the buyer needs.
+2. Lookup: find products, prices and availability.
+3. Order: commit at a fixed price.
+4. Approval: the agent decides, or a human signs off.
+
+Example: a hotel chain's agent asks, "I need 1,000 litres of lactose-free milk by Monday. Find an option that meets our requirements based on price and availability."
+
+**Must build (core):**
+1. Lookup: structured search of products, prices and availability.
+2. Request and order: from inquiry to commitment at fixed prices.
+3. Permissions and approval: what the agent decides alone, and what a human signs off.
+
+**Bonus ideas (optional):**
+- Compare more than price: delivery reliability and sustainability labels.
+- Handle exceptions: partial availability and substitutions when the exact request cannot be met.
+- Explain decisions: a human-readable record of what the agent did and why.
+
+**How we judge:**
+
+| Criterion | Weight |
+|---|---|
+| Working end-to-end demo | 30% |
+| Solving the user's need | 20% |
+| Autonomy and controls (guardrails) | 20% |
+| Robustness to exceptions | 15% |
+| Openness and path to production | 15% |
+
+Trust and openness by design: a full flow that works, a clear model for human sign-off, and open, well-documented choices. **Not** a production-ready system in 48 hours.
+
+**You get:** pricing and availability mock APIs; product data, delivery reliability and carbon footprint files; mentors for AI, wholesale and data governance.
+
+**Good to know:**
+- We mock today's webshop, not the marketplace.
+- It is not a chatbot.
+- Query the APIs only when needed, never for all products.
+
+## Official Q&A from Valio Aimo (challenge channel, 14 Nov)
+
+- **Orders:** there is no order API in this challenge. It is enough that a solution produces orders for human approval; they don't need to be sent anywhere. A webshop account is available at the booth, but orders cannot be placed in it (it is production).
+- **closingTime:** the order cut-off for the related availableDate. The mock data stays the same for the weekend; in real life it would shift.
+- **Availability ≥ 999999:** Valio does not know the availability. Its current logic allows ordering any quantity. These values typically appear on terminal products that Valio does not stock. An empty availability means not available.
+- **allowedLotSize = 0.01:** treat it as 1. Fractional crates are not possible.
+- **Rate limits:** hitting the limit returns HTTP 429 and blocks the caller for 30 seconds, so solutions should honour 429 responses. A few hundred calls per minute is fine; that many within 10 seconds is not.
+- **Approvals today:** Valio's systems have no approval gates for orders. Customers with spending or decision limits handle them through internal instructions, or by letting only the manager place orders. In an agentic scenario a human approval would be required at this point, though it might be dropped in the future if reliability is good enough.
