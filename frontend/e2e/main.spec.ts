@@ -121,3 +121,22 @@ test('collapsible trust cards keep step 4 reachable within one viewport scroll a
   await expect(pastaCard).toContainText('valio-aimo.availability-api · closingTime')
   await expect(pastaCard).toContainText('Fri 13 Nov 21:50')
 })
+
+test('editable assumption chips: changing "Any fat %" to "1.5 %" in Scenario A re-runs the flow and changes the shortlist', async ({
+  page,
+}) => {
+  await runScenario(page, 'A')
+  await expect(step(page, 'Lookup')).toContainText('Shortlist (2): MOCK-MILK, MOCK-MILK-3PCT')
+
+  await step(page, 'Request').getByRole('button', { name: 'Edit assumption: Any fat %' }).click()
+  const input = step(page, 'Request').getByRole('textbox', { name: 'Edit assumption Any fat %' })
+  await input.fill('1.5 %')
+  await step(page, 'Request').getByRole('button', { name: 'Apply assumption Any fat %' }).click()
+
+  await expect(step(page, 'Request')).toContainText('Preferences: 1.5 %')
+  await expect(
+    step(page, 'Request').getByRole('button', { name: 'Edit assumption: 1.5 %' }),
+  ).toBeVisible()
+  await expect(step(page, 'Lookup')).toContainText('Shortlist (1): MOCK-MILK')
+  await expect(step(page, 'Lookup')).not.toContainText('MOCK-MILK-3PCT')
+})

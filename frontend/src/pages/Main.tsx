@@ -19,6 +19,7 @@ import { RequestComposer } from '../components/flow/RequestComposer'
 import { ModeBadge } from '../components/flow/ModeBadge'
 import { StatusPill, Step, type StepStatus } from '../components/flow/Step'
 import { RequestCard, approvalLabel } from '../components/flow/StepContent'
+import type { ItemPlanSummary } from '../components/request/AssumptionChips'
 import { DecisionFooter } from '../components/order/DecisionFooter'
 import { ExcludedList } from '../components/order/ExcludedList'
 import { OrderProposalView } from '../components/order/OrderProposalView'
@@ -325,7 +326,21 @@ export function Main() {
                 </div>
               </div>
             )}
-            {structuredRequest && <RequestCard proposal={proposal} request={structuredRequest} />}
+            {structuredRequest && (
+              <RequestCard
+                proposal={proposal}
+                request={structuredRequest}
+                disabled={running}
+                onEditAssumption={(nextText) => {
+                  const targetCustomerId = customerId ?? proposal?.customerId
+                  if (targetCustomerId) {
+                    setText(nextText)
+                    setStreamedSteps([])
+                    run.mutate({ customerId: targetCustomerId, requestText: nextText })
+                  }
+                }}
+              />
+            )}
           </Step>
           <Step
             number={2}
@@ -349,6 +364,7 @@ export function Main() {
                 proposal={proposal}
                 request={structuredRequest}
                 excluded={lookupExcluded}
+                plan={step2?.plan as ItemPlanSummary[] | undefined}
               />
             )}
           </Step>

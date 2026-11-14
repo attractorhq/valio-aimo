@@ -190,6 +190,35 @@ export class GatewayError extends Error {
 
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
+function mockPlanForProposal(proposal: Proposal) {
+  return proposal.request.items.map((item) => {
+    const isMilk = item.what.toLowerCase().includes('milk')
+    if (isMilk) {
+      const candidates = [
+        {
+          productId: 'MOCK-MILK',
+          name: 'Synthetic lactose-free semi skimmed milk drink 1.5 % 1 l',
+        },
+        {
+          productId: 'MOCK-MILK-3PCT',
+          name: 'Synthetic lactose-free 3 % milk drink 1 l',
+        },
+      ]
+      return {
+        item,
+        shortlistIds: candidates.map((c) => c.productId),
+        rankedCandidates: candidates,
+      }
+    }
+    const chosen = proposal.lines.filter((l) => l.itemId === item.itemId)
+    return {
+      item,
+      shortlistIds: chosen.map((l) => l.productId),
+      rankedCandidates: chosen.map((l) => ({ productId: l.productId, name: l.name })),
+    }
+  })
+}
+
 function stepsFromProposal(proposal: Proposal): AgentStepEvent[] {
   const n = proposal.request.items.length
   const approvalStatus: AgentStepEvent['status'] =
@@ -227,6 +256,7 @@ function stepsFromProposal(proposal: Proposal): AgentStepEvent[] {
       status: 'done',
       summary: 'Static catalogue first, then live price + availability for the shortlist only',
       request: proposal.request,
+      plan: mockPlanForProposal(proposal),
       reasons: [],
       excluded: proposal.excluded ?? [],
     },
@@ -329,7 +359,10 @@ export const mockGateway: Gateway = {
   async run({ customerId, requestText, onStep }) {
     await pause(250)
     const text = requestText.trim()
-    const match = SCENARIOS.find((s) => s.requestText === text)
+    const stripped = text.replace(/\s*\([^()]+\)(?=\s*(?:[.;!\n]|$))/, '')
+    const qualifierMatch = text.match(/\(([^()]+)\)(?=\s*(?:[.;!\n]|$))/)
+    const qualifier = qualifierMatch?.[1]?.trim()
+    const match = SCENARIOS.find((s) => s.requestText === text || s.requestText === stripped)
     if (!match) {
       throw new GatewayError(
         'UNKNOWN_REQUEST',
@@ -346,8 +379,37 @@ export const mockGateway: Gateway = {
     // Each run is a fresh proposal, valid for 15 minutes from now (the recorded facts stay as recorded).
     const base = MOCK_PROPOSALS[match.id]
     const now = Date.now()
+    let updatedRequest = base.request
+    if (qualifier) {
+      const fatMatch = qualifier.match(/(\d+(?:[.,]\d+)?)\s*%/)
+      const fatValue = fatMatch ? fatMatch[1].replace(',', '.') : undefined
+      updatedRequest = {
+        ...base.request,
+        requestText: text,
+        items: base.request.items.map((item, idx) =>
+          idx === 0
+            ? {
+                ...item,
+                preferences: fatValue
+                  ? [
+                      ...(item.preferences ?? []).filter((p) => p.kind !== 'FAT_PERCENT'),
+                      { kind: 'FAT_PERCENT' as const, value: fatValue },
+                    ]
+                  : [
+                      ...(item.preferences ?? []),
+                      { kind: 'OTHER' as const, value: qualifier },
+                    ],
+              }
+            : item,
+        ),
+        assumptions: fatValue
+          ? (base.request.assumptions ?? []).filter((a) => !/any\s+fat/i.test(a))
+          : [...(base.request.assumptions ?? []), qualifier],
+      }
+    }
     const proposal: Proposal = {
       ...base,
+      request: updatedRequest,
       proposalId: `${base.proposalId}-${randomId().slice(0, 8)}`,
       createdAt: new Date(now).toISOString(),
       validUntil: new Date(now + OFFER_VALIDITY_MS).toISOString(),

@@ -135,6 +135,19 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     await expect(step(page, 'Approval')).toContainText('Agent decided → Confirmed (simulated)')
     await expect(step(page, 'Order')).toContainText('€1,010.00 excl. VAT')
     await expect(step(page, 'Order')).toContainText('464306')
+    await expect(step(page, 'Lookup')).toContainText('463335')
+
+    // 1b. T24: Changing "Any fat %" to "1.5 %" in A re-runs the flow and changes the shortlist
+    await step(page, 'Request').getByRole('button', { name: 'Edit assumption: Any fat %' }).click()
+    const fatInput = step(page, 'Request').getByRole('textbox', { name: 'Edit assumption Any fat %' })
+    await fatInput.fill('1.5 %')
+    await step(page, 'Request').getByRole('button', { name: 'Apply assumption Any fat %' }).click()
+    await expect(step(page, 'Request')).toContainText('Preferences: 1.5 %')
+    await expect(
+      step(page, 'Request').getByRole('button', { name: 'Edit assumption: 1.5 %' }),
+    ).toBeVisible()
+    await expect(step(page, 'Lookup')).toContainText('464306')
+    await expect(step(page, 'Lookup')).not.toContainText('463335')
 
     // 2. Scenario B -> ASK -> Approver panel -> Approve -> CONFIRMED_SIMULATED in both views
     await page.getByRole('button', { name: /^Scenario B:/ }).click()
