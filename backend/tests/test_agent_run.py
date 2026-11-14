@@ -31,7 +31,7 @@ from app.contracts import ReasonCode
 from app.gateway.proposals import ProposalGateway
 from app.main import app
 from app.policy import DEMO_MANDATES, M1, M2, MandateBook
-from app.valio import RawBatch, RecordedValioProvider, normalise_batch
+from app.valio import IntegrationError, RawBatch, RecordedValioProvider, normalise_batch
 
 HEL = "+02:00"
 NOW = datetime.fromisoformat(f"2026-11-13T21:52:02{HEL}")
@@ -654,6 +654,58 @@ def test_agent_run_never_leaks_approval_tokens_urls_or_qr_payloads(synthetic_api
         assert not re.search(r"https?://|/approver", body)
         for tok in tokens:
             assert tok not in body
+
+
+def test_upstream_failure_mid_flow_returns_502_in_json_and_clean_error_event_in_streams(synthetic_api):
+    """When the Valio provider raises IntegrationError mid-flow (after step 1 REQUEST), non-stream JSON
+    returns HTTP 502 with the API error model, and SSE/NDJSON streams emit a final ERROR event and close cleanly.
+    """
+    client, state = synthetic_api
+
+    class FailingProvider:
+        recorded_at = NOW
+
+        def lookup(self, *args, **kwargs):
+            raise IntegrationError("No recorded batch matches this customer, date and shortlist; no live fallback used.")
+
+    state.gateway.provider = FailingProvider()
+
+    # 1. Non-stream JSON mode returns HTTP 502 with the API error model
+    r_json = client.post("/v0.1/agent/run", json={"customerId": M1.customerId, "requestText": A_TEXT})
+    assert r_json.status_code == 502
+    err_body = r_json.json()
+    assert err_body["error"]["code"] == "UPSTREAM_ERROR"
+    assert "No recorded batch" in err_body["error"]["message"]
+
+    # 2. SSE stream emits Step 1 (REQUEST), then a final ERROR step/event and closes cleanly
+    r_sse = client.post(
+        "/v0.1/agent/run",
+        headers={"Accept": "text/event-stream"},
+        json={"customerId": M1.customerId, "requestText": A_TEXT},
+    )
+    assert r_sse.status_code == 200
+    events: list[tuple[str, dict]] = []
+    for block in r_sse.text.strip().split("\n\n"):
+        lines = block.strip().splitlines()
+        ev_type = lines[0].removeprefix("event: ").strip()
+        ev_data = json.loads(lines[1].removeprefix("data: ").strip())
+        events.append((ev_type, ev_data))
+    assert events[0][0] == "step" and events[0][1]["name"] == "REQUEST"
+    assert any(t == "step" and d.get("name") == "ERROR" and d.get("error", {}).get("code") == "UPSTREAM_UNAVAILABLE" for t, d in events)
+    assert any(t == "error" and d.get("error", {}).get("code") == "UPSTREAM_UNAVAILABLE" for t, d in events)
+
+    # 3. NDJSON stream emits Step 1 (REQUEST), then a final ERROR line and closes cleanly
+    r_ndjson = client.post(
+        "/v0.1/agent/run",
+        headers={"Accept": "application/x-ndjson"},
+        json={"customerId": M1.customerId, "requestText": A_TEXT},
+    )
+    assert r_ndjson.status_code == 200
+    rows = [json.loads(line) for line in r_ndjson.text.strip().splitlines() if line.strip()]
+    assert rows[0]["type"] == "step" and rows[0]["name"] == "REQUEST"
+    assert rows[-1]["type"] == "error"
+    assert rows[-1]["name"] == "ERROR"
+    assert rows[-1]["error"]["code"] == "UPSTREAM_UNAVAILABLE"
 
 
 # --------------------------------------------------------------------------- 3. Real recorded fixtures (`data/fixtures/`)

@@ -61,7 +61,7 @@ from app.valio.record import BRIEF_PRODUCT_IDS
 if TYPE_CHECKING:
     from app.api.state import GatewayState
 
-StepName = Literal["REQUEST", "LOOKUP", "ORDER", "APPROVAL"]
+StepName = Literal["REQUEST", "LOOKUP", "ORDER", "APPROVAL", "ERROR"]
 StepStatus = Literal["done", "waiting", "blocked"]
 
 
@@ -70,7 +70,7 @@ class AgentStepEvent(Contract):
 
     step: Literal[1, 2, 3, 4]
     name: StepName
-    title: Literal["Request", "Lookup", "Order", "Approval"]
+    title: Literal["Request", "Lookup", "Order", "Approval", "Error"]
     status: StepStatus
     summary: str
     request: StructuredRequest | None = None
@@ -82,6 +82,7 @@ class AgentStepEvent(Contract):
     explanation: ExplanationResult | None = None
     reasons: list[ReasonCode] = Field(default_factory=list)
     excluded: list[ExcludedProduct] = Field(default_factory=list)
+    error: dict[str, Any] | None = None
 
 
 class AgentRunResult(Contract):
@@ -425,8 +426,59 @@ def iter_agent_steps(
     now: datetime | None = None,
     interpreter: LlmInterpreter | None = None,
     explainer: LlmExplainer | None = None,
+    catch_stream_errors: bool = False,
 ) -> Iterator[AgentStepEvent]:
     """Execute the four-step purchasing flow on `channel`, yielding one `AgentStepEvent` per step."""
+    try:
+        yield from _iter_agent_steps_inner(
+            customer_id,
+            request_text,
+            channel=channel,
+            now=now,
+            interpreter=interpreter,
+            explainer=explainer,
+        )
+    except IntegrationError:
+        if not catch_stream_errors:
+            raise
+        err_detail = {
+            "code": "UPSTREAM_UNAVAILABLE",
+            "message": "Live price/availability could not be read for this shortlist; nothing was ordered.",
+        }
+        yield AgentStepEvent(
+            step=2,
+            name="ERROR",
+            title="Error",
+            status="blocked",
+            summary=err_detail["message"],
+            error=err_detail,
+        )
+    except Exception:
+        if not catch_stream_errors:
+            raise
+        err_detail = {
+            "code": "AGENT_RUN_FAILED",
+            "message": "The purchasing flow could not be completed; nothing was ordered.",
+        }
+        yield AgentStepEvent(
+            step=4,
+            name="ERROR",
+            title="Error",
+            status="blocked",
+            summary=err_detail["message"],
+            error=err_detail,
+        )
+
+
+def _iter_agent_steps_inner(
+    customer_id: str,
+    request_text: str,
+    *,
+    channel: AgentChannel,
+    now: datetime | None = None,
+    interpreter: LlmInterpreter | None = None,
+    explainer: LlmExplainer | None = None,
+) -> Iterator[AgentStepEvent]:
     mandate = channel.get_mandate(customer_id)
     eval_now = now or (channel.now() if hasattr(channel, "now") else datetime.now(UTC))
 

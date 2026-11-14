@@ -18,6 +18,7 @@ from app.agent.run import (
     AgentStepEvent,
     GatewayAgentChannel,
     iter_agent_steps,
+    run_agent,
 )
 from app.contracts import GetOfferRequest, OfferItem
 from app.contracts.common import Contract, Identifier
@@ -115,7 +116,16 @@ def _stream_sse(
     channel: GatewayAgentChannel,
 ) -> Iterator[str]:
     steps: list[AgentStepEvent] = []
-    for step_event in iter_agent_steps(customer_id, request_text, channel=channel):
+    for step_event in iter_agent_steps(
+        customer_id,
+        request_text,
+        channel=channel,
+        catch_stream_errors=True,
+    ):
+        if step_event.name == "ERROR":
+            yield f"event: step\ndata: {step_event.model_dump_json()}\n\n"
+            yield f"event: error\ndata: {json.dumps({'error': step_event.error}, ensure_ascii=False)}\n\n"
+            return
         steps.append(step_event)
         yield f"event: step\ndata: {step_event.model_dump_json()}\n\n"
     if steps:
@@ -129,7 +139,16 @@ def _stream_ndjson(
     channel: GatewayAgentChannel,
 ) -> Iterator[str]:
     steps: list[AgentStepEvent] = []
-    for step_event in iter_agent_steps(customer_id, request_text, channel=channel):
+    for step_event in iter_agent_steps(
+        customer_id,
+        request_text,
+        channel=channel,
+        catch_stream_errors=True,
+    ):
+        if step_event.name == "ERROR":
+            payload = {"type": "error", **step_event.model_dump(mode="json")}
+            yield json.dumps(payload, ensure_ascii=False) + "\n"
+            return
         steps.append(step_event)
         payload = {"type": "step", **step_event.model_dump(mode="json")}
         yield json.dumps(payload, ensure_ascii=False) + "\n"
@@ -137,40 +156,6 @@ def _stream_ndjson(
         final = _assemble_result_from_steps(customer_id, steps, channel)
         payload = {"type": "result", **final.model_dump(mode="json")}
         yield json.dumps(payload, ensure_ascii=False) + "\n"
-
-
-def _stream_json_chunks(
-    customer_id: str,
-    request_text: str,
-    channel: GatewayAgentChannel,
-) -> Iterator[str]:
-    """Stream `AgentRunResult` as chunked JSON so step events arrive incrementally and `response.json()` works."""
-    steps: list[AgentStepEvent] = []
-    yield (
-        '{"customerId":'
-        + json.dumps(customer_id)
-        + ',"mode":'
-        + json.dumps(channel.state.mode)
-        + ',"steps":['
-    )
-    for idx, step_event in enumerate(iter_agent_steps(customer_id, request_text, channel=channel)):
-        steps.append(step_event)
-        prefix = "," if idx > 0 else ""
-        yield prefix + step_event.model_dump_json()
-
-    final = _assemble_result_from_steps(customer_id, steps, channel)
-    tail_dict = final.model_dump(mode="json")
-    tail_fields = [
-        f'"request":{json.dumps(tail_dict["request"], ensure_ascii=False)}',
-        f'"clarificationQuestion":{json.dumps(tail_dict["clarificationQuestion"], ensure_ascii=False)}',
-        f'"plan":{json.dumps(tail_dict["plan"], ensure_ascii=False)}',
-        f'"offer":{json.dumps(tail_dict["offer"], ensure_ascii=False)}',
-        f'"proposal":{json.dumps(tail_dict["proposal"], ensure_ascii=False)}',
-        f'"decision":{json.dumps(tail_dict["decision"], ensure_ascii=False)}',
-        f'"explanation":{json.dumps(tail_dict["explanation"], ensure_ascii=False)}',
-        f'"reasons":{json.dumps(tail_dict["reasons"], ensure_ascii=False)}',
-    ]
-    yield "]," + ",".join(tail_fields) + "}"
 
 
 @router.post(
@@ -184,7 +169,7 @@ def run_agent_route(
     request: Request,
     state: State,
     stream: Annotated[bool, Query(description="Stream Server-Sent Events for the four steps")] = False,
-) -> StreamingResponse:
+) -> AgentRunResult | StreamingResponse:
     # Validate that the customer mandate exists up-front so unknown customers return HTTP 404.
     state.gateway.mandates.get(body.customerId)
     channel = GatewayAgentChannel(state)
@@ -202,10 +187,7 @@ def run_agent_route(
             media_type="application/x-ndjson",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
-    return StreamingResponse(
-        _stream_json_chunks(body.customerId, body.requestText, channel),
-        media_type="application/json",
-    )
+    return run_agent(body.customerId, body.requestText, channel=channel)
 
 
 # Register on the shared agent_channel router so `app.main:app` serves `/v0.1/agent/run`.
