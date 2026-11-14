@@ -239,6 +239,14 @@ _FINNISH_NOUNS: tuple[tuple[str, str], ...] = (
 # cream). Checked before the stems.
 _FINNISH_FORMS: tuple[tuple[re.Pattern, str], ...] = tuple(
     (re.compile(pattern, re.IGNORECASE), english) for pattern, english in (
+        # T52: stated attributes stay in the item ("suolattua voita" is salted butter, not "salt butter").
+        (r"suolat(?:tu|tua|tun|tuja|tuna)|normaalisuolai\w*", "salted"),
+        (r"suolaton|suolatonta|suolattoman|suolattomia|suolattomana", "unsalted"),
+        (r"kylmäsavustet(?:tu|tua|tun|tuja)", "cold-smoked"),
+        (r"lämminsavustet(?:tu|tua|tun|tuja)", "hot-smoked"),
+        (r"savustet(?:tu|tua|tun|tuja)", "smoked"),
+        (r"pakastet(?:tu|tua|tun|tuja)", "frozen"),
+        (r"tuore|tuoretta|tuoreen|tuoreita|tuoreet", "fresh"),
         (r"(?:kirnu|meijeri|ruoka)?voi(?:ta|n|hin|ksi)?", "butter"),
         (r"kermavaah\w*|(?:kuohu|vispi)kerm\w*", "whipping cream"),
         (r"ruokakerm\w*", "cooking cream"),
@@ -868,6 +876,12 @@ def _item_assumptions(what: str, preferences: list[Preference]) -> list[str]:
         out.append("Any fat %")
     if "milk" in lower or "drink" in lower:
         out.append("UHT or fresh")
+    # T52: a stated attribute is required, never silently a soft preference.
+    if any(p.kind == "ORGANIC" for p in preferences):
+        out.append("Organic required: proven only by an organic label, otherwise offered as a substitute")
+    for p in preferences:
+        if p.kind == "FAT_PERCENT":
+            out.append(f"{p.value} % fat required: otherwise offered as a substitute")
     return out
 
 
