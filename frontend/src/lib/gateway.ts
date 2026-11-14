@@ -62,7 +62,15 @@ export type AgentStepEvent = {
   error?: { code: string; message: string } | null
 }
 
+/** T44: on a hard-limit BLOCK, what would fit under the limit. Information only; never ordered. */
+export type FeasibleOrder = {
+  hardLimitEur: string
+  totalExclVat: string
+  text: string
+}
+
 export type FlowResult = {
+  feasibleWithinHardLimit?: FeasibleOrder | null
   proposal?: Proposal | null
   steps: AgentStepEvent[]
   request?: StructuredRequest | null
@@ -207,9 +215,7 @@ function mockPlanForProposal(proposal: Proposal) {
           fat: '3',
         },
       ]
-      const candidates = normFat
-        ? allCandidates.filter((c) => c.fat === normFat)
-        : allCandidates
+      const candidates = normFat ? allCandidates.filter((c) => c.fat === normFat) : allCandidates
       return {
         item,
         shortlistIds: candidates.map((c) => c.productId),
@@ -399,10 +405,7 @@ export const mockGateway: Gateway = {
                       ...(item.preferences ?? []).filter((p) => p.kind !== 'FAT_PERCENT'),
                       { kind: 'FAT_PERCENT' as const, value: fatValue },
                     ]
-                  : [
-                      ...(item.preferences ?? []),
-                      { kind: 'OTHER' as const, value: qualifier },
-                    ],
+                  : [...(item.preferences ?? []), { kind: 'OTHER' as const, value: qualifier }],
               }
             : item,
         ),
@@ -921,7 +924,11 @@ export const gateway: Gateway = {
       activeHealthMode = mode
     }
 
+    const feasibleWithinHardLimit =
+      (finalPayload?.feasibleWithinHardLimit as FeasibleOrder | null | undefined) ?? null
+
     return {
+      feasibleWithinHardLimit,
       proposal,
       steps,
       request,
