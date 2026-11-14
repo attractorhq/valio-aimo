@@ -689,6 +689,10 @@ class TypeQualifierGroup:
 _FROZEN_TERMS = ("frozen", "pakaste", "pakastet", "jäädytet", "fryst", "iqf")
 _SMOKED_TERMS = ("smoked", "savu", "savustet", "rökt")
 _CURED_TERMS = ("graavi", "gravad", "graved", "marinated", "cured", "lightly salted", "kevytsuolat")
+# T52: salted vs unsalted is a stated attribute. "unsalted" contains "salted", so the salted terms match only
+# at the start of a word (the product text is padded with a leading space).
+_UNSALTED_TERMS = ("unsalted", "suolaton", "suolatont", "suolattom", "osaltat", "saltfri", "without salt")
+_SALTED_TERMS = (" salted", "-salted", "suolattu", "normaalisuola", "suolainen", " saltat")
 _PROCESSED_CHEESE_TERMS = (
     "processed", "sulatejuust", "sulate ", "smältost", "juustoa sisältäv", "cheese-containing", "imitation",
 )
@@ -807,6 +811,25 @@ TYPE_QUALIFIER_GROUPS: tuple[TypeQualifierGroup, ...] = (
             for variety_id, label, patterns, terms in _CHEESE_VARIETIES
         ),
     ),
+    # T52: salted or unsalted, as the buyer stated it (butter, nuts, crackers …).
+    TypeQualifierGroup(
+        group_id="salt",
+        concepts=frozenset(),
+        variants=(
+            TypeVariant(
+                "unsalted", "unsalted",
+                (r"\bunsalted\b", r"\bsuolaton\w*", r"\bsuolatont\w*", r"\bosaltat\w*", r"\bsaltfri\w*",
+                 r"\bwithout\s+salt\b"),
+                product_terms=_UNSALTED_TERMS,
+            ),
+            TypeVariant(
+                "salted", "salted",
+                (r"\bsalted\b", r"\bsuolat(?:tu|tua|tun|tuja)\b", r"\bnormaalisuolai\w*", r"\bsaltat\w*"),
+                product_terms=_SALTED_TERMS,
+                forbid_terms=_UNSALTED_TERMS,
+            ),
+        ),
+    ),
     # T39: butter is not margarine, a fat spread or a butter-oil blend.
     TypeQualifierGroup(
         group_id="butter_vs_spread",
@@ -881,7 +904,7 @@ def product_type_match(
     requirement_codes: tuple[str, ...] = (),
 ) -> TypeMatch:
     """Check a product against the product type in the buyer's words (names in every language count)."""
-    text = " ".join(n for n in product_names if n).lower() + " "
+    text = " " + " ".join(n for n in product_names if n).lower() + " "
     differences: list[str] = []
     for group, variant in requested_variants(query, concept_id):
         proves = not variant.product_terms or any(t in text for t in variant.product_terms)

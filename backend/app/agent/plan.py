@@ -60,6 +60,7 @@ from app.trust.labels import SOURCE_SUBSTITUTION, allergen_name
 from app.valio.record import BRIEF_PRODUCT_IDS
 
 MAX_SHORTLIST_PER_ITEM = 20
+ORGANIC_LABELS = frozenset({"EU_ORGANIC_FARMING", "KRAV_MARK", "OFFICIAL_ECO_LABEL_SUN"})
 _WORD_RE = re.compile(r"[\wåäöÅÄÖ%-]+", re.UNICODE)
 _PACK_VALUE_RE = re.compile(r"^(?P<num>\d+(?:[.,]\d+)?)\s*(?P<unit>kg|g|l|ml|dl|pcs|cases)$", re.IGNORECASE)
 _FAT_IN_NAME_RE = re.compile(r"(?<![\w.,])(\d+(?:[.,]\d+)?)\s*%", re.IGNORECASE)
@@ -365,13 +366,7 @@ def _matched_preferences_count(product: Product, preferences: Sequence[Preferenc
     for pref in preferences:
         val = pref.value.strip().lower()
         if pref.kind == "ORGANIC":
-            if (
-                "EU_ORGANIC_FARMING" in product.labels
-                or "KRAV_MARK" in product.labels
-                or "OFFICIAL_ECO_LABEL_SUN" in product.labels
-                or "organic" in text_lower
-                or "luomu" in text_lower
-            ):
+            if is_organic(product):
                 matched += 1
         elif pref.kind == "ORIGIN":
             if (product.countryOfOrigin or "").lower() == val or (
@@ -765,7 +760,33 @@ def requested_type_match(product: Product, item: RequestItem) -> TypeMatch:
         if missing:
             differences.append(f"not {' '.join(missing)}")
 
+    # T52: stated attributes are hard. A product that does not prove one is only an agent substitute, with
+    # the difference named; it is never the recommended exact match.
+    if any(p.kind == "ORGANIC" for p in item.preferences) and not is_organic(product):
+        differences.append("not organic (no organic label)")
+    target_fat = requested_fat_percent(item.preferences, item.what)
+    if target_fat is not None:
+        fats = product_fat_percents(product)
+        if not fats:
+            differences.append(f"fat % not stated, {_pct(target_fat)} % asked")
+        elif target_fat not in fats:
+            shown = " / ".join(_pct(f) for f in sorted(fats))
+            differences.append(f"{shown} % fat, not {_pct(target_fat)} %")
+
     return TypeMatch(exact=not differences, differences=tuple(differences))
+
+
+def _pct(value: Decimal) -> str:
+    return format(value.normalize(), "f")
+
+
+def is_organic(product: Product) -> bool:
+    """Organic is proven by an organic label, or the producer's own word in the product name."""
+    text_lower = " ".join(p for p in (product.name, *product.names.values()) if p).lower()
+    return (
+        any(label in product.labels for label in ORGANIC_LABELS)
+        or any(word in text_lower for word in ("organic", "luomu", "ekologisk"))
+    )
 
 
 def _missing_query_nouns(what: str, text_lower: str) -> list[str]:
@@ -843,6 +864,8 @@ def rank_candidates(
         if static_reasons:
             continue
 
+        # A proven different fat % is out (T24); an unstated one ranks after proven matches as an agent
+        # substitute that names it ("fat % not stated, 1.5 % asked"), never silently as the exact type (T52).
         prod_fats = product_fat_percents(prod)
         if target_fat is not None and not named and prod_fats and target_fat not in prod_fats:
             continue
