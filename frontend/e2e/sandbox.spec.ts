@@ -98,6 +98,7 @@ uvicorn.run(app, host="127.0.0.1", port=${apiPort}, log_level="warning")
     try {
       const admin = await first.newPage()
       await admin.goto(`${baseURL}/admin`)
+      await admin.getByRole('button', { name: 'Enter demo admin key', exact: true }).click()
       await admin.getByLabel('Auto-approve limit (€, excl. VAT)').fill('100')
       await admin.getByRole('button', { name: 'Apply policy change' }).click()
       await expect
@@ -125,7 +126,9 @@ uvicorn.run(app, host="127.0.0.1", port=${apiPort}, log_level="warning")
       )
       expect(
         await (
-          await second.request.get(`${baseURL}/v0.1/approver/proposals?pendingOnly=true`)
+          await second.request.get(`${baseURL}/v0.1/approver/proposals?pendingOnly=true`, {
+            headers: { 'X-Demo-Approver-Role': 'Purchasing Manager' },
+          })
         ).json(),
       ).toEqual([])
       const panel = await first.newPage()
@@ -143,12 +146,17 @@ uvicorn.run(app, host="127.0.0.1", port=${apiPort}, log_level="warning")
       await expect(approval.getByRole('article')).toContainText('Confirmed')
 
       await expect(buyer.getByText('Private session')).toBeVisible()
+      await buyer.goto(`${baseURL}/admin`)
+      await buyer.getByRole('button', { name: 'Enter demo admin key', exact: true }).click()
+      await buyer.goto(baseURL)
       await buyer.getByRole('button', { name: 'Reset', exact: true }).click()
       await expect(buyer.getByRole('listitem', { name: /Order/ })).toContainText('Not started')
       await buyer.getByRole('button', { name: /^Scenario A:/ }).click()
       await expect(buyer.getByRole('listitem', { name: /Approval/ })).toContainText('Confirmed')
       expect(
-        (await (await first.request.get(`${baseURL}/v0.1/approver/proposals`)).json())[0].state,
+        (await (await first.request.get(`${baseURL}/v0.1/approver/proposals`, {
+          headers: { 'X-Demo-Approver-Role': 'Purchasing Manager' },
+        })).json())[0].state,
       ).toBe('CONFIRMED_SIMULATED')
 
       const reset = await exec(python, [path.join(root, 'scripts/demo'), '--reset', apiURL], {
@@ -159,7 +167,9 @@ uvicorn.run(app, host="127.0.0.1", port=${apiPort}, log_level="warning")
         (await (await first.request.get(`${baseURL}/v0.1/mandates/${hotel}`)).json()).version,
       ).toBe(1)
       expect(
-        (await (await first.request.get(`${baseURL}/v0.1/audit/verify`)).json()).chainLength,
+        (await (await first.request.get(`${baseURL}/v0.1/audit/verify`, {
+          headers: { 'X-Demo-Admin-Key': 'demo-admin' },
+        })).json()).chainLength,
       ).toBe(0)
 
       const standalone = JSON.parse(
@@ -167,6 +177,7 @@ uvicorn.run(app, host="127.0.0.1", port=${apiPort}, log_level="warning")
       )
       const browserB = await (
         await second.request.post(`${baseURL}/v0.1/agent/run`, {
+          headers: { Authorization: `Bearer demo-agent-${school}` },
           data: {
             customerId: school,
             requestText:

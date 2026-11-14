@@ -18,6 +18,11 @@ async function syntheticGateway(
   page: Page,
   options: { slow?: boolean; queue?: boolean; error?: boolean } = {},
 ) {
+  // Loading/layout tests start after an explicit demo sign-in, not at the role/key picker.
+  await page.addInitScript(() => {
+    sessionStorage.setItem('verified-or-ask.demo-approver-role', 'Head Chef')
+    sessionStorage.setItem('verified-or-ask.demo-admin-key', 'demo-admin')
+  })
   await page.route('**/health', (route) =>
     route.fulfill(json({ ready: true, status: 'ok', mode: 'RECORDED' })),
   )
@@ -52,6 +57,10 @@ async function syntheticGateway(
     if (path.endsWith('/decision'))
       return route.fulfill(json({ ...proposal, state: 'CONFIRMED_SIMULATED' }))
     if (path === '/v0.1/audit') return route.fulfill(json(audit))
+    if (path === `/v0.1/proposals/${proposal.proposalId}`) return route.fulfill(json(proposal))
+    if (path === '/v0.1/audit/verify') return route.fulfill(json({
+      verified: true, headHash: '1'.repeat(64), chainLength: audit.entries.length, links: [],
+    }))
     return route.fulfill({ status: 404, body: '{}' })
   })
 }

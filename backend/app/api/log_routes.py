@@ -10,11 +10,12 @@ import io
 import re
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 
 from app.contracts import AuditEntry, AuditTrail
 
+from .auth import audit_scope
 from .errors import ERROR_RESPONSES
 from .state import GatewayState, get_state
 
@@ -64,6 +65,7 @@ def audit_csv(trail: AuditTrail) -> str:
                      "description": "The audit trail as an attachment."}},
 )
 def export_audit_trail(
+    request: Request,
     state: State,
     proposalId: str | None = None,
     customerId: str | None = None,
@@ -71,6 +73,7 @@ def export_audit_trail(
 ) -> Response:
     if (proposalId is None) == (customerId is None):
         raise HTTPException(status_code=400, detail="Pass exactly one of proposalId or customerId.")
+    audit_scope(request, state, proposalId, customerId)
     trail = state.gateway.get_audit_trail(proposal_id=proposalId, customer_id=customerId)
     scope = f"proposal-{proposalId}" if proposalId else f"customer-{customerId}"
     filename = f"decision-log-{_SAFE_NAME.sub('_', scope)}.{format}"

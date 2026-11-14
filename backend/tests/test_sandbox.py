@@ -7,7 +7,7 @@ from decimal import Decimal
 
 import pytest
 from fastapi import HTTPException
-from fastapi.testclient import TestClient
+from synthetic.demo_client import DemoTestClient as TestClient
 from test_agent_run import A_TEXT, B_TEXT, NOW, SyntheticAgentProvider, _build_synthetic_catalog
 
 from app.api import state as state_module
@@ -52,7 +52,7 @@ def test_two_sandboxes_have_private_mandates_proposals_approvals_logs_and_stats(
         assert auto["decision"] == "AUTO" and auto["totals"]["exclVat"] == "1010.00"
         assert {p["proposalId"] for p in two.get("/v0.1/approver/proposals").json()} == {auto["proposalId"]}
         assert two.get(f"/v0.1/proposals/{pending['proposalId']}").status_code == 404
-        assert two.get("/v0.1/audit", params={"proposalId": pending["proposalId"]}).json() == {"entries": []}
+        assert two.get("/v0.1/audit", params={"proposalId": pending["proposalId"]}).status_code == 404
         assert all(e["proposalId"] != pending["proposalId"] for e in two.get(
             "/v0.1/audit/export", params={"customerId": M1.customerId},
         ).json()["entries"])

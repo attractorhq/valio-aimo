@@ -35,6 +35,7 @@ def http_json(
     data = json.dumps(body).encode("utf-8") if body is not None else None
     # Cloudflare answers the default "Python-urllib" User-Agent with 403 on the deployed origin.
     headers = {"Accept": "application/json", "User-Agent": "verified-or-ask-second-client/0.1"}
+    headers["Authorization"] = f"Bearer demo-agent-{CUSTOMER_ID}"
     if data is not None:
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=data, headers=headers, method=method.upper())

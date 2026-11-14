@@ -41,11 +41,14 @@ def test_openapi_states_the_authentication_model():
     with TestClient(app) as client:
         spec = client.get("/openapi.json").json()
     schemes = spec["components"]["securitySchemes"]
-    assert schemes["agentKey"]["type"] == "apiKey" and schemes["agentKey"]["in"] == "header"
+    assert schemes["agentKey"]["type"] == "http" and schemes["agentKey"]["scheme"] == "bearer"
     assert schemes["approverSso"]["type"] == "http" and schemes["approverSso"]["scheme"] == "bearer"
-    for scheme in schemes.values():
-        assert "Not enforced in this demo" in scheme["description"]
-    assert spec["security"] == [{}]  # no authentication is required in the demo
-    assert "Authentication:" in spec["info"]["description"]
+    assert schemes["demoAdmin"]["name"] == "X-Demo-Admin-Key"
+    assert schemes["demoApprover"]["name"] == "X-Demo-Approver-Role"
+    assert "Not enforced in this demo" in schemes["approverSso"]["description"]
+    assert spec["security"] == [{}]  # read-only discovery is still public
+    assert spec["paths"]["/v0.1/offers"]["post"]["security"] == [{"agentKey": []}]
+    assert spec["paths"]["/v0.1/admin/mandates/{customerId}"]["patch"]["security"] == [{"demoAdmin": []}]
+    assert "Demo access:" in spec["info"]["description"]
     # The approver channel stays off the agent channel in the generated spec (unchanged).
     assert "/v0.1/approver/proposals/{proposalId}/decision" in spec["paths"]

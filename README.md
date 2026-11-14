@@ -16,15 +16,21 @@ The `/mcp` endpoint (Streamable HTTP) exposes only purchasing-agent tools: listM
 
 ```bash
 # Claude Code
-claude mcp add --transport http valio-aimo https://valio-aimo.attractorfi.workers.dev/mcp
+claude mcp add --transport http valio-aimo https://valio-aimo.attractorfi.workers.dev/mcp \
+  --header 'Authorization: Bearer demo-agent-northbay-school-kitchen'
 
 # Any client: initialise and list tools
 curl -s https://valio-aimo.attractorfi.workers.dev/mcp -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
+  -H 'Authorization: Bearer demo-agent-northbay-school-kitchen' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
 Cursor and Claude Desktop: add an HTTP MCP server with the URL `https://valio-aimo.attractorfi.workers.dev/mcp`. Demo customers are `nordic-harbour-hotels` and `northbay-school-kitchen`. A proposal that needs sign-off waits in `/approver` for a human.
+
+Set the `Authorization` header to `Bearer demo-agent-northbay-school-kitchen` (school) or `Bearer demo-agent-nordic-harbour-hotels` (hotel). These **public demo keys** are enforced on `/mcp`, agent REST writes (including search and `/v0.1/agent/run`), and customer-scoped audit reads/exports/verification. The key determines the buyer; omitting a tool's customer uses that buyer, and passing a different buyer is refused. A missing/unknown key returns 401. REST request bodies retain their required `customerId` as a checked binding, never as caller authority.
+
+The Approver panel asks you to choose **Head Chef** (school) or **Purchasing Manager** (hotel) and sends `X-Demo-Approver-Role`; only that buyer's queue is visible and only the proposal's named role can decide. Signed phone links carry their issued role and remain single-use. Buyer-admin writes require `X-Demo-Admin-Key: demo-admin`; `/admin` shows the public key and an **Enter demo admin key** button. Global audit access also requires that admin key. Customer/proposal audit access uses the owning buyer's agent key; a key cannot read another buyer's trail, export, or chain. These are demonstration gates, not production identity or secret credentials.
 
 Expected reference walkthrough: **A AUTO** (€1,010.00) → **B ASK** (€506.16, only `OVER_AUTO_LIMIT`) → **C BLOCK** (€20,200.00, with `INSTRUCTION_IGNORED`). These are checks, not hardcoded decisions or guarantees about today's live data. Run pre-flight before presenting.
 
@@ -128,7 +134,7 @@ Two channels on one origin. The full contract is in `docs/API.md`, and JSON Sche
   | 422 | `VALIDATION_ERROR`, `NO_ORDER` (with reasons) |
   | 502 | `UPSTREAM_ERROR` |
   | 503 | `GATEWAY_UNAVAILABLE` |
-- **Demo access:** there is no authentication. Anyone who can reach the demo approver channel can obtain demo approval permissions; channel separation is not production access control. Links/tokens are labelled **Demo approval link — single use**, expire with the offer and are bound to `proposalId + offerVersion + offerHash`. The QR and phone link exist only in the Approver view, never an agent response. The demo audit actor is `human:Head Chef (demo, link-based)`, not an authenticated identity. Production needs named approvers (SSO/OIDC) and per-customer agent credentials; buyer-admin routes also need authorisation. Export `APPROVAL_SIGNING_KEY` into the backend process environment if configuring a stable local signing key.
+- **Demo access:** public demo agent keys, role-only approver sign-in, and the public admin key enforce channel/customer scope (see **Connect an agent**). They are not production authentication: anyone can choose a demo role or use a published demo key. Single-use links expire with the offer and are bound to `proposalId + offerVersion + offerHash`. The QR and phone link exist only in the Approver view, never an agent response. Audit actors describe demo roles, not authenticated identities. Production needs named approvers (SSO/OIDC), secret per-customer agent credentials, and buyer-admin authorisation. Export `APPROVAL_SIGNING_KEY` into the backend process environment if configuring a stable local signing key.
 
 ### API in 60 seconds
 
@@ -139,7 +145,8 @@ Open `/docs` for ready-to-edit request examples. These Bash commands use `curl` 
 ```bash
 API=${API:-https://valio-aimo.attractorfi.workers.dev}
 SANDBOX="api-quickstart-$(date +%s)-$RANDOM"
-curl -fsS "$API/v0.1/agent/run" -H "X-Demo-Sandbox: $SANDBOX" -H 'Content-Type: application/json' -d '{
+curl -fsS "$API/v0.1/agent/run" -H "X-Demo-Sandbox: $SANDBOX" \
+  -H 'Authorization: Bearer demo-agent-nordic-harbour-hotels' -H 'Content-Type: application/json' -d '{
   "customerId": "nordic-harbour-hotels",
   "requestText": "I need 1,000 litres of lactose-free milk by Monday. Find an option that meets our requirements based on price and availability."
 }' | jq '{decision, reasons, totals: .proposal.totals}'
@@ -149,12 +156,14 @@ curl -fsS "$API/v0.1/agent/run" -H "X-Demo-Sandbox: $SANDBOX" -H 'Content-Type: 
 
 ```bash
 curl -fsS "$API/v0.1/products/search?customerId=northbay-school-kitchen" \
+  -H 'Authorization: Bearer demo-agent-northbay-school-kitchen' \
   -H "X-Demo-Sandbox: $SANDBOX" -H 'Content-Type: application/json' -d '{
     "query": "macaroni", "itemId": "I1", "limit": 5,
     "requirements": [{"kind": "CLAIM", "code": "FREE_FROM_GLUTEN"}]
   }' | jq '.candidates[] | {productId, name}'
 
-OFFER=$(curl -fsS "$API/v0.1/offers" -H "X-Demo-Sandbox: $SANDBOX" -H 'Content-Type: application/json' -d '{
+OFFER=$(curl -fsS "$API/v0.1/offers" -H "X-Demo-Sandbox: $SANDBOX" \
+  -H 'Authorization: Bearer demo-agent-northbay-school-kitchen' -H 'Content-Type: application/json' -d '{
   "customerId": "northbay-school-kitchen", "requestedDate": "2026-11-16",
   "items": [
     {"itemId": "I1", "productId": "474235", "quantity": "90", "unit": "kg"},
@@ -180,6 +189,7 @@ printf '%s\n' "$OFFER" | jq '{
     ]
   }
 }' | curl -fsS "$API/v0.1/proposals" -H "X-Demo-Sandbox: $SANDBOX" \
+  -H 'Authorization: Bearer demo-agent-northbay-school-kitchen' \
   -H 'Content-Type: application/json' --data-binary @- | jq '{proposalId, decision, reasons, state}'
 ```
 
@@ -189,12 +199,13 @@ Walkthrough for human approval of Scenario B (school kitchen, €500 auto-approv
 
 ```bash
 API=http://localhost:8000
-curl -s $API/v0.1/offers -H 'Content-Type: application/json' -d '{
+AGENT_AUTH='Authorization: Bearer demo-agent-northbay-school-kitchen'
+curl -s $API/v0.1/offers -H "$AGENT_AUTH" -H 'Content-Type: application/json' -d '{
   "customerId": "northbay-school-kitchen", "requestedDate": "2026-11-16",
   "items": [{"itemId": "I1", "productId": "474235", "quantity": "90", "unit": "kg"},
             {"itemId": "I2", "productId": "468465", "quantity": "80", "unit": "l"}]}'
 # → offerId, offerVersion, totals.exclVat
-curl -s $API/v0.1/proposals -H 'Content-Type: application/json' -d '{
+curl -s $API/v0.1/proposals -H "$AGENT_AUTH" -H 'Content-Type: application/json' -d '{
   "customerId": "northbay-school-kitchen", "offerId": "<offerId>", "offerVersion": 1,
   "request": {"requestText": "90 kg gluten-free macaroni and 80 l gluten-free oat drink by Monday",
     "requestedDate": "2026-11-16", "assumptions": [],
@@ -203,11 +214,12 @@ curl -s $API/v0.1/proposals -H 'Content-Type: application/json' -d '{
               {"itemId": "I2", "what": "oat drink", "quantity": "80", "unit": "l",
                "requirements": [{"kind": "CLAIM", "code": "FREE_FROM_GLUTEN"}], "preferences": []}]}}'
 # → decision ASK, reasons [OVER_AUTO_LIMIT], state PENDING_APPROVAL (no token in this response)
-curl -s $API/v0.1/approver/proposals/<proposalId>          # approver only: approvalToken
+curl -s $API/v0.1/approver/proposals/<proposalId> -H 'X-Demo-Approver-Role: Head Chef' # approver only: approvalToken
 curl -s $API/v0.1/approver/proposals/<proposalId>/decision -H 'Content-Type: application/json' \
+  -H 'X-Demo-Approver-Role: Head Chef' \
   -d '{"offerVersion": 1, "approvalToken": "<token>", "action": "APPROVE"}'
 # → source re-checked → CONFIRMED_SIMULATED, or SUPERSEDED if decisive terms changed
-curl -s "$API/v0.1/audit?proposalId=<proposalId>"           # the decision log
+curl -s "$API/v0.1/audit?proposalId=<proposalId>" -H "$AGENT_AUTH" # the customer's decision log
 ```
 
 ### Second client (`scripts/second-client`)

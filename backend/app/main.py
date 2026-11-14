@@ -44,23 +44,23 @@ app = FastAPI(
         "on is strong enough and the order is inside the buyer's mandate; everything else goes to a named human. "
         "Money is EUR excl. VAT as decimal strings. Every order is simulated: "
         "**Simulated order — mock environment**. No order is sent to Valio.\n\n"
-        "**Authentication:** none in this demo. `components.securitySchemes` documents the production plan: "
-        "scoped agent keys for the agent channel, and organisation SSO (OAuth 2.0 / OIDC) for approvers and "
-        "buyer admins."
+        "**Demo access:** customer-scoped Bearer agent keys, an explicit approver-role header, and "
+        "X-Demo-Admin-Key for admin writes/global audit. These public demo credentials are not production "
+        "identity; production requires scoped secrets and organisation SSO (OAuth 2.0 / OIDC)."
     ),
 )
-# Authentication model (T47). The demo enforces none: every route is open, and an approval needs the
-# single-use approval token from the Approver panel. The schemes below document the production plan.
+# Public demo credentials illustrate scope; production replaces them with authenticated identities.
 SECURITY_SCHEMES = {
     "agentKey": {
-        "type": "apiKey",
-        "in": "header",
-        "name": "X-Agent-Key",
-        "description": "Production plan: a scoped API key per purchasing agent and buyer. It covers the agent "
-                       "channel only (searchProducts, getOffer, createProposal, getProposal, getAuditTrail, "
-                       "getMandate) and can never reach the approver channel or buyer admin. "
-                       "Not enforced in this demo.",
+        "type": "http", "scheme": "bearer",
+        "description": "Enforced demo key: demo-agent-<customerId>. Binds agent writes, MCP and audit reads "
+                       "to that buyer. Public demo keys are not production secrets.",
     },
+    "demoAdmin": {"type": "apiKey", "in": "header", "name": "X-Demo-Admin-Key",
+                  "description": "Public demo key: demo-admin. Required for admin writes and global audit."},
+    "demoApprover": {"type": "apiKey", "in": "header", "name": "X-Demo-Approver-Role",
+                     "description": "Demo sign-in: Head Chef or Purchasing Manager. No password. "
+                                    "A signed single-use phone capability carries its issued role."},
     "approverSso": {
         "type": "http",
         "scheme": "bearer",
@@ -73,10 +73,25 @@ SECURITY_SCHEMES = {
 
 
 def openapi_with_security() -> dict:
-    """The generated spec plus `components.securitySchemes`, and an explicit no-auth `security` for the demo."""
+    """Describe the access gates actually enforced by the demo, per operation."""
     schema = FastAPI.openapi(app)  # cached on app.openapi_schema after the first call
     schema.setdefault("components", {})["securitySchemes"] = SECURITY_SCHEMES
-    schema["security"] = [{}]  # demo: no authentication required on any operation
+    schema["security"] = [{}]  # catalogue/mandate/proposal read-only discovery remains public
+    for path, methods in schema["paths"].items():
+        for method, operation in methods.items():
+            if path.startswith("/mcp") or (path.startswith("/v0.1/") and method == "post"
+                                           and not path.startswith(("/v0.1/admin", "/v0.1/approver"))):
+                operation["security"] = [{"agentKey": []}]
+            elif path.startswith("/v0.1/admin") and method in {"patch", "post"}:
+                operation["security"] = [{"demoAdmin": []}]
+            elif path.startswith("/v0.1/approver"):
+                operation["security"] = [{"demoApprover": []}]
+                if path == "/v0.1/approver/proposals":
+                    operation["security"].append({"demoAdmin": []})
+            elif path.startswith("/v0.1/audit"):
+                operation["security"] = [{"agentKey": []}, {"demoAdmin": []}]
+            elif path == "/v0.1/proposals":
+                operation["security"] = [{"agentKey": []}]
     return schema
 
 
@@ -84,8 +99,9 @@ app.openapi = openapi_with_security  # type: ignore[method-assign]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in get_settings().frontend_origins.split(",") if o.strip()],
-    allow_methods=["GET", "POST", "PATCH"],  # PATCH: buyer-admin mandate change (T21) from the dev UI
-    allow_headers=["Content-Type", "X-Demo-Sandbox", "X-Approval-Token", "Mcp-Session-Id"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_headers=["Content-Type", "X-Demo-Sandbox", "X-Approval-Token", "Mcp-Session-Id", "Authorization",
+                   "X-Demo-Admin-Key", "X-Demo-Approver-Role"],
 )
 
 

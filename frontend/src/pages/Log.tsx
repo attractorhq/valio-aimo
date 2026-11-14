@@ -8,6 +8,7 @@ import { isRecheck, recheckResult } from '../components/log/LogEntry'
 import { LogNotFound, MOCK_LOGS, findMockLog, logPath } from '../components/log/logData'
 import { ProposalList } from '../components/log/ProposalList'
 import { gateway } from '../lib/gateway'
+import { agentHeaders } from '../lib/demoAccess'
 import { LoadingSection } from '../components/Loading'
 
 const GENESIS_HASH = '0'.repeat(64)
@@ -90,18 +91,18 @@ async function computeClientVerification(entries: AuditEntry[]): Promise<AuditCh
 async function fetchGatewayVerification(
   proposalId: string,
   entries: AuditEntry[],
-): Promise<AuditChainVerification> {
+): Promise<AuditChainVerification | null> {
   try {
     const res = await fetch(`/v0.1/audit/verify?proposalId=${encodeURIComponent(proposalId)}`, {
-      headers: { Accept: 'application/json' },
+      headers: { Accept: 'application/json', ...agentHeaders(entries[0]?.customerId ?? '') },
     })
     if (res.ok) {
       return (await res.json()) as AuditChainVerification
     }
   } catch {
-    // Fallback to client-side SHA-256 chain computation in offline mock mode
+    // A failed authenticated server check is not evidence that the chain is verified.
   }
-  return computeClientVerification(entries)
+  return null
 }
 
 /** Decision log per proposal (P6 P0-5, T28): readable for the buyer and Valio Aimo with SHA-256 hash-chain verification. */

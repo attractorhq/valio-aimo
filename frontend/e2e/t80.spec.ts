@@ -1,7 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-// T80: /log lists the recent proposals per buyer, and the Approver panel opens on the approver who has
-// the newest pending item.
+// T80/T55: lists stay buyer-scoped; approvers explicitly choose their role before loading a queue.
 
 const STORE = 'verified-or-ask.mock-gateway.v1'
 const step = (page: Page, name: string) => page.getByRole('listitem', { name: new RegExp(name) })
@@ -35,7 +34,7 @@ test('an unknown proposal id says not found and still lists the proposals', asyn
   await expect(page.getByRole('region', { name: 'Recent proposals' })).toBeVisible()
 })
 
-test('the Approver panel opens on the approver with the newest pending item, with counts', async ({
+test('the Approver panel asks for a role instead of choosing the newest pending buyer', async ({
   page,
 }) => {
   await runScenario(page, 'B')
@@ -55,10 +54,11 @@ test('the Approver panel opens on the approver with the newest pending item, wit
 
   await page.goto('/approver')
   const signedInAs = page.getByRole('combobox')
-  await expect(signedInAs.locator('option:checked')).toContainText('(1 waiting)')
-  await expect(signedInAs.locator('option:checked')).not.toContainText('School')
-  await expect(page.getByRole('heading', { level: 1 })).not.toContainText('Head Chef')
+  await expect(signedInAs).toHaveValue('')
+  await expect(page.locator('.approver-queue button')).toHaveCount(0)
+  await signedInAs.selectOption('mock-school')
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('Head Chef')
+  await expect(page.locator('.approver-queue button')).toHaveCount(1)
   await expect(page.locator('.approver-queue button').first()).toContainText('€506.16')
-  // The school's approver has one waiting too, and the switch says so.
-  await expect(signedInAs.locator('option', { hasText: 'School' })).toContainText('(1 waiting)')
+  await expect(page.locator('.approver-queue')).not.toContainText('HOTEL')
 })

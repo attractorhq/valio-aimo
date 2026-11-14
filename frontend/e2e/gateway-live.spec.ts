@@ -201,6 +201,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
 
     const approverPage = await context.newPage()
     await approverPage.goto(`${baseURL}/approver`)
+    await approverPage.getByLabel('Signed in as').selectOption('northbay-school-kitchen')
     await expect(
       approverPage.getByRole('heading', { name: 'Approver — Head Chef' }),
     ).toBeVisible()

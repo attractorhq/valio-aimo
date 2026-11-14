@@ -23,6 +23,7 @@ from app.contracts.common import Contract
 from app.gateway.offers import shortlists
 from app.gateway.proposals import _derive_offer_request
 
+from .auth import require_admin
 from .errors import ERROR_RESPONSES
 from .state import GatewayState, get_state, reset_sandbox, sandbox_registry
 
@@ -33,7 +34,7 @@ BUYER_ADMIN_ACTOR = "human:Buyer admin"
 OPEN_STATES = frozenset({"PENDING_APPROVAL", "APPROVED", "AUTO_APPROVED", "PROPOSED"})
 
 
-@router.post("/demo/reset", operation_id="resetDemoSandbox",
+@router.post("/demo/reset", operation_id="resetDemoSandbox", dependencies=[Depends(require_admin)],
              summary="Reset this private session, including confirmed orders and its log")
 def reset_demo_sandbox(request: Request, state: State) -> dict:
     scope = request.headers.get("x-admin-reset")
@@ -97,6 +98,7 @@ def _redecide(state: GatewayState, proposal: Proposal) -> Proposal:
 
 
 @router.patch("/mandates/{customerId}", response_model=MandateChangeResult, operation_id="changeMandate",
+              dependencies=[Depends(require_admin)],
               summary="Buyer admin: change the mandate; open proposals are re-decided live")
 def change_mandate(customerId: str, body: MandateChangeRequest, state: State) -> MandateChangeResult:
     changes = body.model_dump(exclude_none=True)
@@ -127,6 +129,7 @@ def _redecide_open(state: GatewayState, updated: Mandate, entry: AuditEntry) -> 
 
 
 @router.post("/mandates/{customerId}/reset", response_model=MandateChangeResult, operation_id="resetMandate",
+             dependencies=[Depends(require_admin)],
              summary="Buyer admin: restore the shipped default mandate as a new version")
 def reset_mandate(customerId: str, state: State) -> MandateChangeResult:
     gateway = state.gateway

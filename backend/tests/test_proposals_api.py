@@ -6,7 +6,7 @@ Only the existing hand-made synthetic products/provider are used; no supplier re
 import re
 
 import pytest
-from fastapi.testclient import TestClient
+from synthetic.demo_client import DemoTestClient as TestClient
 from test_api import api as api
 from test_api import item, offer_and_propose
 from test_proposals_gateway import MONDAY

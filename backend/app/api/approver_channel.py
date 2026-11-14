@@ -7,7 +7,7 @@ proposalId + offerVersion + offerHash. Demo links are not production authenticat
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import Field
 
 from app.contracts import ApprovalAction, ApproverView, Proposal
@@ -18,6 +18,7 @@ from app.gateway.approvals import (
     sandbox_approval_token,
 )
 
+from .auth import approver_role, require_admin
 from .errors import ERROR_RESPONSES
 from .state import GatewayState, get_state, sandbox_registry, sandbox_signing_key
 
@@ -59,10 +60,20 @@ class DecideApprovalRequest(Contract):
 
 @router.get("/proposals", response_model=list[Proposal], operation_id="listApproverProposals",
             summary="Proposals for the approver panel, newest first (no capabilities included)")
-def list_proposals(state: State, customerId: str | None = None, pendingOnly: bool = False) -> list[Proposal]:
+def list_proposals(request: Request, state: State, customerId: str | None = None,
+                   pendingOnly: bool = False) -> list[Proposal]:
+    if request.headers.get("x-demo-admin-key") is not None:
+        require_admin(request)
+        role = None
+    else:
+        role = approver_role(request, state)
+        if customerId is not None and state.gateway.mandates.get(customerId).approver.role != role:
+            raise HTTPException(403, "This buyer requires another approver role.")
     proposals = []
     for proposal_id in reversed(state.proposal_ids):
         proposal = state.gateway.get_proposal(proposal_id)
+        if role and state.gateway.mandates.get(proposal.customerId).approver.role != role:
+            continue
         if customerId and proposal.customerId != customerId:
             continue
         if pendingOnly and proposal.state != "PENDING_APPROVAL":
@@ -73,8 +84,9 @@ def list_proposals(state: State, customerId: str | None = None, pendingOnly: boo
 
 @router.get("/proposals/{proposalId}", response_model=ApproverView, operation_id="getApproverView",
             summary="The exact version to approve, with a single-use demo approval token")
-def get_approver_view(proposalId: str, state: ApprovalState) -> ApproverView:
+def get_approver_view(proposalId: str, request: Request, state: ApprovalState) -> ApproverView:
     current = state.gateway.get_proposal(proposalId)
+    approver_role(request, state, current)
     state.gateway.get_proposal(proposalId, now=state.now_for(current.mode))  # expire first if overdue
     view = state.gateway.get_approver_view(proposalId)
     token = sandbox_approval_token(view.approvalToken, state.sandbox_id, signing_key=sandbox_signing_key())
@@ -85,6 +97,7 @@ def get_approver_view(proposalId: str, state: ApprovalState) -> ApproverView:
              summary="APPROVE or REJECT this exact version; approval triggers a live re-check")
 def decide_approval(proposalId: str, body: DecideApprovalRequest, request: Request, state: ApprovalState) -> Proposal:
     current = state.gateway.get_proposal(proposalId)
+    approver_role(request, state, current)
     return state.gateway.decide_approval(
         proposalId, body.offerVersion, getattr(request.state, "approval_token", body.approvalToken), body.action, body.comment,
         now=state.now_for(current.mode),

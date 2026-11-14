@@ -43,6 +43,8 @@ def _http_json(
     data = json.dumps(body).encode("utf-8") if body is not None else None
     # Cloudflare answers the default "Python-urllib" User-Agent with 403 on the deployed origin.
     headers = {"Accept": "application/json", "User-Agent": "verified-or-ask-demo/0.1"}
+    if "/v0.1/admin/" in url:
+        headers["X-Demo-Admin-Key"] = "demo-admin"
     if os.environ.get("DEMO_SANDBOX"):
         headers["X-Demo-Sandbox"] = os.environ["DEMO_SANDBOX"]
     if data is not None:

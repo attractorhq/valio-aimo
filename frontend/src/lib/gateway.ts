@@ -6,6 +6,7 @@
 // When the `/v0.1` gateway is unreachable, the UI falls back explicitly to the synthetic mocks in
 // `src/mocks/`, labelled "Synthetic mock data". Mock and live results are never mixed silently.
 import { ALLOW_MOCK } from './env'
+import { adminHeaders, agentHeaders, approverHeaders } from './demoAccess'
 import type {
   ApprovalAction,
   ApproverView,
@@ -806,6 +807,7 @@ export const gateway: Gateway = {
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/x-ndjson',
+        ...agentHeaders(input.customerId),
       },
       body: JSON.stringify({
         customerId: input.customerId,
@@ -973,8 +975,9 @@ export const gateway: Gateway = {
     if (src === 'MOCK') {
       return mockGateway.getAuditTrail(proposalId)
     }
+    const proposal = await this.getProposal(proposalId)
     const res = await fetch(`/v0.1/audit?proposalId=${encodeURIComponent(proposalId)}`, {
-      headers: { Accept: 'application/json' },
+      headers: { Accept: 'application/json', ...agentHeaders(proposal.customerId) },
     })
     if (!res.ok) {
       if (res.status === 404) {
@@ -990,11 +993,20 @@ export const gateway: Gateway = {
   },
 }
 
+/** Read-only list for the selected agent key; never a capability-bearing approver view. */
+export async function listBuyerProposals(customerId: string): Promise<ApproverItem[]> {
+  const src = await ensureSource()
+  if (src === 'MOCK') return (await mockApproverChannel.listAllProposals()).filter((i) => i.proposal.customerId === customerId)
+  const res = await fetch('/v0.1/proposals', { headers: { Accept: 'application/json', ...agentHeaders(customerId) } })
+  if (!res.ok) throw await parseErrorResponse(res)
+  return ((await res.json()) as Proposal[]).map((proposal) => ({ proposal }))
+}
+
 export const approverChannel: ApproverChannel = {
   async listAllProposals() {
     const src = await ensureSource()
     if (src === 'MOCK') return mockApproverChannel.listAllProposals()
-    const res = await fetch('/v0.1/approver/proposals', { headers: { Accept: 'application/json' } })
+    const res = await fetch('/v0.1/approver/proposals', { headers: { Accept: 'application/json', ...adminHeaders() } })
     if (!res.ok) throw await parseErrorResponse(res)
     return ((await res.json()) as Proposal[]).map((proposal) => ({ proposal }))
   },
@@ -1003,7 +1015,7 @@ export const approverChannel: ApproverChannel = {
     if (src === 'MOCK') return mockApproverChannel.listProposals(customerId)
     const res = await fetch(
       `/v0.1/approver/proposals?customerId=${encodeURIComponent(customerId)}`,
-      { headers: { Accept: 'application/json' } },
+      { headers: { Accept: 'application/json', ...approverHeaders() } },
     )
     if (!res.ok) throw await parseErrorResponse(res)
     const proposals = (await res.json()) as Proposal[]
@@ -1016,7 +1028,7 @@ export const approverChannel: ApproverChannel = {
     const src = await ensureSource()
     if (src === 'MOCK') return mockApproverChannel.view(proposalId)
     const res = await fetch(`/v0.1/approver/proposals/${encodeURIComponent(proposalId)}`, {
-      headers: { Accept: 'application/json' },
+      headers: { Accept: 'application/json', ...approverHeaders() },
     })
     if (!res.ok) throw await parseErrorResponse(res)
     const viewData = (await res.json()) as ApproverView
@@ -1038,36 +1050,10 @@ export const approverChannel: ApproverChannel = {
     const src = await ensureSource()
     if (src === 'MOCK') return mockApproverChannel.viewByToken(approvalToken, proposalIdHint)
 
-    let targetProposalId = proposalIdHint || lookupProposalForToken(approvalToken)
+    const targetProposalId = proposalIdHint || lookupProposalForToken(approvalToken)
     if (!targetProposalId) {
-      // Discover the pending proposal whose issued token matches `approvalToken`
-      const listRes = await fetch('/v0.1/approver/proposals?pendingOnly=true', {
-        headers: { Accept: 'application/json' },
-      })
-      if (listRes.ok) {
-        const pending = (await listRes.json()) as Proposal[]
-        for (const p of pending) {
-          const vRes = await fetch(`/v0.1/approver/proposals/${encodeURIComponent(p.proposalId)}`, {
-            headers: { Accept: 'application/json' },
-          })
-          if (vRes.ok) {
-            const vData = (await vRes.json()) as ApproverView
-            rememberTokenProposal(vData.approvalToken, vData.proposal.proposalId)
-            if (vData.approvalToken === approvalToken) {
-              const origin = typeof window !== 'undefined' ? window.location.origin : ''
-              const approvalUrl =
-                vData.approvalUrl ??
-                `${origin}/approve/${encodeURIComponent(vData.approvalToken)}?proposalId=${encodeURIComponent(vData.proposal.proposalId)}`
-              return {
-                ...vData,
-                approvalUrl,
-                qrPayload: vData.qrPayload ?? approvalUrl,
-              }
-            }
-          }
-        }
-      }
-      throw new GatewayError('TOKEN_INVALID', 'This approval link is not valid for any proposal.')
+      // Never enumerate other buyers' proposals to resolve an incomplete phone link.
+      throw new GatewayError('TOKEN_INVALID', 'This approval link is missing its proposal binding. Open the original link.')
     }
 
     const vRes = await fetch(`/v0.1/approver/proposals/${encodeURIComponent(targetProposalId)}`, {
@@ -1135,6 +1121,7 @@ export const approverChannel: ApproverChannel = {
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
+        ...approverHeaders(),
       },
       body: JSON.stringify({
         offerVersion,

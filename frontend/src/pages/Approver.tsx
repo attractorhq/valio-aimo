@@ -5,6 +5,7 @@ import { approverChannel, gateway, type ApproverItem } from '../lib/gateway'
 import { formatClock, formatMoney, reasonChip } from '../lib/format'
 import { ApprovalCard } from '../components/approver/ApprovalCard'
 import { LoadingSection, Skeleton } from '../components/Loading'
+import { chooseApproverRole, chosenApproverRole } from '../lib/demoAccess'
 import {
   approvalReasons,
   contextReasons,
@@ -28,25 +29,11 @@ export function Approver() {
   const [customerId, setCustomerId] = useState<string>()
   const [selectedId, setSelectedId] = useState<string>()
 
-  // T80: every buyer's pending items, newest first: the panel opens on the approver who has the newest one,
-  // and the role switch shows how many each approver has waiting.
-  const allProposals = useQuery({
-    queryKey: ['approver-all-proposals'],
-    queryFn: () => approverChannel.listAllProposals(),
-    refetchInterval: 2000,
-  })
-  const pendingAll = (allProposals.data ?? [])
-    .map((i) => i.proposal)
-    .filter((p) => p.state === 'PENDING_APPROVAL')
-  const pendingCount = (id: string) => pendingAll.filter((p) => p.customerId === id).length
-
   useEffect(() => {
-    if (customerId || !mandates.data?.length || allProposals.isPending) return
-    const newest = pendingAll.find((p) => mandates.data.some((m) => m.customerId === p.customerId))
-    // Nothing waiting: the school kitchen's Head Chef, the approver in the main demo.
-    const strict = mandates.data.find((m) => m.allergenMode === 'STRICT')
-    setCustomerId(newest?.customerId ?? (strict ?? mandates.data[0]).customerId)
-  }, [customerId, mandates.data, allProposals.isPending, pendingAll])
+    if (customerId) return
+    const saved = mandates.data?.find((m) => m.approver.role === chosenApproverRole())
+    if (saved) setCustomerId(saved.customerId)
+  }, [customerId, mandates.data])
 
   const mandate = mandates.data?.find((m) => m.customerId === customerId)
   const list = useQuery({
@@ -67,8 +54,9 @@ export function Approver() {
       <header className="approver-header">
         <UserRoundCheck size={20} aria-hidden className="mt-0.5 shrink-0" />
         <div>
-          <h1>Approver — {mandate?.approver.role ?? 'Head Chef'}</h1>
+          <h1>Approver{mandate ? ` — ${mandate.approver.role}` : ''}</h1>
           <p>Human sign-off channel · not the agent</p>
+          <p>Demo sign-in: role only, no password</p>
         </div>
         {mandates.isPending ? (
           <label className="approver-switch" aria-hidden="true">
@@ -81,18 +69,20 @@ export function Approver() {
             <label className="approver-switch">
               <span>Signed in as</span>
               <select
-                value={customerId}
+                value={customerId ?? ''}
                 onChange={(e) => {
+                  const chosen = mandates.data.find((m) => m.customerId === e.target.value)
+                  if (!chosen) return
+                  chooseApproverRole(chosen.approver.role)
                   setCustomerId(e.target.value)
                   setSelectedId(undefined)
                 }}
               >
+                <option value="" disabled>Choose your role</option>
                 {mandates.data.map((m) => {
-                  const waiting = pendingCount(m.customerId)
                   return (
                     <option key={m.customerId} value={m.customerId}>
                       {m.approver.role} · {m.organisationName}
-                      {waiting ? ` (${waiting} waiting)` : ''}
                     </option>
                   )
                 })}
@@ -102,7 +92,11 @@ export function Approver() {
         )}
       </header>
 
-      <div className="approver-grid">
+      {!customerId ? mandates.error ? (
+        <p className="notice notice-error" role="alert">Could not load the approver queue.</p>
+      ) : mandates.isPending && chosenApproverRole() ? (
+        <LoadingSection label="approver queue" className="panel" />
+      ) : <p className="panel muted">Choose your approver role to see your buyer’s proposals.</p> : <div className="approver-grid">
         <section className="panel" aria-labelledby="approver-queue">
           <h2
             id="approver-queue"
@@ -197,7 +191,7 @@ export function Approver() {
             <p className="panel muted">Select a proposal.</p>
           ) : null}
         </div>
-      </div>
+      </div>}
     </div>
   )
 }

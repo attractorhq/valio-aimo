@@ -193,9 +193,10 @@ class GatewayAgentChannel:
         *,
         customer_id: str | None = None,
     ) -> SearchProductsResult:
-        from app.api import agent_channel
+        from app.catalog.search import search_products
 
-        res = agent_channel.search(request, self.state, customerId=customer_id)
+        mandate = self.get_mandate(customer_id) if customer_id else None
+        res = search_products(request, mandate=mandate, products=self.state.catalog)
         for cand in res.candidates:
             self._products_by_id[cand.productId] = cand
         return res
@@ -215,12 +216,12 @@ class GatewayAgentChannel:
     def get_offer(self, request: GetOfferRequest) -> Offer:
         from app.api import agent_channel
 
-        return agent_channel.get_offer(request, self.state)
+        return agent_channel.get_offer(request, self.state, customer=request.customerId)
 
     def create_proposal(self, request: CreateProposalRequest) -> Proposal:
         from app.api import agent_channel
 
-        return agent_channel.create_proposal(request, self.state)
+        return agent_channel.create_proposal(request, self.state, customer=request.customerId)
 
     def find_pending_proposal(
         self, request: CreateProposalRequest, offer: Offer, mandate: Mandate,

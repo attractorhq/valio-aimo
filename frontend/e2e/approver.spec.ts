@@ -40,6 +40,7 @@ test('B: main view ASK → Approver panel → Approve → confirmed in both view
 
   const approver = await context.newPage()
   await approver.goto('/approver')
+  await approver.getByLabel('Signed in as').selectOption('mock-school')
   await expect(approver.getByRole('heading', { name: 'Approver — Head Chef' })).toBeVisible()
   const card = approver.getByRole('article')
   await expect(card.getByRole('heading')).toHaveText('Approving version 1')
@@ -87,6 +88,7 @@ test('reject is shown in both views and nothing is ordered', async ({ page, cont
   await runScenarioB(page)
   const approver = await context.newPage()
   await approver.goto('/approver')
+  await approver.getByLabel('Signed in as').selectOption('mock-school')
   await approver.getByLabel('Comment (optional)').fill('Too expensive this week.')
   await approver.getByRole('button', { name: 'Reject' }).click()
   await expect(approver.getByRole('article')).toContainText('Rejected · nothing was ordered')
@@ -97,6 +99,7 @@ test('reject is shown in both views and nothing is ordered', async ({ page, cont
 test('a used approval link cannot be replayed', async ({ page }) => {
   await runScenarioB(page)
   await page.goto('/approver')
+  await page.getByLabel('Signed in as').selectOption('mock-school')
   await page.getByRole('button', { name: 'Approve €506.16' }).click()
   await expect(page.getByRole('article')).toContainText('Confirmed')
   // Replay: the same token is presented again for a proposal that looks pending.
@@ -110,6 +113,7 @@ test('an expired offer can no longer be approved', async ({ page }) => {
   await runScenarioB(page)
   await patchPending(page, { validUntil: '2026-01-01T00:00:00+02:00' })
   await page.goto('/approver')
+  await page.getByLabel('Signed in as').selectOption('mock-school')
   const card = page.getByRole('article')
   await expect(card).toContainText('Expired · the offer ran out before sign-off')
   await expect(card.getByRole('button', { name: /Approve/ })).toHaveCount(0)
@@ -119,6 +123,7 @@ test('a superseded version can no longer be approved', async ({ page }) => {
   await runScenarioB(page)
   await patchPending(page, { state: 'SUPERSEDED', supersededBy: 'MOCK-P-B-v2' })
   await page.goto('/approver')
+  await page.getByLabel('Signed in as').selectOption('mock-school')
   const card = page.getByRole('article')
   await expect(card).toContainText('Superseded · something changed at the re-check')
   await expect(card).toContainText('MOCK-P-B-v2')
@@ -128,6 +133,9 @@ test('a superseded version can no longer be approved', async ({ page }) => {
 test('the approver panel is visibly not the agent and starts empty', async ({ page }) => {
   await page.goto('/approver')
   await expect(page.getByText('Human sign-off channel · not the agent')).toBeVisible()
+  await expect(page.getByText('Demo sign-in: role only, no password')).toBeVisible()
+  await expect(page.getByText('Nothing to approve.')).toHaveCount(0)
+  await page.getByLabel('Signed in as').selectOption('mock-school')
   await expect(page.getByText('Nothing to approve.')).toBeVisible()
   await page.getByLabel('Signed in as').selectOption('mock-hotels')
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Approver — Purchasing Manager')
@@ -136,6 +144,7 @@ test('the approver panel is visibly not the agent and starts empty', async ({ pa
 test('the approver panel has no horizontal page scroll', async ({ page }) => {
   await runScenarioB(page)
   await page.goto('/approver')
+  await page.getByLabel('Signed in as').selectOption('mock-school')
   await expect(page.getByRole('button', { name: 'Approve €506.16' })).toBeVisible()
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - window.innerWidth,
@@ -152,6 +161,7 @@ test('phone approval via QR (/approve/:token) at 390 px and across separate devi
   await expect(page.getByRole('img', { name: /Scan on a phone/i })).toHaveCount(0)
 
   await page.goto('/approver')
+  await page.getByLabel('Signed in as').selectOption('mock-school')
   const qr = page.getByRole('img', {
     name: 'Scan on a phone to open the single-use approval page',
   })
@@ -262,6 +272,7 @@ test('B2 partial-delivery proposal shows "Approving means 95 kg instead of 120 k
   }, STORE)
 
   await page.goto('/approver')
+  await page.getByLabel('Signed in as').selectOption('mock-school')
   const card = page.getByRole('article')
   await expect(card.getByRole('heading')).toHaveText('Approving version 1')
   const statement = card.getByRole('note', { name: 'Approval statement' })
@@ -281,6 +292,7 @@ test('B2 partial-delivery proposal shows "Approving means 95 kg instead of 120 k
 test('a queue row shows the customer, the products and each reason once', async ({ page }) => {
   await runScenarioB(page)
   await page.goto('/approver')
+  await page.getByLabel('Signed in as').selectOption('mock-school')
   const row = page.locator('.approver-queue button').filter({ hasText: '€506.16' }).first()
   await expect(row).toContainText('Synthetic School Kitchen (demo mock)')
   await expect(row.getByTestId('queue-products')).toHaveText(
@@ -364,6 +376,7 @@ test('T69 split top-up proposal renders both lines, the approval sentence, and t
   }, STORE)
 
   await page.goto('/approver')
+  await page.getByLabel('Signed in as').selectOption('mock-school')
   const card = page.getByRole('article')
   await expect(card).toContainText('SYN-A')
   await expect(card).toContainText('70 kg')

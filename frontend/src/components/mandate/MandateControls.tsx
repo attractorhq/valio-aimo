@@ -302,6 +302,7 @@ export function MandateControls({
  * "Buyer admin".
  */
 export function BuyerAdmin() {
+  const [adminEntered, setAdminEntered] = useState(() => Boolean(sessionStorage.getItem('verified-or-ask.demo-admin-key')))
   const mandates = useQuery({ queryKey: ['mandates'], queryFn: () => gateway.listMandates() })
   useQuery({
     queryKey: ['gateway-health'],
@@ -332,6 +333,13 @@ export function BuyerAdmin() {
           Buyer view
         </Link>
       </header>
+      <section className="panel">
+        <p>Demo admin key: <code>demo-admin</code> · public demonstration only, not production authentication.</p>
+        <button type="button" className="button" disabled={adminEntered} onClick={() => {
+          sessionStorage.setItem('verified-or-ask.demo-admin-key', 'demo-admin')
+          setAdminEntered(true)
+        }}>{adminEntered ? 'Demo admin key entered' : 'Enter demo admin key'}</button>
+      </section>
       <div className="main-grid">
         <aside className="main-side panel">
           {mandates.error ? (
@@ -351,7 +359,7 @@ export function BuyerAdmin() {
           {mandates.isPending && (
             <LoadingSection label="admin controls" variant="admin" className="panel" />
           )}
-          {mandate && (
+          {mandate && adminEntered && (
             <MandateControls
               mandate={mandate}
               live={live}

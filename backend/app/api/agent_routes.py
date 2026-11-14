@@ -27,6 +27,7 @@ from app.contracts import GetOfferRequest, OfferItem
 from app.contracts.common import Contract, Identifier
 
 from . import agent_channel
+from .auth import AgentCustomer, bind_customer
 from .errors import ERROR_RESPONSES
 from .state import GatewayState, get_state
 
@@ -197,9 +198,11 @@ def run_agent_route(
     })],
     request: Request,
     state: State,
+    customer: AgentCustomer,
     stream: Annotated[bool, Query(description="Stream Server-Sent Events for the four steps")] = False,
 ) -> AgentRunResult | StreamingResponse:
-    # Validate that the customer mandate exists up-front so unknown customers return HTTP 404.
+    bind_customer(customer, body.customerId)
+    # The authenticated buyer is the only authority for the request's customer.
     state.gateway.mandates.get(body.customerId)
     channel = GatewayAgentChannel(state)
     accept = (request.headers.get("accept") or "").lower()

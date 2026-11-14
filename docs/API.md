@@ -15,6 +15,16 @@ This is the shared **contract**, not a claim that the routes are implemented. T0
 
 ## Operations and channels
 
+### Public demo access gates (T55)
+
+- `/mcp` and agent REST writes require `Authorization: Bearer demo-agent-<customerId>` for one of the two demo buyers. Unknown/missing keys return 401. REST customer fields must match the key (403 otherwise); MCP tools use the key's customer when omitted and reject mismatches. `listMandates` on MCP returns only the key's buyer. Public read-only REST discovery remains unauthenticated.
+- `GET /v0.1/proposals` lists only the authenticated agent key's buyer proposals, newest first, without capabilities.
+- The approver queue and capability issuance require `X-Demo-Approver-Role: Head Chef` (school) or `Purchasing Manager` (hotel). The server checks the proposal's buyer and named role; the wrong role returns 403. A signed phone capability can supply only its issued role; an explicitly supplied wrong role still fails. The UI labels sign-in as role only, no password.
+- Buyer-admin writes (including session reset) require `X-Demo-Admin-Key: demo-admin` (401 otherwise). Global reset additionally retains its architect-only reset secret. This admin key does not grant approval capability issuance or decisions.
+- Audit reads, JSON/CSV exports, and `/v0.1/audit/verify` require the owning buyer's agent key for `customerId` or `proposalId`. Cross-buyer access returns 403. Global audit/verification is admin-only with `X-Demo-Admin-Key`; scoped admin reads are also allowed. Global approver proposal listing (without issuing capabilities) is admin-only.
+
+All of these values are published demo credentials, not production identity. Production requires scoped secrets and SSO/OIDC. Approval tokens remain separate, version-bound, expiring, and single-use.
+
 The following REST mapping is reserved for T08. All agent operations are customer-scoped; the API must bind the selected customer to the caller. The agent cannot edit mandates, choose an outcome, approve, or call confirmation. Errors/status codes and authentication are supplied by T08, not this data-contract ticket.
 
 | Operation | REST mapping | Input | Output |
@@ -169,6 +179,7 @@ offerHash:    <64-char sha256 hex digest>
 
 ```bash
 API="${GATEWAY_URL:-http://localhost:8000}"
+AGENT_AUTH='Authorization: Bearer demo-agent-northbay-school-kitchen'
 
 # 1. Inspect OpenAPI 3.1 Agent channel operations
 curl -sS "$API/openapi.json" | jq '[.paths | to_entries[] | .key as $p | .value | to_entries[] | select(.value.tags[]? == "Agent channel") | {operationId: .value.operationId, method: (.key | ascii_upcase), path: $p}]'
@@ -178,6 +189,7 @@ curl -sS "$API/v0.1/mandates/northbay-school-kitchen" | jq '{customerId, version
 
 # 3. Get fixed-price offer v1 for Scenario B shortlist
 OFFER="$(curl -sS -X POST "$API/v0.1/offers" \
+  -H "$AGENT_AUTH" \
   -H 'Content-Type: application/json' \
   -d '{
     "customerId": "northbay-school-kitchen",
@@ -193,6 +205,7 @@ OFFER_VER="$(jq -r .offerVersion <<<"$OFFER")"
 
 # 4. Create proposal bound to offerId + offerVersion; gateway policy decides
 PROPOSAL="$(curl -sS -X POST "$API/v0.1/proposals" \
+  -H "$AGENT_AUTH" \
   -H 'Content-Type: application/json' \
   -d "{
     \"customerId\": \"northbay-school-kitchen\",
@@ -223,10 +236,11 @@ echo "$PROPOSAL" | jq '{decision, reasons, totals, offerHash, state}'
 ### Connect Claude Code via `claude mcp add`
 
 ```bash
-claude mcp add --transport http valio-aimo http://localhost:8000/mcp
+claude mcp add --transport http valio-aimo http://localhost:8000/mcp \
+  --header 'Authorization: Bearer demo-agent-northbay-school-kitchen'
 # or against the deployed Worker URL:
-claude mcp add --transport http valio-aimo https://valio-aimo.<account>.workers.dev/mcp
+claude mcp add --transport http valio-aimo https://valio-aimo.<account>.workers.dev/mcp \
+  --header 'Authorization: Bearer demo-agent-northbay-school-kitchen'
 ```
 
 Asking Claude Code to run Scenario B for `northbay-school-kitchen` ("We need 90 kg of gluten-free macaroni and 80 litres of gluten-free oat drink by Monday, 2026-11-16") invokes `getMandate` → `searchProducts` → `getOffer` → `createProposal` and reaches `state: "PENDING_APPROVAL"` (`decision: "ASK"`, `reasons: ["OVER_AUTO_LIMIT"]`, `totals.exclVat: "506.16"`).
-

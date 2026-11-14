@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ShieldAlert, ShieldCheck } from 'lucide-react'
 import type { Proposal } from '../../lib/contracts'
-import { approverChannel, gateway } from '../../lib/gateway'
+import { approverChannel, gateway, listBuyerProposals } from '../../lib/gateway'
+import { adminHeaders, agentHeaders } from '../../lib/demoAccess'
 import { formatClock, formatMoney } from '../../lib/format'
 import { LoadingSection } from '../Loading'
 import { logPath } from './logData'
@@ -28,17 +29,23 @@ type ChainStatus = { verified: boolean; chainLength: number }
 async function verifyChain(customerId?: string): Promise<ChainStatus | null> {
   if (gateway.source !== 'GATEWAY') return null
   const query = customerId ? `?customerId=${encodeURIComponent(customerId)}` : ''
-  const res = await fetch(`/v0.1/audit/verify${query}`, { headers: { Accept: 'application/json' } })
+  const res = await fetch(`/v0.1/audit/verify${query}`, {
+    headers: { Accept: 'application/json', ...(customerId ? agentHeaders(customerId) : adminHeaders()) },
+  })
   return res.ok ? ((await res.json()) as ChainStatus) : null
 }
 
 /** T80: `/log` without a proposal lists recent proposals per buyer; each opens its decision log. */
 export function ProposalList() {
-  const [buyer, setBuyer] = useState('ALL')
+  const [buyer, setBuyer] = useState('')
   const mandates = useQuery({ queryKey: ['mandates'], queryFn: () => gateway.listMandates() })
+  useEffect(() => {
+    if (!buyer && mandates.data?.length) setBuyer(mandates.data[0].customerId)
+  }, [buyer, mandates.data])
   const proposals = useQuery({
-    queryKey: ['log-proposals'],
-    queryFn: () => approverChannel.listAllProposals(),
+    queryKey: ['log-proposals', buyer],
+    queryFn: () => buyer === 'ALL' ? approverChannel.listAllProposals() : listBuyerProposals(buyer),
+    enabled: Boolean(buyer),
     refetchInterval: 5000,
   })
   const chain = useQuery({
@@ -78,7 +85,7 @@ export function ProposalList() {
               aria-label="Filter proposals by buyer"
               className="rounded-[12px] border border-[var(--line-strong)] bg-[var(--surface)] px-2 py-1 text-xs"
             >
-              <option value="ALL">All buyers</option>
+              <option value="ALL" disabled={!adminHeaders()['X-Demo-Admin-Key']}>All buyers (admin key required)</option>
               {(mandates.data ?? []).map((m) => (
                 <option key={m.customerId} value={m.customerId}>
                   {m.organisationName}

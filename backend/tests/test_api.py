@@ -9,7 +9,7 @@ import re
 from datetime import timedelta
 
 import pytest
-from fastapi.testclient import TestClient
+from synthetic.demo_client import DemoTestClient as TestClient
 from test_proposals_gateway import MONDAY, NOW, PRODUCTS, MutableSyntheticProvider
 
 from app.api import GatewayState, get_state
