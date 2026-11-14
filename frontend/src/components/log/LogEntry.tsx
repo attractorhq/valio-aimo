@@ -5,7 +5,7 @@ import {
   type ProposalState,
   type ReasonCode,
 } from '../../lib/contracts'
-import { formatClock, formatTime, reasonChip, reasonText } from '../../lib/format'
+import { formatClock, formatDate, formatTime, reasonChip, reasonText } from '../../lib/format'
 import { isRequirementFact } from '../../lib/requirements'
 import { TrustBadge, TrustSourceMeta, formatFactDisplay } from '../trust/TrustBadge'
 import { classifyActor, type ActorKind } from './actor'
@@ -71,9 +71,83 @@ function eventTitle(event: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
-/** The registry template in plain words; placeholders that the log cannot fill are shown as "…". */
-function ruleText(code: ReasonCode): string {
-  return reasonText(code, {}).replace(/\{\w+\}/g, '…')
+/** Fill registry template placeholders from the audit entry's facts and summary; fallback to "…". */
+export function ruleText(code: ReasonCode, entry?: AuditEntry): string {
+  if (!entry) {
+    return reasonText(code, {}).replace(/\{\w+\}/g, '…')
+  }
+  const params: Record<string, string> = {}
+  const facts = entry.facts ?? []
+
+  const deliveryFact = facts.find((f) => f.fact === 'delivery.date')
+  if (deliveryFact) {
+    if (typeof deliveryFact.value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(deliveryFact.value)) {
+      params.availableDate = formatDate(deliveryFact.value)
+    } else if (deliveryFact.display && deliveryFact.display !== 'Unknown') {
+      params.availableDate = deliveryFact.display.split('·')[0].trim()
+    }
+  }
+
+  const reqDateFact = facts.find((f) => f.fact === 'delivery.requestedDate')
+  if (reqDateFact) {
+    if (typeof reqDateFact.value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(reqDateFact.value)) {
+      params.requestedDate = formatDate(reqDateFact.value)
+    } else if (reqDateFact.display && reqDateFact.display !== 'Unknown') {
+      params.requestedDate = reqDateFact.display.replace(/^Requested delivery:\s*/i, '').trim()
+    }
+  } else {
+    const idStr = entry.offerId ?? entry.proposalId ?? ''
+    const m = idStr.match(/^(?:OF|PR)-(\d{4}-\d{2}-\d{2})-/)
+    if (m) {
+      params.requestedDate = formatDate(m[1])
+    } else if (entry.timestamp && /^\d{4}-\d{2}-\d{2}/.test(entry.timestamp)) {
+      params.requestedDate = formatDate(entry.timestamp.slice(0, 10))
+    }
+  }
+
+  const cutoffFact = facts.find((f) => f.fact === 'delivery.cutoff')
+  if (cutoffFact) {
+    if (typeof cutoffFact.value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(cutoffFact.value)) {
+      params.closingTime = formatTime(cutoffFact.value)
+    } else if (cutoffFact.display && cutoffFact.display !== 'Unknown') {
+      params.closingTime = cutoffFact.display
+    }
+  }
+
+  const partialFact = facts.find((f) => f.fact === 'coverage.partial')
+  if (partialFact && typeof partialFact.value === 'string') {
+    const pm = partialFact.value.match(/^([^/]+)\/(\S+)\s+(.+)$/)
+    if (pm) {
+      params.available = `${pm[1]} ${pm[3]}`
+      params.needed = `${pm[2]} ${pm[3]}`
+      params.otherProduct = 'partial delivery'
+    }
+  }
+
+  const totalMatch = entry.summary.match(/€[\d,]+(?:\.\d{2})?/)
+  if (totalMatch) {
+    params.total = totalMatch[0]
+  }
+  const limitMatch = entry.summary.match(/above (?:your |the )?(€[\d,]+(?:\.\d{2})?)/i)
+  if (limitMatch) {
+    params.limit = limitMatch[1]
+  }
+
+  const relFact = facts.find((f) => f.fact === 'reliability')
+  if (relFact && typeof relFact.value === 'number') {
+    params.pct = `${Math.round(relFact.value * 1000) / 10}%`
+  }
+
+  const subFact = facts.find((f) => f.fact === 'substitute.valio')
+  if (subFact && typeof subFact.value === 'string') {
+    params.product = subFact.value
+    const failMatch = subFact.display.match(/fails '([^']+)'/)
+    if (failMatch) {
+      params.requirement = failMatch[1]
+    }
+  }
+
+  return reasonText(code, params).replace(/\{\w+\}/g, '…')
 }
 
 export function isSuperseded(entry: AuditEntry): boolean {
@@ -208,7 +282,7 @@ export function LogEntry({ entry }: { entry: AuditEntry }) {
                 <span className="text-[var(--muted)]">
                   · {EFFECT_WORDS[REASON_REGISTRY[code].effect] ?? REASON_REGISTRY[code].effect}
                 </span>
-                <p className="mt-0.5 text-[var(--muted)]">{ruleText(code)}</p>
+                <p className="mt-0.5 text-[var(--muted)]">{ruleText(code, entry)}</p>
               </li>
             ))}
           </ul>
