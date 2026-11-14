@@ -40,9 +40,44 @@ app = FastAPI(
         "Agent Trust Labels v0.1 gateway for Valio Aimo. The agent may act alone only when every fact it relies "
         "on is strong enough and the order is inside the buyer's mandate; everything else goes to a named human. "
         "Money is EUR excl. VAT as decimal strings. Every order is simulated: "
-        "**Simulated order — mock environment**. No order is sent to Valio."
+        "**Simulated order — mock environment**. No order is sent to Valio.\n\n"
+        "**Authentication:** none in this demo. `components.securitySchemes` documents the production plan: "
+        "scoped agent keys for the agent channel, and organisation SSO (OAuth 2.0 / OIDC) for approvers and "
+        "buyer admins."
     ),
 )
+# Authentication model (T47). The demo enforces none: every route is open, and an approval needs the
+# single-use approval token from the Approver panel. The schemes below document the production plan.
+SECURITY_SCHEMES = {
+    "agentKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Agent-Key",
+        "description": "Production plan: a scoped API key per purchasing agent and buyer. It covers the agent "
+                       "channel only (searchProducts, getOffer, createProposal, getProposal, getAuditTrail, "
+                       "getMandate) and can never reach the approver channel or buyer admin. "
+                       "Not enforced in this demo.",
+    },
+    "approverSso": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Production plan: approvers and buyer admins sign in with their organisation's SSO "
+                       "(OAuth 2.0 / OpenID Connect). decideApproval would need this token as well as the "
+                       "single-use approval token for the exact proposal version. Not enforced in this demo.",
+    },
+}
+
+
+def openapi_with_security() -> dict:
+    """The generated spec plus `components.securitySchemes`, and an explicit no-auth `security` for the demo."""
+    schema = FastAPI.openapi(app)  # cached on app.openapi_schema after the first call
+    schema.setdefault("components", {})["securitySchemes"] = SECURITY_SCHEMES
+    schema["security"] = [{}]  # demo: no authentication required on any operation
+    return schema
+
+
+app.openapi = openapi_with_security  # type: ignore[method-assign]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in get_settings().frontend_origins.split(",") if o.strip()],

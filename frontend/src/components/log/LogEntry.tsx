@@ -154,6 +154,27 @@ export function isSuperseded(entry: AuditEntry): boolean {
   return entry.toState === 'SUPERSEDED' || entry.event === 'SUPERSEDED'
 }
 
+/** The server's re-check before a simulated confirmation (P1.3): it passed, or it superseded the version. */
+export function isRecheck(entry: AuditEntry): boolean {
+  return (
+    entry.event === 'RECHECKED' ||
+    entry.event === 'PROPOSAL_RECHECKED' ||
+    entry.toState === 'RECHECKED' ||
+    (isSuperseded(entry) && (entry.actor.includes('recheck') || /re-?check/i.test(entry.summary)))
+  )
+}
+
+/** "Re-checked: no change" or "Re-check found a change: …" for one re-check entry (T47). */
+export function recheckResult(entry: AuditEntry): { changed: boolean; text: string } {
+  if (isSuperseded(entry)) {
+    return { changed: true, text: `Re-check found a change: ${entry.summary}` }
+  }
+  return {
+    changed: false,
+    text: 'Re-checked: no change. Live price, stock, delivery date, cut-off, mandate and hard requirements were read again just before confirming.',
+  }
+}
+
 export function isInstructionIgnored(entry: AuditEntry): boolean {
   return (
     entry.event === 'INSTRUCTION_IGNORED' || (entry.reasons ?? []).includes('INSTRUCTION_IGNORED')
@@ -161,13 +182,27 @@ export function isInstructionIgnored(entry: AuditEntry): boolean {
 }
 
 function Callout({ entry }: { entry: AuditEntry }) {
+  if (isRecheck(entry) && !isSuperseded(entry)) {
+    return (
+      <p
+        className="flex items-start gap-2 rounded-md border border-[var(--auto)] bg-[var(--auto-bg)] px-3 py-2 text-sm font-semibold text-[var(--auto)]"
+        data-testid="recheck-result"
+      >
+        <RefreshCcw size={16} aria-hidden className="mt-0.5 shrink-0" />
+        <span>{recheckResult(entry).text}</span>
+      </p>
+    )
+  }
   if (isSuperseded(entry)) {
     return (
-      <p className="flex items-start gap-2 rounded-md border border-[var(--block)] bg-[var(--block-bg)] px-3 py-2 text-sm font-semibold text-[var(--block)]">
+      <p
+        className="flex items-start gap-2 rounded-md border border-[var(--block)] bg-[var(--block-bg)] px-3 py-2 text-sm font-semibold text-[var(--block)]"
+        data-testid={isRecheck(entry) ? 'recheck-result' : undefined}
+      >
         <RefreshCcw size={16} aria-hidden className="mt-0.5 shrink-0" />
         <span>
-          Superseded: this version and any approval of it are void. A new version is decided from
-          scratch.
+          {isRecheck(entry) ? 'Re-check found a change (see above). ' : ''}Superseded: this version
+          and any approval of it are void. A new version is decided from scratch.
         </span>
       </p>
     )
@@ -229,7 +264,7 @@ export function LogEntry({ entry }: { entry: AuditEntry }) {
         </blockquote>
       )}
 
-      {highlighted && (
+      {(highlighted || isRecheck(entry)) && (
         <div className="mt-3">
           <Callout entry={entry} />
         </div>

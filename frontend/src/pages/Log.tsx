@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, ScrollText, ShieldAlert, ShieldCheck } from 'lucide-react'
+import { ArrowLeft, RefreshCcw, ScrollText, ShieldAlert, ShieldCheck } from 'lucide-react'
 import type { AuditEntry } from '../lib/contracts'
 import { DecisionLog } from '../components/log/DecisionLog'
+import { LogDownloads } from '../components/log/LogDownloads'
+import { isRecheck, recheckResult } from '../components/log/LogEntry'
 import { ModeBadge } from '../components/flow/ModeBadge'
 import { MOCK_LOGS, findMockLog, logPath } from '../components/log/logData'
 import { gateway } from '../lib/gateway'
@@ -117,6 +119,11 @@ export function Log({ proposalId }: { proposalId?: string }) {
   const current = proposalId ? findMockLog(proposalId) : undefined
   const source = trail.data?.source ?? (current ? 'MOCK' : gateway.source)
   const [verification, setVerification] = useState<AuditChainVerification | null>(null)
+  // The server's re-check before a simulated confirmation, surfaced at the top of the log (T47).
+  const lastRecheck = trail.data
+    ? [...trail.data.trail.entries].reverse().find(isRecheck)
+    : undefined
+  const recheck = lastRecheck ? recheckResult(lastRecheck) : undefined
 
   useEffect(() => {
     let cancelled = false
@@ -184,6 +191,19 @@ export function Log({ proposalId }: { proposalId?: string }) {
           Every step of the order: what happened, who or what decided (the agent, a gateway rule or
           a named human), which rule applied and which facts it used, with their trust labels.
         </p>
+        {proposalId && trail.data && (
+          <LogDownloads proposalId={proposalId} trail={trail.data.trail} source={source} />
+        )}
+        {recheck && (
+          <p
+            className={`notice mt-2 ${recheck.changed ? 'notice-error' : ''}`}
+            role="status"
+            data-testid="recheck-summary"
+          >
+            <RefreshCcw size={16} aria-hidden />
+            <span>{recheck.text}</span>
+          </p>
+        )}
         {verification && !verification.verified && verification.reason && (
           <p className="notice notice-error mt-2" role="alert">
             <ShieldAlert size={16} aria-hidden />

@@ -42,6 +42,7 @@ from app.gateway.proposals import (
     ProposalError,
     ProposalNotFoundError,
 )
+from app.policy import M1, M2
 from app.valio import IntegrationError
 from app.valio.record import BRIEF_PRODUCT_IDS
 
@@ -58,11 +59,14 @@ SERVER_INFO: dict[str, str] = {
     "version": VERSION,
 }
 
+# Example ids come from the mandate book, so the docs never cite a customer that returns 404 (T47).
+_DEMO_CUSTOMERS = f"'{M1.customerId}' (M1) and '{M2.customerId}' (M2)"
+
 SERVER_INSTRUCTIONS = (
     "Verified or Ask · Trusted Trade Gateway (Agent Trust Labels v0.1). "
     "Use these agent-channel tools to run the four-step purchasing flow: "
     "(1) Read the buyer's mandate with `getMandate` or `listMandates` "
-    "(demo customers: 'helsinki-hospital-kitchen' for M1 and 'northbay-school-kitchen' for M2). "
+    f"(demo customers: {_DEMO_CUSTOMERS}). "
     "(2) Search the static catalogue with `searchProducts` using hard requirements "
     "(e.g. `{\"kind\": \"CLAIM\", \"code\": \"FREE_FROM_GLUTEN\"}` or `FREE_FROM_LACTOSE`). "
     "(3) Request a fixed-price offer with `getOffer` for the shortlisted candidate IDs (at most 20 per item). "
@@ -91,8 +95,7 @@ AGENT_TOOLS: list[dict[str, Any]] = [
         "description": (
             "List all buyer mandates (read-only). Returns customerId, version, organisationName, "
             "allergenMode (STANDARD | STRICT), autoApproveLimitEur, hardLimitEur, forbiddenAllergens, "
-            "and named approver role. Demo customers: 'helsinki-hospital-kitchen' (M1) and "
-            "'northbay-school-kitchen' (M2)."
+            f"and named approver role. Demo customers: {_DEMO_CUSTOMERS}."
         ),
         "inputSchema": {
             "type": "object",
@@ -115,10 +118,7 @@ AGENT_TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "customerId": {
                     "type": "string",
-                    "description": (
-                        "Buyer customer ID, e.g. 'northbay-school-kitchen' (M2) or "
-                        "'helsinki-hospital-kitchen' (M1)."
-                    ),
+                    "description": f"Buyer customer ID, e.g. {_DEMO_CUSTOMERS}.",
                 },
             },
             "required": ["customerId"],
@@ -230,7 +230,7 @@ AGENT_TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "customerId": {
                     "type": "string",
-                    "description": "Buyer customer ID (e.g. 'northbay-school-kitchen').",
+                    "description": f"Buyer customer ID (e.g. '{M2.customerId}').",
                 },
                 "requestedDate": {
                     "type": "string",
