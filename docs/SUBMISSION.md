@@ -37,9 +37,9 @@ A trusted trade gateway for Valio Aimo plus a demo purchasing agent. It separate
   - Partial stock becomes its own proposal version with its own approval.
   - When another compliant product has the missing stock, it tops up the rest as a split order. The split always goes to a human, and a price rise of more than 10 % per kg or litre is stated.
 - **Alternatives and editable assumptions:**
-  - Each line shows Good / Better / Best alternatives with a one-line trade-off (price per litre or kilo, pack, brand, stock certainty). Only compliant products are listed.
+  - Each line shows Good / Better / Best alternatives with a one-line trade-off (price per litre or kilo, pack, brand, stock certainty, labels and CO₂ estimate). Only compliant products are listed.
   - The agent's assumptions are editable chips, for example "Any fat %" → "1.5 %". Editing one re-runs the flow, and the gateway's shortlist changes.
-- **Buyer control:** a buyer admin (`/admin`) can change the mandate's limits. Open proposals are then re-decided live, and the change is logged. The mandate can be reset to its defaults.
+- **Buyer control:** the mandate reads as three plain lists: what the agent may order alone, what needs a person, and what is always refused. A buyer admin (`/admin`) can change the limits, allowed product categories and the validity window. Open proposals are then re-decided live, and the change is logged. The mandate can be reset to its defaults.
   - The same buyer's orders for the same delivery day count together against the limits, so a need split into small orders cannot slip under the auto-approve limit.
   - Each browser gets its own private session, so one visitor's changes never affect another's.
 - **Inspectable and tamper-evident decisions:**
@@ -48,10 +48,12 @@ A trusted trade gateway for Valio Aimo plus a demo purchasing agent. It separate
   - The log downloads as JSON or CSV from the log page, and it shows the result of the final re-check.
 - **Open interface:**
   - OpenAPI 3.1, JSON Schemas and a human-readable specification of the trust labels and reason codes at `/spec`.
-  - An MCP endpoint at `/mcp` exposes the purchasing-agent tools only. Approval is not an agent tool and is refused if called.
+  - An MCP endpoint at `/mcp` exposes the purchasing-agent tools, buyer-scoped resources (playbook, mandate, trust labels) and an order-request prompt. Approval is not an agent tool and is refused if called.
+  - A proposal must describe its offer truthfully: request items that contradict the bound offer lines are rejected.
   - Agents identify their buyer with a public key, `Authorization: Bearer demo-agent-<customerId>`, and can act only for that buyer. Approvers sign in by role and see only their buyer's queue; buyer-admin changes need the public admin key shown on `/admin`.
   - A second, independent client gets the same decision and offer hash.
 - **Valio Aimo readiness view** (`/valio`): computed from the 17,546-product catalogue.
+  - An agent activity feed lists every agent call, refused ones included. Valio can pause all agents, and an agent with repeated refused calls is suspended; a rogue-agent run shows the refusals live.
   - It shows which data gaps keep products from automatic ordering, by supplier.
   - It shows live AUTO / ASK / BLOCK statistics and a prioritised fix list.
 
