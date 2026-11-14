@@ -10,10 +10,19 @@ export function DecisionLog({ entries }: { entries: AuditEntry[] }) {
   // timestamp: in recorded mode, entries stamped with the capture time and with the API's own
   // `timeNow` can be a second apart in the wrong direction.
   return (
-    <ol className="grid gap-3" aria-label="Decision log">
-      {entries.map((entry) => (
-        <LogEntry key={entry.entryId} entry={entry} />
-      ))}
-    </ol>
+    <div className="log-table-wrap">
+      <div className="log-table-head" aria-hidden="true">
+        <span>Time</span>
+        <span>Actor</span>
+        <span>Event</span>
+        <span>Summary</span>
+        <span className="text-right">Details</span>
+      </div>
+      <ol className="log-list" aria-label="Decision log">
+        {entries.map((entry) => (
+          <LogEntry key={entry.entryId} entry={entry} />
+        ))}
+      </ol>
+    </div>
   )
 }

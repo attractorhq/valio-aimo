@@ -32,33 +32,35 @@ export function ApproveMobile() {
 
   return (
     <div className="approver-page mx-auto max-w-xl">
-      <header className="approver-header">
-        <UserRoundCheck size={24} aria-hidden />
-        <div>
-          <h1>Approver — {role}</h1>
-          <p className="flex flex-wrap items-center gap-1.5 text-xs">
-            <Smartphone size={14} aria-hidden />
-            <span>Phone sign-off · Human sign-off channel · not the agent</span>
-          </p>
+      <header className="approver-header approver-header-compact">
+        <div className="flex items-center gap-2">
+          <UserRoundCheck size={18} aria-hidden className="shrink-0" />
+          <div>
+            <h1>Approver — {role}</h1>
+            <p className="flex items-center gap-1 text-xs">
+              <Smartphone size={12} aria-hidden />
+              <span>Phone sign-off · not the agent</span>
+            </p>
+          </div>
         </div>
-        <span className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--surface)] px-2.5 py-1 text-xs font-semibold text-[var(--ink)]">
-          <KeyRound size={12} aria-hidden />
+        <span className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--surface)] px-2 py-0.5 text-xs font-semibold text-[var(--ink)]">
+          <KeyRound size={11} aria-hidden />
           <span>{view.data?.permissionNotice ?? 'Demo approval link — single use'}</span>
         </span>
       </header>
 
       {view.isPending && (
         <p className="panel muted" role="status">
-          Loading proposal for approval…
+          Loading proposal…
         </p>
       )}
 
       {view.error && (
         <div className="panel notice notice-error" role="alert">
-          <AlertTriangle size={18} aria-hidden />
+          <AlertTriangle size={16} aria-hidden />
           <div>
-            <strong>Cannot open approval link</strong>
-            <p className="mt-1 text-sm">
+            <strong>Link unavailable</strong>
+            <p className="mt-0.5 text-sm">
               {view.error instanceof Error
                 ? view.error.message
                 : 'This single-use demo approval link is invalid or has expired.'}

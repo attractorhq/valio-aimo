@@ -23,9 +23,9 @@ export default function App() {
       <header className="app-header">
         <div className="brand">
           {approver ? (
-            <UserRoundCheck size={22} aria-hidden />
+            <UserRoundCheck size={18} aria-hidden />
           ) : (
-            <ShieldCheck size={22} aria-hidden />
+            <ShieldCheck size={18} aria-hidden />
           )}
           <div>
             <span className="brand-name">{approver ? 'Approver panel' : 'Verified or Ask'}</span>
@@ -37,18 +37,48 @@ export default function App() {
           </div>
         </div>
         <nav className="app-nav" aria-label="Views">
-          {approver ? (
-            <Link to="/">Buyer view</Link>
-          ) : (
-            <>
-              <Link to="/valio">Valio Aimo readiness</Link>
-              <Link to="/spec">Open spec · Trust Labels v0.1</Link>
-              {/* The approver panel is a separate window, like a separate person's device. */}
-              <a href="/approver" target="_blank" rel="noopener">
-                Open Approver panel <ExternalLink size={13} aria-hidden />
-              </a>
-            </>
+          <Link
+            to="/"
+            aria-label={approver ? 'Buyer view' : 'Buy'}
+            aria-current={pathname === '/' ? 'page' : undefined}
+          >
+            Buy
+          </Link>
+          {!approver && (
+            /* The approver panel is a separate window, like a separate person's device. */
+            <a
+              href="/approver"
+              target="_blank"
+              rel="noopener"
+              aria-label="Open Approver panel"
+            >
+              Approve <ExternalLink size={12} aria-hidden />
+            </a>
           )}
+          <Link
+            to="/log"
+            aria-current={pathname.startsWith('/log') ? 'page' : undefined}
+          >
+            Log
+          </Link>
+          <Link
+            to="/spec"
+            aria-label="Open spec · Trust Labels v0.1"
+            aria-current={pathname.startsWith('/spec') ? 'page' : undefined}
+          >
+            Spec
+          </Link>
+          <Link
+            to="/valio"
+            aria-label="Valio Aimo readiness"
+            aria-current={
+              pathname.startsWith('/valio') || pathname.startsWith('/readiness')
+                ? 'page'
+                : undefined
+            }
+          >
+            Readiness
+          </Link>
         </nav>
       </header>
       <main id="main">

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { UserRoundCheck } from 'lucide-react'
+import { Check, ChevronRight, UserRoundCheck } from 'lucide-react'
 import { approverChannel, gateway, type ApproverItem } from '../lib/gateway'
 import { formatClock, formatMoney, reasonChip } from '../lib/format'
 import { ApprovalCard } from '../components/approver/ApprovalCard'
@@ -12,7 +12,7 @@ import {
 } from '../components/approver/explain'
 
 const STATE_WORD: Record<string, string> = {
-  PENDING_APPROVAL: 'Waiting for you',
+  PENDING_APPROVAL: 'Waiting',
   CONFIRMED_SIMULATED: 'Approved',
   REJECTED: 'Rejected',
   EXPIRED: 'Expired',
@@ -51,13 +51,10 @@ export function Approver() {
   return (
     <div className="approver-page">
       <header className="approver-header">
-        <UserRoundCheck size={26} aria-hidden />
+        <UserRoundCheck size={20} aria-hidden className="mt-0.5 shrink-0" />
         <div>
           <h1>Approver — {mandate?.approver.role ?? 'Head Chef (demo)'}</h1>
-          <p>
-            Human sign-off channel. The purchasing agent cannot see or use this page. You approve
-            trade-offs, never missing evidence.
-          </p>
+          <p>Separate human sign-off channel · approve trade-offs only, never missing evidence.</p>
         </div>
         {mandates.data && mandates.data.length > 1 && (
           <label className="approver-switch">
@@ -81,13 +78,15 @@ export function Approver() {
 
       <div className="approver-grid">
         <section className="panel" aria-labelledby="approver-queue">
-          <h2 id="approver-queue" className="panel-title">
-            Proposals for you ({pending.length} waiting)
+          <h2
+            id="approver-queue"
+            className="panel-title"
+            aria-label={`Proposals for you (${pending.length} waiting)`}
+          >
+            Queue ({pending.length} waiting)
           </h2>
           {items.length === 0 ? (
-            <p className="muted small">
-              Nothing to approve. When the agent's proposal needs your sign-off, it appears here.
-            </p>
+            <p className="muted small">Nothing to approve.</p>
           ) : (
             <ul className="approver-queue">
               {items.map(({ proposal }) => {
@@ -95,22 +94,31 @@ export function Approver() {
                 // approving means. Each reason chip appears once.
                 const reasons = [...approvalReasons(proposal), ...contextReasons(proposal)]
                 const statement = rowStatement(proposal, mandate)
+                const isSelected = proposal.proposalId === selected?.proposal.proposalId
                 return (
                   <li key={proposal.proposalId}>
                     <button
                       type="button"
-                      className={`queue-item ${proposal.proposalId === selected?.proposal.proposalId ? 'selected' : ''}`}
-                      aria-current={
-                        proposal.proposalId === selected?.proposal.proposalId ? 'true' : undefined
-                      }
+                      className={`queue-item ${isSelected ? 'selected' : ''}`}
+                      aria-current={isSelected ? 'true' : undefined}
                       onClick={() => setSelectedId(proposal.proposalId)}
                     >
                       <span className="flex flex-wrap items-center justify-between gap-2">
-                        <strong>
-                          {formatMoney(proposal.totals.exclVat)} · v{proposal.offerVersion}
-                        </strong>
-                        <span className={`queue-state queue-state-${proposal.state.toLowerCase()}`}>
-                          {STATE_WORD[proposal.state] ?? proposal.state}
+                        <span className="inline-flex items-center gap-1.5">
+                          {isSelected && (
+                            <span className="queue-select-mark" aria-hidden="true">
+                              <Check size={12} strokeWidth={3} />
+                            </span>
+                          )}
+                          <strong>
+                            {formatMoney(proposal.totals.exclVat)} · v{proposal.offerVersion}
+                          </strong>
+                        </span>
+                        <span className="inline-flex items-center gap-1">
+                          <span className={`queue-state queue-state-${proposal.state.toLowerCase()}`}>
+                            {STATE_WORD[proposal.state] ?? proposal.state}
+                          </span>
+                          <ChevronRight size={14} aria-hidden className="queue-chevron" />
                         </span>
                       </span>
                       <span className="small font-semibold">
@@ -134,8 +142,8 @@ export function Approver() {
                         </span>
                       )}
                       <span className="muted small">
-                        {proposal.lines.length} line{proposal.lines.length === 1 ? '' : 's'} ·
-                        created {formatClock(proposal.createdAt)}
+                        {proposal.lines.length} line{proposal.lines.length === 1 ? '' : 's'} ·{' '}
+                        {formatClock(proposal.createdAt)}
                       </span>
                     </button>
                   </li>

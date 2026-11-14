@@ -19,23 +19,21 @@ export function LogDownloads({
   const live = source === 'GATEWAY'
 
   return (
-    <p
-      className="mt-2 flex flex-wrap items-center gap-2 text-sm"
+    <span
+      className="inline-flex flex-wrap items-center gap-1.5 text-xs"
       aria-label="Download decision log"
     >
       {(['json', 'csv'] as const).map((format) => (
         <a
           key={format}
-          className="btn btn-scenario inline-flex items-center gap-1.5 font-semibold"
+          aria-label={`Download log (${format.toUpperCase()})`}
+          className="log-download-btn"
           href={live ? exportUrl(proposalId, format) : localExportHref(trail, format)}
           download={exportFilename(proposalId, format)}
         >
-          <Download size={14} aria-hidden /> Download log ({format.toUpperCase()})
+          <Download size={12} aria-hidden /> {format.toUpperCase()}
         </a>
       ))}
-      <span className="muted small">
-        {live ? 'The gateway’s own record of this proposal.' : 'The synthetic log shown below.'}
-      </span>
-    </p>
+    </span>
   )
 }
