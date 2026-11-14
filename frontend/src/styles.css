@@ -536,9 +536,10 @@ main {
   position: relative;
   display: flex;
   gap: var(--space-2);
-  align-items: flex-start;
-  min-height: 44px;
-  padding: var(--space-2) var(--space-3);
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 10px;
   border: 0;
   border-radius: var(--radius-input);
   cursor: pointer;
@@ -566,22 +567,39 @@ main {
   margin: 0;
 }
 .segment-check {
-  flex: 0 0 14px;
-  height: 14px;
-  margin-top: 2px;
+  flex: 0 0 auto;
+  display: inline-flex;
 }
 .segment-text {
   min-width: 0;
 }
+/* One line per buyer: the name never wraps (a long one ends in "…"); the segment is for screen readers. */
 .segment-text strong {
   display: block;
-  font-size: 14px;
-  line-height: 1.3;
+  font-size: 13px;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .segment-text small {
-  display: block;
-  color: var(--muted);
-  font-size: 12px;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+/* Touch screens keep a 44 px target. On a phone a long name may take a second line instead of "…". */
+@media (pointer: coarse) {
+  .segment {
+    min-height: 44px;
+  }
+}
+@media (max-width: 520px) {
+  .segment-text strong {
+    white-space: normal;
+  }
 }
 .key-limits {
   display: grid;
