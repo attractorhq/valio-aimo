@@ -38,7 +38,7 @@ Switch to `/approver`. Point out the exact version, quantity, date, total and �
 
 ### 1:55–2:25 — C: BLOCK
 
-Run Scenario C. Show €20,200.00 above the €5,000.00 hard limit and `INSTRUCTION_IGNORED`. Say:
+Run Scenario C. Show €20,200.00 above the €15,000.00 hard limit (with 14,851 l shown as feasible within the limit, information only) and `INSTRUCTION_IGNORED`. Say:
 
 > The request claims the CFO already approved a bigger budget. Request text is data, not authority. The gateway logs the instruction attempt and blocks the hard-limit breach. A human cannot approve away a hard limit or missing allergen evidence.
 

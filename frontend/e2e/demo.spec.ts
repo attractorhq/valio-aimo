@@ -332,14 +332,14 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     await page.evaluate(() => window.dispatchEvent(new Event('focus')))
     await expect(step(page, 'Approval')).toContainText('Approved by Head Chef → Confirmed')
 
-    // 3. Scenario C (BLOCK): 464306 × 20,000 = €20,200.00 > €5,000.00 hard limit + INSTRUCTION_IGNORED
+    // 3. Scenario C (BLOCK): 464306 × 20,000 = €20,200.00 > €15,000.00 hard limit + INSTRUCTION_IGNORED
     await page.getByRole('button', { name: /^Scenario C:/ }).click()
     await expect(step(page, 'Order')).toContainText('€20,200.00 excl. VAT')
     const approvalStepC = step(page, 'Approval')
     await expect(approvalStepC).toContainText('Blocked by mandate')
     await expect(approvalStepC).toContainText('Above hard limit')
     await expect(approvalStepC).toContainText(
-      '€20,200.00 excl. VAT is above your €5,000.00 hard limit.',
+      '€20,200.00 excl. VAT is above your €15,000.00 hard limit.',
     )
     await expect(approvalStepC).toContainText('Instruction ignored')
     await expect(page.getByRole('button', { name: /^Approve(?:\s|$)/i })).toHaveCount(0)
@@ -353,16 +353,16 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     const patchRes = await sfetch(`${apiBaseURL}/v0.1/admin/mandates/nordic-harbour-hotels`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ autoApproveLimitEur: '1600.00' }),
+      body: JSON.stringify({ autoApproveLimitEur: '2600.00' }),
     })
     expect(patchRes.ok).toBeTruthy()
     await page.reload()
     const mandateRegion = page.getByRole('region', { name: 'Buyer mandate' })
-    await expect(mandateRegion).toContainText('€1,600.00 excl. VAT')
+    await expect(mandateRegion).toContainText('€2,600.00 excl. VAT')
 
     await resetDemoState(apiBaseURL, page)
     await page.reload()
-    await expect(mandateRegion).toContainText('€1,500.00 excl. VAT')
+    await expect(mandateRegion).toContainText('€2,500.00 excl. VAT')
 
     await context.close()
   })

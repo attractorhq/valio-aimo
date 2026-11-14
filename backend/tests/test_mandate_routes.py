@@ -140,7 +140,7 @@ def test_reset_of_several_fields_and_refusals(api):  # noqa: F811
     view = client.client.get(f"{ADMIN}/{M1.customerId}/default").json()
     assert {d["field"] for d in view["differences"]} == {"allergenMode", "hardLimitEur"}
     result = client.client.post(f"{ADMIN}/{M1.customerId}/reset").json()
-    assert (result["mandate"]["allergenMode"], result["mandate"]["hardLimitEur"]) == ("STANDARD", "5000.00")
+    assert (result["mandate"]["allergenMode"], result["mandate"]["hardLimitEur"]) == ("STANDARD", "15000.00")
     assert result["mandate"]["version"] == 3
 
 

@@ -38,23 +38,23 @@ const SHIPPED_DEFAULTS: Record<
   Pick<Mandate, 'autoApproveLimitEur' | 'hardLimitEur' | 'allergenMode'>
 > = {
   'nordic-harbour-hotels': {
-    autoApproveLimitEur: '1500.00',
-    hardLimitEur: '5000.00',
+    autoApproveLimitEur: '2500.00',
+    hardLimitEur: '15000.00',
     allergenMode: 'STANDARD',
   },
   'mock-hotels': {
-    autoApproveLimitEur: '1500.00',
-    hardLimitEur: '5000.00',
+    autoApproveLimitEur: '2500.00',
+    hardLimitEur: '15000.00',
     allergenMode: 'STANDARD',
   },
   'northbay-school-kitchen': {
     autoApproveLimitEur: '500.00',
-    hardLimitEur: '3000.00',
+    hardLimitEur: '6000.00',
     allergenMode: 'STRICT',
   },
   'mock-school': {
     autoApproveLimitEur: '500.00',
-    hardLimitEur: '3000.00',
+    hardLimitEur: '6000.00',
     allergenMode: 'STRICT',
   },
 }
