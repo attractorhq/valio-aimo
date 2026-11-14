@@ -134,3 +134,74 @@ scripts/check
 `backend/tests/test_contracts.py` checks schema/type drift, all reason codes, P2 non-approvability, forbidden agent schema fields (including nested models), and example round-trips. These are contract checks, not policy/transition tests.
 
 `frontend/src/mocks/scenario-a.json` and `scenario-b.json` are hand-made **synthetic UI mocks**, with synthetic IDs/names, illustrative A/B quantities/totals, and placeholder hashes. They are not recordings or outcomes to hardcode into the gateway. B has 18 × €22.92 + 80 × €1.17 = €506.16, VAT €68.33, incl. VAT €574.49, and exactly `[OVER_AUTO_LIMIT]`; rejected substitutes stay excluded. The matching mandate mocks use M1/M2-shaped controls. Actual dataset and recorded-response evaluation stays private in ignored `data/`.
+
+## Second client: OpenAPI + curl and `scripts/second-client`
+
+Any outside purchasing agent can discover the gateway's operations from `/openapi.json` and run Scenario B through the public Agent channel alone, receiving the exact same deterministic decision (`ASK`, `["OVER_AUTO_LIMIT"]`, `€506.16` excl. VAT, and identical `offerHash`).
+
+### Standalone Python client (stdlib + `urllib`, no repo imports)
+
+```bash
+scripts/second-client http://localhost:8000
+# or against the deployed URL:
+scripts/second-client https://valio-aimo.<account>.workers.dev
+```
+
+Output:
+
+```text
+OpenAPI:      3.1.0 (createProposal, getAuditTrail, getMandate, getOffer, getProposal, listMandates, searchProducts)
+Customer:     northbay-school-kitchen (mandate v1)
+Proposal:     PR-2026-11-16-...-v1 · state=PENDING_APPROVAL
+Decision:     ASK
+Reasons:      ["OVER_AUTO_LIMIT"]
+Totals:       €506.16 excl. VAT · VAT €68.33 · €574.49 incl. VAT (EUR)
+offerHash:    <64-char sha256 hex digest>
+```
+
+### Equivalent `curl` + `jq` walkthrough (agent channel only)
+
+```bash
+API="${GATEWAY_URL:-http://localhost:8000}"
+
+# 1. Inspect OpenAPI 3.1 Agent channel operations
+curl -sS "$API/openapi.json" | jq '[.paths | to_entries[] | .key as $p | .value | to_entries[] | select(.value.tags[]? == "Agent channel") | {operationId: .value.operationId, method: (.key | ascii_upcase), path: $p}]'
+
+# 2. Read buyer mandate M2 (read-only)
+curl -sS "$API/v0.1/mandates/northbay-school-kitchen" | jq '{customerId, version, allergenMode, autoApproveLimitEur, hardLimitEur}'
+
+# 3. Get fixed-price offer v1 for Scenario B shortlist
+OFFER="$(curl -sS -X POST "$API/v0.1/offers" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "customerId": "northbay-school-kitchen",
+    "requestedDate": "2026-11-16",
+    "items": [
+      {"itemId": "I1", "productId": "474235", "quantity": "90", "unit": "kg"},
+      {"itemId": "I2", "productId": "468465", "quantity": "80", "unit": "l"}
+    ]
+  }')"
+
+OFFER_ID="$(jq -r .offerId <<<"$OFFER")"
+OFFER_VER="$(jq -r .offerVersion <<<"$OFFER")"
+
+# 4. Create proposal bound to offerId + offerVersion; gateway policy decides
+PROPOSAL="$(curl -sS -X POST "$API/v0.1/proposals" \
+  -H 'Content-Type: application/json' \
+  -d "{
+    \"customerId\": \"northbay-school-kitchen\",
+    \"offerId\": \"$OFFER_ID\",
+    \"offerVersion\": $OFFER_VER,
+    \"request\": {
+      \"requestText\": \"We need 90 kg of gluten-free macaroni and 80 litres of gluten-free oat drink by Monday.\",
+      \"requestedDate\": \"2026-11-16\",
+      \"assumptions\": [],
+      \"items\": [
+        {\"itemId\": \"I1\", \"what\": \"macaroni\", \"quantity\": \"90\", \"unit\": \"kg\", \"requirements\": [{\"kind\": \"CLAIM\", \"code\": \"FREE_FROM_GLUTEN\"}], \"preferences\": []},
+        {\"itemId\": \"I2\", \"what\": \"oat drink\", \"quantity\": \"80\", \"unit\": \"l\", \"requirements\": [{\"kind\": \"CLAIM\", \"code\": \"FREE_FROM_GLUTEN\"}], \"preferences\": []}
+      ]
+    }
+  }")"
+
+echo "$PROPOSAL" | jq '{decision, reasons, totals, offerHash, state}'
+```

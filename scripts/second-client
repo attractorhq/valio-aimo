@@ -1,0 +1,265 @@
+#!/usr/bin/env python3
+"""Standalone second purchasing-agent client (stdlib + urllib only, zero repo imports).
+
+Reads `/openapi.json` to discover the public Agent channel operations and runs Scenario B
+("We need 90 kg of gluten-free macaroni and 80 litres of gluten-free oat drink by Monday.")
+against a local or deployed Verified or Ask gateway URL.
+
+Usage:
+  scripts/second-client                                      # http://localhost:8000
+  scripts/second-client https://valio-aimo.<acct>.workers.dev
+  scripts/second-client http://localhost:8000 --json
+"""
+
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+DEFAULT_BASE_URL = os.environ.get("GATEWAY_URL", "http://localhost:8000")
+CUSTOMER_ID = "northbay-school-kitchen"
+REQUESTED_DATE = "2026-11-16"
+REQUEST_TEXT = "We need 90 kg of gluten-free macaroni and 80 litres of gluten-free oat drink by Monday."
+GLUTEN_FREE = {"kind": "CLAIM", "code": "FREE_FROM_GLUTEN"}
+
+
+def http_json(
+    method: str,
+    url: str,
+    body: dict | None = None,
+    timeout: float = 30.0,
+) -> dict | list:
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    headers = {"Accept": "application/json"}
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, headers=headers, method=method.upper())
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8")
+            return json.loads(raw)
+    except urllib.error.HTTPError as exc:
+        err_body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"HTTP {exc.code} from {method} {url}: {err_body}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"Could not connect to {url}: {exc.reason}") from exc
+
+
+def discover_agent_operations(base_url: str) -> tuple[str, dict[str, tuple[str, str]]]:
+    """Read `/openapi.json` and discover Agent channel operations by operationId."""
+    spec = http_json("GET", f"{base_url}/openapi.json")
+    if not isinstance(spec, dict) or "paths" not in spec:
+        raise RuntimeError("Invalid OpenAPI document at /openapi.json")
+    openapi_version = str(spec.get("openapi", ""))
+    operations: dict[str, tuple[str, str]] = {}
+
+    for path, methods in spec["paths"].items():
+        if not isinstance(methods, dict):
+            continue
+        for method, meta in methods.items():
+            if not isinstance(meta, dict):
+                continue
+            op_id = meta.get("operationId")
+            tags = meta.get("tags") or []
+            if op_id and "Agent channel" in tags:
+                operations[str(op_id)] = (method.upper(), str(path))
+            if op_id == "decideApproval" and "Agent channel" in tags:
+                raise RuntimeError("Security boundary violation: decideApproval is tagged on the Agent channel")
+
+    required = {"getMandate", "searchProducts", "getOffer", "createProposal", "getProposal"}
+    missing = sorted(required - set(operations))
+    if missing:
+        raise RuntimeError(f"OpenAPI spec is missing required Agent channel operationIds: {missing}")
+    return openapi_version, operations
+
+
+def resolve_shortlist_ids(
+    base_url: str,
+    search_op: tuple[str, str],
+    query: str,
+    fallback_ids: list[str],
+) -> list[str]:
+    method, path = search_op
+    url = f"{base_url}{path}?{urllib.parse.urlencode({'customerId': CUSTOMER_ID})}"
+    res = http_json(
+        method,
+        url,
+        {
+            "query": query,
+            "requirements": [GLUTEN_FREE],
+            "limit": 5,
+        },
+    )
+    if isinstance(res, dict):
+        cands = [
+            str(c["productId"])
+            for c in (res.get("candidates") or [])
+            if isinstance(c, dict) and c.get("productId")
+        ]
+        if cands:
+            # Put canonical Scenario B ID first when present in candidates so offer allocation is deterministic.
+            preferred = [pid for pid in fallback_ids if pid in cands]
+            rest = [pid for pid in cands if pid not in preferred]
+            return (preferred + rest)[:5]
+    return fallback_ids
+
+
+def run_second_client(base_url: str) -> dict:
+    clean_base = base_url.rstrip("/")
+    openapi_version, ops = discover_agent_operations(clean_base)
+
+    # 1. Read mandate via discovered getMandate route
+    m_method, m_path = ops["getMandate"]
+    mandate = http_json(
+        m_method,
+        f"{clean_base}{m_path.replace('{customerId}', urllib.parse.quote(CUSTOMER_ID))}",
+    )
+    assert isinstance(mandate, dict)
+
+    # 2. Static lookup via discovered searchProducts route
+    pasta_ids = resolve_shortlist_ids(clean_base, ops["searchProducts"], "macaroni", ["474235"])
+    oat_ids = resolve_shortlist_ids(clean_base, ops["searchProducts"], "oat drink", ["468465"])
+
+    offer_items = [
+        *[{"itemId": "I1", "productId": pid, "quantity": "90", "unit": "kg"} for pid in pasta_ids[:1]],
+        *[{"itemId": "I2", "productId": pid, "quantity": "80", "unit": "l"} for pid in oat_ids[:1]],
+    ]
+
+    # 3. Live/recorded offer via discovered getOffer route
+    o_method, o_path = ops["getOffer"]
+    offer = http_json(
+        o_method,
+        f"{clean_base}{o_path}",
+        {
+            "customerId": CUSTOMER_ID,
+            "requestedDate": REQUESTED_DATE,
+            "items": offer_items,
+        },
+    )
+    assert isinstance(offer, dict)
+
+    # 4. Create proposal via discovered createProposal route
+    request_payload = {
+        "requestText": REQUEST_TEXT,
+        "requestedDate": REQUESTED_DATE,
+        "assumptions": [],
+        "items": [
+            {
+                "itemId": "I1",
+                "what": "macaroni",
+                "quantity": "90",
+                "unit": "kg",
+                "requirements": [GLUTEN_FREE],
+                "preferences": [],
+            },
+            {
+                "itemId": "I2",
+                "what": "oat drink",
+                "quantity": "80",
+                "unit": "l",
+                "requirements": [GLUTEN_FREE],
+                "preferences": [],
+            },
+        ],
+    }
+    p_method, p_path = ops["createProposal"]
+    proposal = http_json(
+        p_method,
+        f"{clean_base}{p_path}",
+        {
+            "customerId": CUSTOMER_ID,
+            "offerId": offer["offerId"],
+            "offerVersion": offer["offerVersion"],
+            "request": request_payload,
+        },
+    )
+    assert isinstance(proposal, dict)
+
+    # 5. Read back proposal via discovered getProposal route and verify P3 isolation
+    gp_method, gp_path = ops["getProposal"]
+    fetched = http_json(
+        gp_method,
+        f"{clean_base}{gp_path.replace('{proposalId}', urllib.parse.quote(str(proposal['proposalId'])))}",
+    )
+    assert isinstance(fetched, dict)
+    raw_text = json.dumps(fetched).lower()
+    for forbidden in ("approvaltoken", "approvalurl", "qrpayload"):
+        if forbidden in raw_text:
+            raise RuntimeError(f"Agent channel leaked forbidden capability field: {forbidden}")
+
+    return {
+        "baseUrl": clean_base,
+        "openapi": openapi_version,
+        "discoveredAgentOperations": sorted(ops),
+        "customerId": CUSTOMER_ID,
+        "mandateVersion": fetched["mandateVersion"],
+        "offerId": fetched["offerId"],
+        "offerVersion": fetched["offerVersion"],
+        "offerHash": fetched["offerHash"],
+        "proposalId": fetched["proposalId"],
+        "state": fetched["state"],
+        "decision": fetched["decision"],
+        "reasons": fetched["reasons"],
+        "approverRole": fetched.get("approverRole"),
+        "totals": fetched["totals"],
+        "lines": [
+            {
+                "lineId": ln["lineId"],
+                "productId": ln["productId"],
+                "name": ln["name"],
+                "quantitySalesUnits": ln["quantitySalesUnits"],
+                "deliveredQuantity": ln["deliveredQuantity"],
+                "unitPriceExclVat": ln["unitPriceExclVat"],
+                "lineTotalExclVat": ln["lineTotalExclVat"],
+            }
+            for ln in fetched.get("lines", [])
+        ],
+        "excluded": [
+            {
+                "productId": ex["productId"],
+                "reasons": ex["reasons"],
+                "substituteFor": ex.get("substituteFor"),
+            }
+            for ex in fetched.get("excluded", [])
+        ],
+    }
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "url",
+        nargs="?",
+        default=DEFAULT_BASE_URL,
+        help=f"Gateway base URL (default: {DEFAULT_BASE_URL})",
+    )
+    parser.add_argument("--json", action="store_true", help="Print full JSON result")
+    args = parser.parse_args()
+
+    result = run_second_client(args.url)
+    if args.json:
+        print(json.dumps(result, indent=2))
+        return
+
+    totals = result["totals"]
+    print(f"OpenAPI:      {result['openapi']} ({', '.join(result['discoveredAgentOperations'])})")
+    print(f"Customer:     {result['customerId']} (mandate v{result['mandateVersion']})")
+    print(f"Proposal:     {result['proposalId']} · state={result['state']}")
+    print(f"Decision:     {result['decision']}")
+    print(f"Reasons:      {json.dumps(result['reasons'])}")
+    print(
+        f"Totals:       €{totals['exclVat']} excl. VAT · VAT €{totals['vat']} · "
+        f"€{totals['inclVat']} incl. VAT ({totals['currency']})"
+    )
+    print(f"offerHash:    {result['offerHash']}")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as exc:
+        print(f"second-client: {exc}", file=sys.stderr)
+        sys.exit(1)
