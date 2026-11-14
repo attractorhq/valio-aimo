@@ -19,6 +19,7 @@ import { ALLOW_MOCK } from '../lib/env'
 import scenarioA from '../mocks/scenario-a.json'
 import scenarioB from '../mocks/scenario-b.json'
 import scenarioC from '../mocks/scenario-c.json'
+import { ValioAgentActivity } from './ValioAgentActivity'
 
 export type DataGapMetric = {
   gapId: string
@@ -1892,6 +1893,7 @@ export function ValioView() {
           </table>
         </div>
       </section>
+      {source === 'GATEWAY' && <ValioAgentActivity />}
     </div>
   )
 }

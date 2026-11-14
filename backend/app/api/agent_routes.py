@@ -197,6 +197,7 @@ def _stream_sse(
     request_text: str,
     channel: GatewayAgentChannel,
     lookup_date: date | None,
+    call: agent_channel.AgentCall | None,
 ) -> Iterator[str]:
     steps: list[AgentStepEvent] = []
     for step_event in iter_agent_steps(
@@ -207,6 +208,8 @@ def _stream_sse(
         catch_stream_errors=True,
     ):
         if step_event.name == "ERROR":
+            if call is not None:
+                call.stream_failed = True
             yield f"event: step\ndata: {step_event.model_dump_json()}\n\n"
             yield f"event: error\ndata: {json.dumps({'error': step_event.error}, ensure_ascii=False)}\n\n"
             return
@@ -214,6 +217,8 @@ def _stream_sse(
         yield f"event: step\ndata: {step_event.model_dump_json()}\n\n"
     if steps:
         final = _assemble_result_from_steps(customer_id, steps, channel, lookup_date)
+        if call is not None:
+            call.instruction_refused = ReasonCode.INSTRUCTION_IGNORED in final.reasons
         yield f"event: result\ndata: {final.model_dump_json()}\n\n"
 
 
@@ -222,6 +227,7 @@ def _stream_ndjson(
     request_text: str,
     channel: GatewayAgentChannel,
     lookup_date: date | None,
+    call: agent_channel.AgentCall | None,
 ) -> Iterator[str]:
     steps: list[AgentStepEvent] = []
     for step_event in iter_agent_steps(
@@ -232,6 +238,8 @@ def _stream_ndjson(
         catch_stream_errors=True,
     ):
         if step_event.name == "ERROR":
+            if call is not None:
+                call.stream_failed = True
             payload = {"type": "error", **step_event.model_dump(mode="json")}
             yield json.dumps(payload, ensure_ascii=False) + "\n"
             return
@@ -240,6 +248,8 @@ def _stream_ndjson(
         yield json.dumps(payload, ensure_ascii=False) + "\n"
     if steps:
         final = _assemble_result_from_steps(customer_id, steps, channel, lookup_date)
+        if call is not None:
+            call.instruction_refused = ReasonCode.INSTRUCTION_IGNORED in final.reasons
         payload = {"type": "result", **final.model_dump(mode="json")}
         yield json.dumps(payload, ensure_ascii=False) + "\n"
 
@@ -281,6 +291,7 @@ def run_agent_route(
     # The authenticated buyer is the only authority for the request's customer; unknown customers return 404.
     state.gateway.mandates.get(body.customerId)
     channel = GatewayAgentChannel(state)
+    call: agent_channel.AgentCall | None = getattr(request.state, "agent_call", None)
     accept = (request.headers.get("accept") or "").lower()
     if view == "compact" and (
         body.stream or stream or "text/event-stream" in accept or "application/x-ndjson" in accept
@@ -289,18 +300,20 @@ def run_agent_route(
 
     if body.stream or stream or "text/event-stream" in accept:
         return StreamingResponse(
-            _stream_sse(body.customerId, body.requestText, channel, body.lookupDate),
+            _stream_sse(body.customerId, body.requestText, channel, body.lookupDate, call),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
     if "application/x-ndjson" in accept:
         return StreamingResponse(
-            _stream_ndjson(body.customerId, body.requestText, channel, body.lookupDate),
+            _stream_ndjson(body.customerId, body.requestText, channel, body.lookupDate, call),
             media_type="application/x-ndjson",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
     try:
         result = run_agent(body.customerId, body.requestText, channel=channel, lookup_date=body.lookupDate)
+        if call is not None:
+            call.instruction_refused = ReasonCode.INSTRUCTION_IGNORED in result.reasons
         return _compact_result(result) if view == "compact" else result
     except InvalidDeliveryRetry as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

@@ -17,6 +17,7 @@ Read-only resources and the order-request prompt explain the flow without granti
 import json
 import uuid
 from collections.abc import Iterator
+from time import perf_counter
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -36,7 +37,7 @@ from app.contracts import (
     ReasonCode,
 )
 from app.gateway.approvals import ApprovalError
-from app.gateway.log import InvalidStateTransitionError
+from app.gateway.log import AgentAccess, InvalidStateTransitionError, agent_client_label
 from app.gateway.proposals import (
     NoOrderError,
     OfferNotFoundError,
@@ -49,7 +50,8 @@ from app.valio import IntegrationError
 from app.valio.errors import ValioRateLimited
 from app.valio.record import BRIEF_PRODUCT_IDS
 
-from .auth import AgentCustomer, bind_customer
+from .agent_channel import FORBIDDEN_CAPABILITY_KEYS, AgentCall, AgentControlError
+from .auth import AgentCustomer, agent_customer, bind_customer
 from .state import GatewayState, GatewayUnavailable, try_state
 
 router = APIRouter(tags=["Operations"])
@@ -201,12 +203,6 @@ FORBIDDEN_TOOLS: frozenset[str] = frozenset({
     "listApproverProposals",
     "recheckAndConfirm",
     "updateMandate",
-})
-
-FORBIDDEN_CAPABILITY_KEYS: frozenset[str] = frozenset({
-    "approvalToken",
-    "approvalUrl",
-    "qrPayload",
 })
 
 AGENT_TOOLS: list[dict[str, Any]] = [
@@ -649,9 +645,17 @@ def _default_missing_item_ids(raw_items: Any) -> Any:
 
 
 def _execute_tool(name: str, arguments: dict[str, Any], state: GatewayState,
-                  customer: str) -> dict[str, Any]:
+                  customer: str, block: tuple[str, str] | None) -> dict[str, Any]:
+    def require_active():
+        if block is not None:
+            raise AgentControlError(*block)
+
+    # Existing buyer-scope checks precede the temporary controls. A suspended agent still has no access
+    # to another buyer's data, and scoped authorization errors retain their original response.
     if name in {"getMandate", "searchProducts", "getOffer", "createProposal"}:
         arguments = {**arguments, "customerId": bind_customer(customer, arguments.get("customerId"))}
+    if name not in {"getProposal", "getAuditTrail"}:
+        require_active()
     if name == "getAuditTrail" and "proposalId" not in arguments and "customerId" not in arguments:
         arguments = {**arguments, "customerId": customer}
     if name == "listMandates":
@@ -720,6 +724,7 @@ def _execute_tool(name: str, arguments: dict[str, Any], state: GatewayState,
         req = GetProposalRequest.model_validate(arguments)
         current = state.gateway.get_proposal(req.proposalId)
         bind_customer(customer, current.customerId)
+        require_active()
         proposal = state.gateway.get_proposal(req.proposalId, now=state.now_for(current.mode))
         return proposal.model_dump(mode="json")
 
@@ -731,6 +736,7 @@ def _execute_tool(name: str, arguments: dict[str, Any], state: GatewayState,
             bind_customer(customer, state.gateway.get_proposal(req.proposalId).customerId)
         else:
             bind_customer(customer, req.customerId)
+        require_active()
         trail = state.gateway.get_audit_trail(proposal_id=req.proposalId, customer_id=req.customerId)
         return trail.model_dump(mode="json")
 
@@ -738,6 +744,8 @@ def _execute_tool(name: str, arguments: dict[str, Any], state: GatewayState,
 
 
 def _format_domain_error(exc: Exception) -> dict[str, Any]:
+    if isinstance(exc, AgentControlError):
+        return {"error": {"code": exc.code, "message": str(exc)}}
     if isinstance(exc, HTTPException):
         return {"error": {"code": "FORBIDDEN" if exc.status_code == 403 else "UNAUTHORIZED", "message": exc.detail}}
     if isinstance(exc, ValidationError):
@@ -800,6 +808,7 @@ def _handle_rpc_message(
     msg: Any,
     state: GatewayState | GatewayUnavailable,
     customer: str,
+    block: tuple[str, str] | None = None,
 ) -> tuple[dict[str, Any] | None, str | None]:
     """Process one JSON-RPC 2.0 message. Returns `(response_dict_or_None, new_session_id_or_None)`."""
     if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0":
@@ -942,7 +951,7 @@ def _handle_rpc_message(
             )
 
         try:
-            output = _execute_tool(tool_name, arguments, state, customer)
+            output = _execute_tool(tool_name, arguments, state, customer, block)
             _assert_no_approval_capabilities(output)
             return (
                 _jsonrpc_result(
@@ -956,6 +965,7 @@ def _handle_rpc_message(
                 None,
             )
         except (
+            AgentControlError,
             HTTPException,
             ValidationError,
             NoOrderError,
@@ -992,9 +1002,75 @@ def _sse_messages(payloads: list[dict[str, Any]]) -> Iterator[str]:
         yield f"event: message\ndata: {json.dumps(item, ensure_ascii=False)}\n\n"
 
 
+def _observe_mcp_call(msg: dict, state: GatewayState, customer: str, client: str):
+    params = msg.get("params")
+    tool_name = params.get("name") if isinstance(params, dict) else None
+    tool = _TOOLS_BY_NAME.get(tool_name) if isinstance(tool_name, str) else None
+    forbidden = isinstance(tool_name, str) and tool_name in FORBIDDEN_TOOLS
+    writes = forbidden or (tool is not None and not tool["annotations"]["readOnlyHint"])
+    access: AgentAccess = "WRITE" if writes else "READ"
+    activity = state.gateway.log.agent_activity
+    call = AgentCall(
+        operation=tool_name if tool or forbidden else "tools/call", access=access, client=client,
+        customer=customer, started=perf_counter(), activity=activity,
+    )
+    try:
+        response, session = _handle_rpc_message(msg, state, customer, activity.block(customer, client, access))
+    except Exception:
+        call.record("ERROR", "Gateway could not complete the call.")
+        raise
+
+    if response is None:
+        call.record("ERROR", "MCP tool call had no request ID.")
+    elif "error" in response:
+        if forbidden and response["error"]["code"] == -32601:
+            call.record("REFUSED", f"{tool_name} is restricted to human channels.", count_refusal=True)
+        elif tool is None and isinstance(tool_name, str) and response["error"]["message"].startswith("Unknown tool:"):
+            call.record("REFUSED", "Unknown MCP tool.", count_refusal=True)
+        else:
+            call.record("ERROR", "Invalid MCP tool call.")
+    else:
+        result = response["result"]
+        output = result["structuredContent"]
+        if not result["isError"]:
+            call.instruction_refused = ReasonCode.INSTRUCTION_IGNORED in output.get("reasons", ())
+            call.record_success()
+        else:
+            tool_error = output["error"]
+            code = tool_error["code"]
+            if code == "VALIDATION_ERROR" and any(
+                detail["field"].split(".")[-1] in FORBIDDEN_CAPABILITY_KEYS
+                for detail in tool_error.get("details", ())
+            ):
+                call.record("REFUSED", "Approval fields are forbidden in agent requests.", count_refusal=True)
+            elif code == "FORBIDDEN":
+                call.record("REFUSED", "Agent authorization failed.")
+            elif code in {"AGENTS_PAUSED", "AGENT_SUSPENDED"}:
+                call.record("REFUSED", tool_error["message"])
+            elif code == "NO_ORDER":
+                if ReasonCode.INSTRUCTION_IGNORED in tool_error.get("details", {}).get("reasons", ()):
+                    call.instruction_refused = True
+                    call.record_success()
+                else:
+                    call.record("REFUSED", "No order could be confirmed.")
+            else:
+                call.record("ERROR", code)
+    return response, session
+
+
 @router.post("/mcp", operation_id="mcpPost", summary="MCP Streamable HTTP endpoint (agent-channel tools only)")
 @router.post("/mcp/", include_in_schema=False)
-async def mcp_post(request: Request, state: TryState, customer: AgentCustomer) -> Response:
+async def mcp_post(request: Request, state: TryState) -> Response:
+    fallback_client = agent_client_label(request.headers.get("user-agent"))
+    activity = state.gateway.log.agent_activity if isinstance(state, GatewayState) else None
+    started = perf_counter()
+    try:
+        customer = agent_customer(request)
+    except HTTPException:
+        AgentCall("MCP POST", "READ", fallback_client, None, started, activity).record(
+            "REFUSED", "Agent authorization failed.",
+        )
+        raise
     incoming_session = getattr(request.state, "mcp_session_id", None) or request.headers.get("mcp-session-id")
     accept = (request.headers.get("accept") or "").lower()
     raw_body = await request.body()
@@ -1018,9 +1094,18 @@ async def mcp_post(request: Request, state: TryState, customer: AgentCustomer) -
     responses: list[dict[str, Any]] = []
     session_id = incoming_session
     for msg in messages:
-        resp_obj, new_session = _handle_rpc_message(msg, state, customer)
+        if isinstance(state, GatewayState) and isinstance(msg, dict) and msg.get("method") == "tools/call":
+            client = state.gateway.log.agent_activity.mcp_client(session_id, customer, fallback_client)
+            resp_obj, new_session = _observe_mcp_call(msg, state, customer, client)
+        else:
+            resp_obj, new_session = _handle_rpc_message(msg, state, customer)
         if new_session and not session_id:
             session_id = new_session
+        if new_session and session_id and activity is not None:
+            params = msg.get("params") or {}
+            info = params.get("clientInfo")
+            name = agent_client_label(info.get("name")) if isinstance(info, dict) else "unknown"
+            activity.remember_mcp_client(session_id, customer, fallback_client if name == "unknown" else name)
         if resp_obj is not None:
             responses.append(resp_obj)
 
