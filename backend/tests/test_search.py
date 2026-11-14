@@ -1,6 +1,8 @@
 """Tests for static searchProducts (§7.3, P2.4, P4): FI/EN/SV vocabulary, compounds, non-food filter, and excluded[]."""
 
 import time
+from datetime import date
+from decimal import Decimal
 
 import pytest
 
@@ -340,3 +342,127 @@ def test_real_catalog_gluten_free_oat_drink_strict_pasta_and_latency():
         assert ReasonCode.ALLERGEN_CONTAINS in cheese_ex["473013"]
         assert "473985" in cheese_cand_ids
         assert "466836" in cheese_cand_ids
+
+
+# ---- T34: product-type precision ---------------------------------------------------------------------
+
+from app.agent.plan import CandidateObservation, rank_candidates, requested_type_match  # noqa: E402
+from app.catalog.categories import product_type_match  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    ("query", "names", "concept", "exact", "difference"),
+    [
+        ("whipping cream", ("Synthetic cooking cream 15 % 1 l",), "cream", False, "cooking cream, not whipping cream"),
+        ("whipping cream", ("Synthetic whipping cream 1 l UHT",), "cream", True, None),
+        ("kuohukerma", ("Synteettinen vispikerma 2 dl",), "cream", True, None),
+        ("vispikerma", ("Synteettinen ruokakerma 2 dl",), "cream", False, "cooking cream, not whipping cream"),
+        ("whipping cream", ("Synthetic low fat cream 1 l",), "cream", False, "low-fat cream, not whipping cream"),
+        ("whipping cream", ("Synthetic cream 1 l",), "cream", False, "not whipping cream"),
+        ("cream", ("Synthetic coffee cream 1 l",), "cream", True, None),
+        ("fresh whipping cream", ("Synthetic whipping cream 1 l UHT",), "cream", False, "UHT, not fresh (not UHT)"),
+        ("UHT milk", ("Synthetic milk 1 l",), "milk", False, "not UHT"),
+        ("oat drink", ("Synthetic oat cooking base 2 dl",), "oat_drink", False, "not drink"),
+        ("cooking cream", ("Synthetic cooking cream alternative 15 %",), "cream", False,
+         "plant-based or blended alternative, not dairy"),
+        ("tuorejuusto", ("Synteettinen tuorejuusto UHT",), "cheese", True, None),
+        ("macaroni", ("Synthetic oat macaroni",), "macaroni", True, None),  # not a dairy concept
+    ],
+)
+def test_t34_product_type_match(query, names, concept, exact, difference):
+    match = product_type_match(query, names, concept_id=concept)
+    assert match.exact is exact
+    if difference:
+        assert difference in match.differences
+
+
+def test_t34_milk_free_or_vegan_request_accepts_alternatives():
+    names = ("Synthetic oat whipping alternative 2 dl",)
+    assert not product_type_match("whipping cream", names, concept_id="cream").exact
+    assert product_type_match("whipping cream", names, concept_id="cream", requirement_codes=("AM",)).exact
+    assert product_type_match("whipping cream", names, concept_id="cream", requirement_codes=("VEGAN",)).exact
+    assert product_type_match("plant-based whipping cream", names, concept_id="cream").exact
+
+
+def _cream(product_id: str, en: str, fi: str):
+    return normalise_product(
+        synthetic_product_record(
+            product_id=product_id,
+            category="10401",
+            names={"en": en, "fi": fi},
+            allergens=[("AM", "CONTAINS")],
+            claims=["FREE_FROM_LACTOSE"],
+            unit_conversions=[{"synkkaPackagingType": "BASE_UNIT_OR_EACH", "volume": {"unit": "LTR", "value": 1}}],
+        )
+    )
+
+
+def test_t34_search_lists_exact_types_before_other_creams():
+    pool = [
+        _cream("SYN-A-COOK", "Synthetic cooking cream 1 l lactose free", "Synteettinen ruokakerma 1 l laktoositon"),
+        _cream("SYN-B-ALT", "Synthetic cream alternative 1 l lactose free", "Synteettinen Ruoka 1 l laktoositon"),
+        _cream("SYN-C-WHIP", "Synthetic whipping cream 1 l lactose free", "Synteettinen kuohukerma 1 l laktoositon"),
+    ]
+    res = search_products("lactose-free whipping cream", mandate=M1, products=pool)
+    assert [c.productId for c in res.candidates][0] == "SYN-C-WHIP"
+
+
+def _real_catalog_or_skip():
+    if not DEFAULT_ARTIFACT_PATH.exists() and not (DEFAULT_RAW_DIR / "products.json").exists():
+        pytest.skip("Real catalogue data not present on this machine")
+    return load_catalog()
+
+
+def test_t34_real_catalog_whipping_cream_is_never_a_cooking_cream_or_alternative():
+    catalog = _real_catalog_or_skip()
+    item = RequestItem(itemId="I1", what="whipping cream", quantity="20", unit="l",
+                       requirements=[Requirement(kind="CLAIM", code="FREE_FROM_LACTOSE")])
+    res = search_products("lactose-free whipping cream", mandate=M1, item_id="I1", products=catalog)
+    exact = [c for c in res.candidates if requested_type_match(c, item).exact]
+    others = [c for c in res.candidates if not requested_type_match(c, item).exact]
+    assert exact, "the catalogue has lactose-free whipping creams"
+    assert res.candidates[: len(exact)] == exact  # exact types fill the shortlist first
+
+    def obs(product, *, deliverable):
+        return CandidateObservation(
+            product_id=product.productId, unit_price_excl_vat=Decimal("1.00"), comparison_price=Decimal("1.00"),
+            comparison_unit="l", vat_rate=Decimal("13.5"), stock_tier="PLENTY" if deliverable else "UNAVAILABLE",
+            available_quantity=Decimal(1000) if deliverable else Decimal(0), delivery_date=date(2026, 11, 16),
+            closing_time=None, reasons=(), facts=(),
+        )
+
+    # Whipping cream deliverable: it is recommended, even when a cooking cream would be cheaper.
+    observations = {c.productId: obs(c, deliverable=True) for c in res.candidates}
+    ranked = rank_candidates(res.candidates, item=item, mandate=M1, requested_date=date(2026, 11, 16),
+                             observations=observations)
+    assert requested_type_match(next(c for c in res.candidates if c.productId == ranked[0].productId), item).exact
+    assert ranked[0].substitutionSource is None
+
+    # No whipping cream deliverable: whatever is offered is an agent substitute (ASK), never exact (AUTO).
+    observations = {c.productId: obs(c, deliverable=c in others) for c in res.candidates}
+    ranked = rank_candidates(res.candidates, item=item, mandate=M1, requested_date=date(2026, 11, 16),
+                             observations=observations)
+    if ranked:
+        assert all(r.substitutionSource == "AGENT" for r in ranked)
+        assert all(ReasonCode.AGENT_SUBSTITUTE in r.reasons for r in ranked)
+
+
+def test_t34_real_catalog_gluten_free_macaroni_ranks_macaroni_before_fusilli():
+    catalog = _real_catalog_or_skip()
+    res = search_products("gluten-free macaroni", mandate=M2, item_id="I1", products=catalog)
+    item = RequestItem(itemId="I1", what="macaroni", quantity="90", unit="kg",
+                       requirements=[Requirement(kind="CLAIM", code="FREE_FROM_GLUTEN")])
+    observations = {
+        c.productId: CandidateObservation(
+            product_id=c.productId, unit_price_excl_vat=Decimal("1.00"), comparison_price=Decimal("1.00"),
+            comparison_unit="kg", vat_rate=Decimal("13.5"), stock_tier="PLENTY", available_quantity=Decimal(1000),
+            delivery_date=date(2026, 11, 16), closing_time=None, reasons=(), facts=(),
+        )
+        for c in res.candidates
+    }
+    ranked = rank_candidates(res.candidates, item=item, mandate=M2, requested_date=date(2026, 11, 16),
+                             observations=observations)
+    assert ranked and "macaroni" in ranked[0].name.lower() and ranked[0].substitutionSource is None
+    for r in ranked:
+        if "fusilli" in r.name.lower():
+            assert r.substitutionSource == "AGENT"

@@ -1,6 +1,8 @@
 """Food/non-food classification and per-category profiles for product-type matching."""
 
+import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from types import MappingProxyType
 
 from app.contracts.common import Contract, RequestUnit
@@ -658,3 +660,153 @@ def matching_categories_for_type(query: str) -> tuple[str, ...]:
             if profile.codePrefix not in matched:
                 matched.append(profile.codePrefix)
     return tuple(matched)
+
+
+# ---- Product-type precision (T34) ------------------------------------------------------------------
+# A qualifier in the request that changes how the product is used is a hard product-type constraint:
+# whipping vs cooking cream, UHT vs fresh, a drink vs a cooking product, dairy vs a plant-based
+# "alternative". A product that does not prove the requested type may only be offered as an agent
+# substitute (AGENT_SUBSTITUTE, L10, ASK), never chosen on its own authority.
+
+
+@dataclass(frozen=True)
+class TypeVariant:
+    variant_id: str
+    label: str
+    query_patterns: tuple[str, ...]  # regexes on the buyer's words (EN/FI/SV)
+    product_terms: tuple[str, ...] = ()  # the product proves the variant if its names contain one of these
+    forbid_terms: tuple[str, ...] = ()  # the product disproves the variant if its names contain one of these
+
+
+@dataclass(frozen=True)
+class TypeQualifierGroup:
+    group_id: str
+    concepts: frozenset[str]  # requested concepts the group applies to; empty = any
+    variants: tuple[TypeVariant, ...]
+
+
+TYPE_QUALIFIER_GROUPS: tuple[TypeQualifierGroup, ...] = (
+    TypeQualifierGroup(
+        group_id="cream_use",
+        concepts=frozenset({"cream"}),
+        variants=(
+            TypeVariant(
+                "whipping", "whipping cream",
+                (r"\bwhipp(ing|ed)\b", r"\b(vispi|kuohu)\w*", r"\bvispgrädde\w*"),
+                product_terms=("whipping", "vispi", "kuohu", "vispgrädde"),
+            ),
+            TypeVariant(
+                "cooking", "cooking cream",
+                (r"\bcooking\b", r"\bruokakerm\w*", r"\bmatlagningsgrädde\w*"),
+                product_terms=("cooking", "ruokakerm", "ruoka ", "matlagning"),
+            ),
+            TypeVariant(
+                "coffee", "coffee cream",
+                (r"\bcoffee\b", r"\bkahvikerm\w*", r"\bkaffegrädde\w*"),
+                product_terms=("coffee", "kahvikerm", "kaffegrädde"),
+            ),
+            TypeVariant(
+                "light", "low-fat cream",
+                (r"\blow[- ]fat\b", r"\bkevytkerm\w*", r"\blättgrädde\w*"),
+                product_terms=("low fat", "low-fat", "kevytkerm", "lättgrädde"),
+            ),
+        ),
+    ),
+    TypeQualifierGroup(
+        group_id="heat_treatment",
+        concepts=frozenset(),
+        variants=(
+            TypeVariant("uht", "UHT", (r"\buht\b", r"\blong[- ]life\b"), product_terms=("uht",)),
+            TypeVariant(
+                "fresh", "fresh (not UHT)",
+                (r"\bfresh\b", r"\btuore(tta|ita|et|a)?\b", r"\bfärska?\b"),
+                forbid_terms=("uht",),
+            ),
+        ),
+    ),
+    TypeQualifierGroup(
+        group_id="drink_vs_cooking",
+        concepts=frozenset(),
+        variants=(
+            TypeVariant(
+                "drink", "drink",
+                (r"\bdrinks?\b", r"juoma\w*\b", r"dryck\w*\b"),
+                forbid_terms=("cooking", "ruoka", "matlagning", "fraiche", "yoghurt", "jogurt"),
+            ),
+        ),
+    ),
+)
+
+# Requested concepts that name a dairy product: a plant-based alternative is a different product type.
+DAIRY_CONCEPTS: frozenset[str] = frozenset({"milk", "cream", "sour_cream", "yoghurt", "quark", "butter", "cheese"})
+
+ALTERNATIVE_PRODUCT_TERMS: tuple[str, ...] = (
+    "alternative", "vaihtoehto", "plant-based", "plant based", "kasvipohj", "kasvirasva", "vegetable fat",
+    "växtbaser", "växtfett", "vegetabilisk", "oat ", "oat-", "kaura", "havre", "soy", "soija", "soja",
+    "coconut", "kookos", "kokos", "almond", "manteli", "mandel",
+)
+_ASKED_FOR_ALTERNATIVE = re.compile(
+    r"\b(alternative|vaihtoehto\w*|plant[- ]based|kasvi\w*|vegan\w*|vegaani\w*|oat\w*|kaura\w*|havre\w*|"
+    r"soy\w*|soija\w*|soja\w*|coconut|kookos\w*|kokos\w*|almond|manteli\w*|mandel\w*|dairy[- ]free|"
+    r"milk[- ]free|maidoton\w*|mjölkfri\w*|växt\w*)",
+    re.IGNORECASE,
+)
+
+
+@dataclass(frozen=True)
+class TypeMatch:
+    """Whether a product is exactly the type the buyer asked for; `differences` explain why not."""
+
+    exact: bool
+    differences: tuple[str, ...] = ()
+
+
+def requested_variants(query: str, concept_id: str | None) -> tuple[tuple[TypeQualifierGroup, TypeVariant], ...]:
+    """The use-changing qualifiers the buyer stated, at most one per group (the first one stated)."""
+    q = query.lower()
+    found: list[tuple[TypeQualifierGroup, TypeVariant]] = []
+    for group in TYPE_QUALIFIER_GROUPS:
+        if group.concepts and concept_id not in group.concepts:
+            continue
+        hits = [
+            (min(m.start() for p in v.query_patterns for m in re.finditer(p, q)), v)
+            for v in group.variants
+            if any(re.search(p, q) for p in v.query_patterns)
+        ]
+        if hits:
+            found.append((group, min(hits, key=lambda hit: hit[0])[1]))
+    return tuple(found)
+
+
+def asked_for_alternative(query: str, requirement_codes: tuple[str, ...] = ()) -> bool:
+    """A plant-based alternative is acceptable when the buyer asked for one, or for vegan / milk-free."""
+    return bool(_ASKED_FOR_ALTERNATIVE.search(query)) or "VEGAN" in requirement_codes or "AM" in requirement_codes
+
+
+def product_type_match(
+    query: str,
+    product_names: tuple[str, ...],
+    *,
+    concept_id: str | None,
+    requirement_codes: tuple[str, ...] = (),
+) -> TypeMatch:
+    """Check a product against the product type in the buyer's words (names in every language count)."""
+    text = " ".join(n for n in product_names if n).lower() + " "
+    differences: list[str] = []
+    for group, variant in requested_variants(query, concept_id):
+        proves = not variant.product_terms or any(t in text for t in variant.product_terms)
+        disproves = any(t in text for t in variant.forbid_terms)
+        if proves and not disproves:
+            continue
+        other = next(
+            (v for v in group.variants if v is not variant and v.product_terms and any(t in text for t in v.product_terms)),
+            None,
+        )
+        differences.append(f"{other.label}, not {variant.label}" if other else f"not {variant.label}")
+    if (
+        concept_id in DAIRY_CONCEPTS
+        and not asked_for_alternative(query, requirement_codes)
+        and any(t in text for t in ALTERNATIVE_PRODUCT_TERMS)
+    ):
+        differences.append("plant-based or blended alternative, not dairy")
+    return TypeMatch(exact=not differences, differences=tuple(differences))

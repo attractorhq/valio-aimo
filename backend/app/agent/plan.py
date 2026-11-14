@@ -18,6 +18,7 @@ from typing import Literal
 
 from pydantic import Field
 
+from app.catalog.categories import TypeMatch, product_type_match
 from app.catalog.search import (
     SearchProductsResult,
     evaluate_product_static_requirements,
@@ -489,6 +490,7 @@ def _format_tradeoff(
     reliability: Decimal | None,
     substitution_source: SubstitutionKind | None,
     substitute_for: str | None,
+    type_differences: tuple[str, ...] = (),
 ) -> str:
     parts: list[str] = []
     if substitution_source == "VALIO" and substitute_for:
@@ -497,6 +499,8 @@ def _format_tradeoff(
         parts.append(f"Agent substitute for {substitute_for}")
     elif substitution_source == "AGENT":
         parts.append("Agent substitute (closest compliant product type)")
+    if type_differences:
+        parts.append("different product type: " + "; ".join(type_differences))
 
     if comp_price is not None and comp_unit:
         price_str = f"{format_money(comp_price)}/{comp_unit}"
@@ -533,6 +537,16 @@ def _concept_for_item(item: RequestItem) -> tuple[ProductConcept | None, Product
     primary = concepts[0] if concepts else None
     parent = CONCEPTS_BY_ID.get(primary.parent_concept) if primary and primary.parent_concept else None
     return primary, parent
+
+
+def requested_type_match(product: Product, item: RequestItem) -> TypeMatch:
+    """Is `product` exactly the product type the buyer asked for (e.g. whipping, not cooking cream)? (T34)"""
+    primary, _ = _concept_for_item(item)
+    codes = tuple(r.code for r in item.requirements)
+    names = (product.name, *product.names.values())
+    return product_type_match(
+        item.what, names, concept_id=primary.concept_id if primary else None, requirement_codes=codes
+    )
 
 
 def _matches_primary_concept(product: Product, primary: ProductConcept | None, query_lower: str) -> tuple[bool, bool]:
@@ -579,7 +593,9 @@ def rank_candidates(
         frozenset(named_product.substitutions) if named_product is not None else frozenset()
     )
 
-    scored: list[tuple[tuple, Product, CandidateObservation | None, SubstitutionKind | None, str | None]] = []
+    scored: list[
+        tuple[tuple, Product, CandidateObservation | None, SubstitutionKind | None, str | None, tuple[str, ...]]
+    ] = []
 
     for prod in candidates:
         named = target_id is not None and prod.productId == target_id
@@ -603,6 +619,10 @@ def rank_candidates(
             continue
 
         matches_primary, is_specialty = _matches_primary_concept(prod, primary_concept, q_lower)
+        # A product of a different type (whipping vs cooking cream, dairy vs alternative) is never an
+        # exact match: it can only be offered as an agent substitute, after every exact match (T34).
+        type_match = requested_type_match(prod, item)
+        exact_type = matches_primary and type_match.exact
         sub_source: SubstitutionKind | None = None
         sub_for: str | None = None
 
@@ -614,13 +634,13 @@ def rank_candidates(
                 sub_source = "VALIO"
                 sub_for = target_id
             else:
-                sub_rank = 2 if matches_primary else 3
+                sub_rank = 2 if exact_type else 3
                 sub_source = "AGENT"
                 sub_for = target_id
         else:
-            if matches_primary and not is_specialty:
+            if exact_type and not is_specialty:
                 sub_rank = 0
-            elif matches_primary and is_specialty:
+            elif exact_type and is_specialty:
                 sub_rank = 1
             else:
                 sub_rank = 2
@@ -682,7 +702,7 @@ def rank_candidates(
             in_brief,
             prod.productId,
         )
-        scored.append((sort_key, prod, obs, sub_source, sub_for))
+        scored.append((sort_key, prod, obs, sub_source, sub_for, type_match.differences))
 
     scored.sort(key=lambda entry: entry[0])
 
@@ -690,7 +710,7 @@ def rank_candidates(
     ranked: list[RankedCandidate] = []
     best_comp_price: Decimal | None = None
 
-    for idx, (_key, prod, obs, sub_source, sub_for) in enumerate(scored):
+    for idx, (_key, prod, obs, sub_source, sub_for, type_differences) in enumerate(scored):
         sizing = size(prod, item.quantity, item.unit)
         comp_price, comp_unit = _comparison_price(prod, obs, item.unit)
         if idx == 0:
@@ -735,6 +755,7 @@ def rank_candidates(
             reliability=rel,
             substitution_source=sub_source,
             substitute_for=sub_for,
+            type_differences=type_differences if sub_source == "AGENT" else (),
         )
 
         ranked.append(

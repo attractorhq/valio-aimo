@@ -13,6 +13,7 @@ from app.agent.plan import (
     is_compliant_substitute,
     normalise_item_for_planning,
     rank_candidates,
+    requested_type_match,
 )
 from app.catalog.normalise import normalise_product
 from app.catalog.search import search_products
@@ -395,3 +396,76 @@ def test_normalise_item_for_planning_converts_cases_and_pack_sizes():
     )
     assert [oi.productId for oi in shortlist_items] == ["465039", "464306"]
     assert len(shortlist_items) <= 20
+
+
+# ---- T34: product-type precision ---------------------------------------------------------------------
+
+WHIP = "Synthetic whipping cream 1 l lactose free"
+
+
+def _make_cream(product_id: str, name_en: str, name_fi: str) -> Product:
+    rec = synthetic_product_record(
+        product_id=product_id,
+        category="10401",
+        names={"en": name_en, "fi": name_fi},
+        allergens=[("AM", "CONTAINS")],
+        claims=["FREE_FROM_LACTOSE"],
+        unit_conversions=[{"synkkaPackagingType": "BASE_UNIT_OR_EACH", "volume": {"unit": "LTR", "value": 1}}],
+    )
+    return normalise_product(rec, reliability=1.0, co2=1.0)
+
+
+def _cream_item(what: str = "whipping cream") -> RequestItem:
+    return RequestItem(itemId="I1", what=what, quantity=Decimal(20), unit="l", requirements=[LACTOSE_FREE])
+
+
+def test_t34_exact_type_outranks_a_cheaper_different_type():
+    whipping = _make_cream("SYN-WHIP", WHIP, "Synteettinen vispikerma 1 l laktoositon")
+    cooking_alt = _make_cream(
+        "SYN-COOK-ALT", "Synthetic cooking cream alternative 15 % 1 l lactose free", "Synteettinen Ruoka 15 % 1 l"
+    )
+    ranked = rank_candidates(
+        [cooking_alt, whipping],
+        item=_cream_item(),
+        mandate=M1,
+        requested_date=MONDAY,
+        observations={"SYN-WHIP": _obs("SYN-WHIP", "4.00"), "SYN-COOK-ALT": _obs("SYN-COOK-ALT", "1.00")},
+    )
+    assert [r.productId for r in ranked] == ["SYN-WHIP", "SYN-COOK-ALT"]
+    assert ranked[0].substitutionSource is None and ReasonCode.AGENT_SUBSTITUTE not in ranked[0].reasons
+    assert ranked[1].substitutionSource == "AGENT"
+    assert ReasonCode.AGENT_SUBSTITUTE in ranked[1].reasons
+    assert "cooking cream, not whipping cream" in ranked[1].tradeoff
+    assert "plant-based or blended alternative, not dairy" in ranked[1].tradeoff
+
+
+def test_t34_without_a_deliverable_exact_type_the_substitute_is_never_exact():
+    whipping = _make_cream("SYN-WHIP", WHIP, "Synteettinen kuohukerma 1 l")
+    cooking = _make_cream("SYN-COOK", "Synthetic cooking cream 15 % 1 l lactose free", "Synteettinen ruokakerma 1 l")
+    ranked = rank_candidates(
+        [whipping, cooking],
+        item=_cream_item(),
+        mandate=M1,
+        requested_date=MONDAY,
+        observations={
+            "SYN-WHIP": _obs("SYN-WHIP", stock_tier="UNAVAILABLE", avail_qty="0"),
+            "SYN-COOK": _obs("SYN-COOK"),
+        },
+    )
+    assert [r.productId for r in ranked] == ["SYN-COOK"]
+    assert ranked[0].substitutionSource == "AGENT"
+    assert ReasonCode.AGENT_SUBSTITUTE in ranked[0].reasons
+    assert "different product type: cooking cream, not whipping cream" in ranked[0].tradeoff
+
+
+def test_t34_alternatives_are_fine_when_the_buyer_asked_for_one():
+    oat_cream = _make_cream("SYN-OAT", "Synthetic oat cooking cream alternative 2 dl", "Synteettinen kaurakerma")
+    for what, reqs in (("oat cooking cream", []), ("cooking cream", [Requirement(kind="CLAIM", code="VEGAN")])):
+        item = RequestItem(itemId="I1", what=what, quantity=Decimal(1), unit="l", requirements=reqs)
+        assert requested_type_match(oat_cream, item).exact, what
+    assert not requested_type_match(oat_cream, _cream_item("cooking cream")).exact
+
+
+def test_t34_unqualified_request_keeps_every_cream_type_exact():
+    cooking = _make_cream("SYN-COOK", "Synthetic cooking cream 15 % 1 l", "Synteettinen ruokakerma 1 l")
+    assert requested_type_match(cooking, _cream_item("cream")).exact
