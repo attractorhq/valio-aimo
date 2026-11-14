@@ -16,35 +16,51 @@ function formatExcludedReasonChip(code: ReasonCode, item?: RequestItem): string 
 /**
  * Step 2 Lookup + Excluded list with reason chips and Valio-listed-substitute check (P6 P0-3, P8 B).
  */
-export function ExcludedList({ proposal }: { proposal: Proposal }) {
-  const excluded = proposal.excluded ?? []
-  const itemsById = new Map(proposal.request.items.map((item) => [item.itemId, item]))
+export function ExcludedList({
+  proposal,
+  request: directRequest,
+  excluded: directExcluded,
+}: {
+  proposal?: Proposal
+  request?: Proposal['request']
+  excluded?: Proposal['excluded']
+}) {
+  const request = directRequest ?? proposal?.request
+  const excluded = directExcluded ?? proposal?.excluded ?? []
+  const lines = proposal?.lines ?? []
+  const itemsById = new Map((request?.items ?? []).map((item) => [item.itemId, item]))
 
   return (
     <div className="grid gap-3">
-      <ul className="lookup-list">
-        {proposal.request.items.map((item) => {
-          const chosen = proposal.lines.filter((l) => l.itemId === item.itemId)
-          const out = excluded.filter((e) => e.itemId === item.itemId).length
-          return (
-            <li key={item.itemId}>
-              <strong>{item.what}</strong>
-              <span>
-                {chosen.length ? chosen.map((l) => l.name).join(' + ') : 'No compliant product'}
-              </span>
-              <span className="muted">
-                {out === 0
-                  ? 'No candidates excluded'
-                  : `${out} candidate${out === 1 ? '' : 's'} excluded`}
-              </span>
-            </li>
-          )
-        })}
-      </ul>
+      {request && (
+        <ul className="lookup-list">
+          {request.items.map((item) => {
+            const chosen = lines.filter((l) => l.itemId === item.itemId)
+            const out = excluded.filter((e) => e.itemId === item.itemId).length
+            return (
+              <li key={item.itemId}>
+                <strong>{item.what}</strong>
+                <span>
+                  {chosen.length
+                    ? chosen.map((l) => l.name).join(' + ')
+                    : proposal
+                      ? 'No compliant product'
+                      : 'Shortlist evaluated'}
+                </span>
+                <span className="muted">
+                  {out === 0
+                    ? 'No candidates excluded'
+                    : `${out} candidate${out === 1 ? '' : 's'} excluded`}
+                </span>
+              </li>
+            )
+          })}
+        </ul>
+      )}
 
       {excluded.length > 0 && (
         <section
-          className="rounded-xl border border-[var(--line)] bg-[var(--bg)] px-2.5 py-2"
+          className="min-w-0 rounded-xl border border-[var(--line)] bg-[var(--bg)] px-2.5 py-2 [overflow-wrap:anywhere]"
           aria-label="Excluded candidates"
         >
           <header className="mb-1 flex flex-wrap items-center justify-between gap-2">
@@ -57,9 +73,10 @@ export function ExcludedList({ proposal }: { proposal: Proposal }) {
               const item = entry.itemId ? itemsById.get(entry.itemId) : undefined
               const isValioSub =
                 Boolean(entry.substituteFor) || entry.reasons.includes('SUBSTITUTE_REJECTED')
+              // Name only requirements the request actually carries; never assume one.
               const reqNames =
                 item?.requirements?.map((r) => requirementLabel(r).toLowerCase()).join(', ') ||
-                'gluten-free'
+                'a hard requirement'
 
               return (
                 <li
@@ -76,10 +93,7 @@ export function ExcludedList({ proposal }: { proposal: Proposal }) {
                       <span className="text-[var(--muted)]">· {entry.productId}</span>
                       {item && <span className="ml-1 text-[var(--muted)]">({item.what})</span>}
                     </div>
-                    <ul
-                      className="chip-list"
-                      aria-label={`Exclusion reasons for ${entry.name}`}
-                    >
+                    <ul className="chip-list" aria-label={`Exclusion reasons for ${entry.name}`}>
                       {entry.reasons.map((code) => (
                         <li
                           key={code}

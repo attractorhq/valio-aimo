@@ -13,9 +13,23 @@ import { TrustCard } from '../trust/TrustCard'
 /**
  * Step 3 Order proposal at fixed price + per-line Agent Trust Labels v0.1 cards (P6 P0-2).
  */
-export function OrderProposalView({ proposal }: { proposal: Proposal }) {
-  const itemsById = new Map(proposal.request.items.map((item) => [item.itemId, item]))
-  const excluded = proposal.excluded ?? []
+export function OrderProposalView({
+  proposal,
+  offer,
+  request: directRequest,
+  mandateVersion,
+}: {
+  proposal?: Proposal
+  offer?: Proposal | import('../../lib/contracts').Offer
+  request?: Proposal['request']
+  mandateVersion?: number
+}) {
+  const source = proposal ?? offer
+  if (!source) return null
+  const req = directRequest ?? proposal?.request
+  const itemsById = new Map((req?.items ?? []).map((item) => [item.itemId, item]))
+  const excluded = source.excluded ?? []
+  const resolvedMandateVer = proposal?.mandateVersion ?? mandateVersion ?? 1
 
   return (
     <div>
@@ -38,7 +52,7 @@ export function OrderProposalView({ proposal }: { proposal: Proposal }) {
             </tr>
           </thead>
           <tbody>
-            {proposal.lines.map((line) => {
+            {source.lines.map((line) => {
               const stockFact = line.facts.find((f) => f.fact === 'stock.quantity')
               return (
                 <tr key={line.lineId}>
@@ -58,7 +72,8 @@ export function OrderProposalView({ proposal }: { proposal: Proposal }) {
                     <span>
                       {formatNumber(line.quantitySalesUnits)} {line.salesUnitLabel}
                       <small className="muted block">
-                        = {formatQuantity(line.deliveredQuantity.value, line.deliveredQuantity.unit)}
+                        ={' '}
+                        {formatQuantity(line.deliveredQuantity.value, line.deliveredQuantity.unit)}
                       </small>
                     </span>
                   </td>
@@ -88,28 +103,30 @@ export function OrderProposalView({ proposal }: { proposal: Proposal }) {
       <dl className="totals">
         <div>
           <dt>Total excl. VAT</dt>
-          <dd>{formatMoney(proposal.totals.exclVat)}</dd>
+          <dd>{formatMoney(source.totals.exclVat)}</dd>
         </div>
         <div>
           <dt>VAT</dt>
-          <dd>{formatMoney(proposal.totals.vat)}</dd>
+          <dd>{formatMoney(source.totals.vat)}</dd>
         </div>
         <div>
           <dt>Total incl. VAT</dt>
-          <dd>{formatMoney(proposal.totals.inclVat)}</dd>
+          <dd>{formatMoney(source.totals.inclVat)}</dd>
         </div>
       </dl>
 
       <p className="muted small">
-        Prices fixed in offer v{proposal.offerVersion} until {formatClock(proposal.validUntil)} ·
-        bound to mandate v{proposal.mandateVersion}
+        Prices fixed in offer v{source.offerVersion} until {formatClock(source.validUntil)} · bound
+        to mandate v{resolvedMandateVer}
       </p>
 
       <div className="mt-2 grid gap-2" aria-label="Order line trust cards">
-        {proposal.lines.map((line) => {
+        {source.lines.map((line) => {
           const item = itemsById.get(line.itemId)
           const excludedSubstitutes = excluded.filter(
-            (e) => e.substituteFor === line.productId || (e.itemId === line.itemId && e.reasons.includes('SUBSTITUTE_REJECTED')),
+            (e) =>
+              e.substituteFor === line.productId ||
+              (e.itemId === line.itemId && e.reasons.includes('SUBSTITUTE_REJECTED')),
           )
           return (
             <TrustCard

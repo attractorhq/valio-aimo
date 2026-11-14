@@ -56,9 +56,11 @@ export function ApprovalState({ item }: { item: ApproverItem }) {
       return (
         <p className="approval-state approval-state-void" role="status">
           <AlertTriangle size={18} aria-hidden />
-          Superseded · something changed at the re-check, so this version and any approval of it are
-          void. The new version
-          {proposal.supersededBy ? ` (${proposal.supersededBy})` : ''} was decided from scratch.
+          <span>
+            Superseded · something changed at the re-check, so this version and any approval of it
+            are void. The new version
+            {proposal.supersededBy ? ` (${proposal.supersededBy})` : ''} was decided from scratch.
+          </span>
         </p>
       )
     default:
@@ -101,7 +103,6 @@ export function ApprovalCard({
       }),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['approver-proposals'] })
-      queryClient.invalidateQueries({ queryKey: ['approver-token-view'] })
     },
   })
   const decided = decide.data ?? item
@@ -252,7 +253,7 @@ export function ApprovalCard({
               aria-label="Phone approval QR code"
             >
               <QrCode
-                value={`${window.location.origin}/approve/${encodeURIComponent(activeToken)}`}
+                value={`${window.location.origin}/approve/${encodeURIComponent(activeToken)}?proposalId=${encodeURIComponent(proposal.proposalId)}`}
               />
               <div className="min-w-[200px] flex-1 text-xs">
                 <div className="inline-flex items-center gap-1.5 font-bold text-[var(--ink)]">
@@ -264,7 +265,7 @@ export function ApprovalCard({
                 </p>
                 <p className="mt-1.5">
                   <a
-                    href={`/approve/${encodeURIComponent(activeToken)}`}
+                    href={`/approve/${encodeURIComponent(activeToken)}?proposalId=${encodeURIComponent(proposal.proposalId)}`}
                     className="font-semibold text-[var(--green)] underline"
                   >
                     Open mobile approval page
