@@ -12,6 +12,7 @@ import {
   requirementLabel,
 } from '../../lib/format'
 import { isProven, proposalRequirementChecks } from '../../lib/requirements'
+import { ProposalRefText } from '../trust/ProposalRefText'
 
 export { RequestCard } from '../request/RequestCard'
 export { NoOrderBanner } from './NoOrderBanner'
@@ -179,7 +180,7 @@ export function ResultBanner({
       </p>
       {why && (
         <p className="text-xs text-[var(--ink)]" data-testid="result-why">
-          {why.charAt(0).toUpperCase() + why.slice(1).replace(/\.$/, '')}.
+          <ProposalRefText text={`${why.charAt(0).toUpperCase() + why.slice(1).replace(/\.$/, '')}.`} />
         </p>
       )}
       {bullets.length > 0 && (

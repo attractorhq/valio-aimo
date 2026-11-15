@@ -27,6 +27,7 @@ import { QrCode } from './QrCode'
 import { logPath } from '../log/logData'
 import { LoadingSection } from '../Loading'
 import { EvidenceChip } from '../trust/EvidenceChip'
+import { ProposalRefText } from '../trust/ProposalRefText'
 
 /** What happened to this proposal version, in one line. */
 export function ApprovalState({ item }: { item: ApproverItem }) {
@@ -174,29 +175,39 @@ export function ApprovalCard({
           </tr>
         </thead>
         <tbody>
-          {proposal.lines.map((line) => (
-            <tr key={line.lineId}>
-              <th scope="row">
-                {line.name}
-                <small className="muted"> · {line.productId}</small>
-              </th>
-              <td className="num" data-label="Quantity">
-                <span>
-                  {formatNumber(line.quantitySalesUnits)} {line.salesUnitLabel}
-                  <small className="muted block">
-                    = {formatQuantity(line.deliveredQuantity.value, line.deliveredQuantity.unit)}
-                  </small>
-                </span>
-              </td>
-              <td className="num" data-label="Unit price">
-                {formatMoney(line.unitPriceExclVat)}
-              </td>
-              <td className="num" data-label="Line total">
-                {formatMoney(line.lineTotalExclVat)}
-              </td>
-              <td data-label="Delivery">{formatDate(line.deliveryDate)}</td>
-            </tr>
-          ))}
+          {proposal.lines.map((line) => {
+            const heldFact = (line.facts ?? []).find((f) => f.fact === 'stock.heldByYourOrders')
+            return (
+              <tr key={line.lineId}>
+                <th scope="row">
+                  <div>
+                    {line.name}
+                    <small className="muted"> · {line.productId}</small>
+                  </div>
+                  {heldFact && (
+                    <small className="muted mt-0.5 block text-xs font-normal">
+                      <ProposalRefText text={heldFact.display} />
+                    </small>
+                  )}
+                </th>
+                <td className="num" data-label="Quantity">
+                  <span>
+                    {formatNumber(line.quantitySalesUnits)} {line.salesUnitLabel}
+                    <small className="muted block">
+                      = {formatQuantity(line.deliveredQuantity.value, line.deliveredQuantity.unit)}
+                    </small>
+                  </span>
+                </td>
+                <td className="num" data-label="Unit price">
+                  {formatMoney(line.unitPriceExclVat)}
+                </td>
+                <td className="num" data-label="Line total">
+                  {formatMoney(line.lineTotalExclVat)}
+                </td>
+                <td data-label="Delivery">{formatDate(line.deliveryDate)}</td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
@@ -234,14 +245,17 @@ export function ApprovalCard({
       </header>
 
       <section aria-label="Why you are asked" className="approval-why">
-        {reasons.map((code) => (
-          <p key={code} className="approval-reason">
-            <EvidenceChip className="chip" detail={<code>{code}</code>}>
-              {reasonChip(code)}
-            </EvidenceChip>
-            <span>{limitTradeoff ?? plainReason(code, proposal, mandate)}</span>
-          </p>
-        ))}
+        {reasons.map((code) => {
+          const reasonDetail = limitTradeoff ?? plainReason(code, proposal, mandate)
+          return (
+            <p key={code} className="approval-reason">
+              <EvidenceChip className="chip" detail={<code>{code}</code>}>
+                {reasonChip(code)}
+              </EvidenceChip>
+              <span>{reasonDetail ? <ProposalRefText text={reasonDetail} /> : null}</span>
+            </p>
+          )
+        })}
         {earlyNote && (
           <p className="approval-reason approval-reason-info">
             <span className="chip">
@@ -259,7 +273,11 @@ export function ApprovalCard({
                 <Info size={13} aria-hidden />
                 {reasonChip(code)}
               </EvidenceChip>
-              {text && <span>{text}</span>}
+              {text && (
+                <span>
+                  <ProposalRefText text={text} />
+                </span>
+              )}
             </p>
           )
         })}

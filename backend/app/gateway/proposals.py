@@ -771,6 +771,7 @@ class ProposalGateway:
             offer_version=offer_version,
             force_refresh=force_refresh,
             committed_units=self.committed_units(request.customerId),
+            committed_orders=self.committed_stock_orders(request.customerId),
         )
         self.register_offer(result, offer_request=request)
         return result
@@ -872,7 +873,24 @@ class ProposalGateway:
                     committed[line.deliveryDate] = committed.get(line.deliveryDate, Decimal(0)) + line.lineTotalExclVat
         return committed
 
-    def committed_units(self, customer_id: str) -> dict[tuple[str, date], Decimal]:
+    def committed_stock_orders(
+        self, customer_id: str, *, exclude: Sequence[str] = ()
+    ) -> dict[tuple[str, date], list[tuple[str, Decimal]]]:
+        """T97/T102: `(proposalId, quantitySalesUnits)` pairs holding stock per `(product, deliveryDate)`."""
+        if self._session is not None:
+            self._hydrate_from_session(self._session)
+        held: dict[tuple[str, date], list[tuple[str, Decimal]]] = {}
+        for p in self._proposals.values():
+            if p.customerId != customer_id or p.state not in STOCK_HOLDING_STATES or p.proposalId in exclude:
+                continue
+            for line in p.lines:
+                key = (line.productId, line.deliveryDate)
+                held.setdefault(key, []).append((p.proposalId, line.quantitySalesUnits))
+        return held
+
+    def committed_units(
+        self, customer_id: str, *, exclude: Sequence[str] = ()
+    ) -> dict[tuple[str, date], Decimal]:
         """T97: sales units the customer already holds in confirmed orders, per (product, delivery date).
 
         A new offer takes these off the stock pool, so the buyer's own earlier order is never offered twice.
@@ -880,16 +898,10 @@ class ProposalGateway:
         waiting for sign-off does not. Re-checks of an existing proposal do not use this: its own lines would
         otherwise count against itself.
         """
-        if self._session is not None:
-            self._hydrate_from_session(self._session)
-        held: dict[tuple[str, date], Decimal] = {}
-        for p in self._proposals.values():
-            if p.customerId != customer_id or p.state not in STOCK_HOLDING_STATES:
-                continue
-            for line in p.lines:
-                key = (line.productId, line.deliveryDate)
-                held[key] = held.get(key, Decimal(0)) + line.quantitySalesUnits
-        return held
+        return {
+            key: sum((qty for _, qty in entries), Decimal(0))
+            for key, entries in self.committed_stock_orders(customer_id, exclude=exclude).items()
+        }
 
     def committed_total(
         self, customer_id: str, days: date | Iterable[date], *, exclude: Sequence[str] = ()
@@ -1130,6 +1142,23 @@ class ProposalGateway:
             "ASK": "PENDING_APPROVAL",
             "BLOCK": "BLOCKED",
         }[outcome]
+        reason_details: dict[ReasonCode, str] = {
+            ReasonCode(f.code): f.detail
+            for f in policy_decision.findings
+            if f.detail and ReasonCode(f.code) in reasons
+        }
+        if ReasonCode.PARTIAL_AVAILABILITY in reasons and ReasonCode.PARTIAL_AVAILABILITY not in reason_details:
+            held_parts: list[str] = []
+            for ln in kept_lines:
+                held_fact = next((f for f in ln.facts if f.fact == "stock.heldByYourOrders"), None)
+                req_item = items_by_id.get(ln.itemId)
+                if held_fact and held_fact.display and req_item is not None:
+                    held_parts.append(
+                        f"{held_fact.display}; {_format_qty(req_item.quantity, req_item.unit)} requested."
+                    )
+            if held_parts:
+                reason_details[ReasonCode.PARTIAL_AVAILABILITY] = " ".join(held_parts)
+
         preview_proposal = Proposal(
             proposalId=pid,
             customerId=create_req.customerId,
@@ -1150,11 +1179,7 @@ class ProposalGateway:
             lines=kept_lines,
             excluded=excluded,
             totals=totals,
-            reasonDetails={
-                ReasonCode(f.code): f.detail
-                for f in policy_decision.findings
-                if f.detail and ReasonCode(f.code) in reasons
-            },
+            reasonDetails=reason_details,
         )
         base_summary = decision_summary(
             outcome, reasons, total_excl_vat=totals.exclVat, mandate=mandate,
@@ -1863,6 +1888,8 @@ class ProposalGateway:
             mandate=current_mandate,
             offer_id=proposal.offerId,
             offer_version=next_version,
+            committed_units=self.committed_units(proposal.customerId, exclude=(proposal.proposalId,)),
+            committed_orders=self.committed_stock_orders(proposal.customerId, exclude=(proposal.proposalId,)),
         )
         self.register_offer(new_offer_result, offer_request=offer_req)
 

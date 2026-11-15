@@ -9,6 +9,7 @@ import type {
 } from '../../lib/contracts'
 import { formatQuantity, reasonChip, requirementLabel } from '../../lib/format'
 import { requirementChecks } from '../../lib/requirements'
+import { ProposalRefText } from './ProposalRefText'
 import { TrustBadge, TrustSourceMeta, formatFactDisplay } from './TrustBadge'
 
 function countLevels(line: OfferLine): Record<TrustLevel, number> & { CONFLICT: number } {
@@ -32,6 +33,7 @@ function factLabel(factName: string): string {
   if (factName === 'price.vatRate') return 'VAT rate'
   if (factName === 'price.comparison') return 'Comparison price'
   if (factName === 'stock.quantity') return 'Stock'
+  if (factName === 'stock.heldByYourOrders') return 'Held by your orders'
   if (factName === 'delivery.date') return 'Delivery date'
   if (factName === 'delivery.cutoff') return 'Order cut-off'
   if (factName === 'content.perSalesUnit') return 'Pack content'
@@ -184,7 +186,9 @@ export function TrustCard({
             >
               <dt className="text-xs font-semibold text-[var(--muted)]">{factLabel(fact.fact)}</dt>
               <dd className="min-w-0">
-                <div className="font-semibold text-[var(--ink)]">{formatFactDisplay(fact)}</div>
+                <div className="font-semibold text-[var(--ink)]">
+                  <ProposalRefText text={formatFactDisplay(fact)} />
+                </div>
                 <TrustSourceMeta fact={fact} />
                 {fact.conflict && (
                   <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-[var(--block)]">

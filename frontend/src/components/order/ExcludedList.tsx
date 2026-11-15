@@ -5,6 +5,7 @@ import { reasonChip, requirementLabel } from '../../lib/format'
 import type { ItemPlanSummary } from '../request/AssumptionChips'
 import { TrustBadge, TrustSourceMeta, formatFactDisplay } from '../trust/TrustBadge'
 import { EvidenceChip } from '../trust/EvidenceChip'
+import { ProposalRefText } from '../trust/ProposalRefText'
 
 function formatExcludedReasonChip(code: ReasonCode, item?: RequestItem): string {
   if (code === 'CLAIM_MISSING' && item?.requirements?.length) {
@@ -107,7 +108,7 @@ function ExcludedEntry({
               className="flex flex-wrap items-center justify-between gap-2 text-xs"
             >
               <span>
-                <strong>{fact.fact}:</strong> {formatFactDisplay(fact)}
+                <strong>{fact.fact}:</strong> <ProposalRefText text={formatFactDisplay(fact)} />
               </span>
               <TrustSourceMeta fact={fact} />
               <TrustBadge level={fact.level} conflict={fact.conflict} />

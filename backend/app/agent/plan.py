@@ -1223,8 +1223,11 @@ def rank_candidates(
                     sizing.basis,
                     sizing.unit_mismatch,
                 )
-                pack_explanation = _partial_stock_pack_explanation(
-                    prod, sizing, capped_units, obs.available_quantity
+                held_fact = next((f for f in obs.facts if f.fact == "stock.heldByYourOrders"), None)
+                pack_explanation = (
+                    held_fact.display
+                    if held_fact is not None and held_fact.display
+                    else _partial_stock_pack_explanation(prod, sizing, capped_units, obs.available_quantity)
                 )
                 if sizing.delivered.value < item.quantity:
                     shortfall = item.quantity - sizing.delivered.value

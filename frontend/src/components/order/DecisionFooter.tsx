@@ -2,6 +2,7 @@ import { Ban, CheckCircle2, Hourglass, Info } from 'lucide-react'
 import { REASON_REGISTRY, type Mandate, type Proposal, type ReasonCode } from '../../lib/contracts'
 import { formatMoney, reasonChip, reasonText } from '../../lib/format'
 import { EvidenceChip } from '../trust/EvidenceChip'
+import { ProposalRefText } from '../trust/ProposalRefText'
 import {
   decisiveEvidence,
   evidenceCountsText,
@@ -146,7 +147,11 @@ export function DecisionFooter({
                   {effect === 'INFO' ? <Info size={13} aria-hidden /> : null}
                   {reasonChip(code)}
                 </EvidenceChip>
-                {text && <span>{text}</span>}
+                {text && (
+                  <span>
+                    <ProposalRefText text={text} />
+                  </span>
+                )}
                 {showEvidence && <code data-reason-code={code} className="text-xs break-all">{code}</code>}
               </li>
             )
