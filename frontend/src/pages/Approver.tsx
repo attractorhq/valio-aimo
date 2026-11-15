@@ -37,6 +37,13 @@ export function Approver() {
   }, [customerId, mandates.data])
 
   const mandate = mandates.data?.find((m) => m.customerId === customerId)
+  const choose = (id: string) => {
+    const chosen = mandates.data?.find((m) => m.customerId === id)
+    if (!chosen) return
+    chooseApproverRole(chosen.approver.role)
+    setCustomerId(id)
+    setSelectedId(undefined)
+  }
   const list = useQuery({
     queryKey: ['approver-proposals', customerId],
     queryFn: () => approverChannel.listProposals(customerId!),
@@ -59,40 +66,54 @@ export function Approver() {
           <p>Human sign-off channel · not the agent</p>
           <p>Sign-in: role, or a passkey on this phone</p>
           {/* Reserve the control's height so it does not shift the page when the mandate arrives (T84). */}
-          <div className="mt-1.5" style={{ minHeight: 32 }}>
+          <div className="mt-1.5" style={{ minHeight: 44 }}>
             {mandate && <ApproverPasskeyControl role={mandate.approver.role} />}
           </div>
         </div>
         {mandates.isPending ? (
-          <label className="approver-switch" aria-hidden="true">
+          <div className="approver-switch" aria-hidden="true">
             <span>Signed in as</span>
-            <Skeleton className="skeleton-select" />
-          </label>
+            <Skeleton className="skeleton-roles" />
+          </div>
         ) : (
           mandates.data &&
           mandates.data.length > 1 && (
-            <label className="approver-switch">
-              <span>Signed in as</span>
-              <select
-                value={customerId ?? ''}
-                onChange={(e) => {
-                  const chosen = mandates.data.find((m) => m.customerId === e.target.value)
-                  if (!chosen) return
-                  chooseApproverRole(chosen.approver.role)
-                  setCustomerId(e.target.value)
-                  setSelectedId(undefined)
-                }}
-              >
-                <option value="" disabled>Choose your role</option>
+            <div className="approver-switch">
+              <span id="approver-role-label">Signed in as</span>
+              {/* T112: one large tap button per role; the native select stays only as a hidden fallback. */}
+              <div className="approver-roles" role="group" aria-label="Choose your role">
                 {mandates.data.map((m) => {
+                  const active = m.customerId === customerId
                   return (
-                    <option key={m.customerId} value={m.customerId}>
-                      {m.approver.role} · {m.organisationName}
-                    </option>
+                    <button
+                      key={m.customerId}
+                      type="button"
+                      className={`approver-role ${active ? 'active' : ''}`}
+                      aria-pressed={active}
+                      aria-label={`${m.approver.role} · ${m.organisationName}`}
+                      onClick={() => choose(m.customerId)}
+                    >
+                      <strong>{m.approver.role}</strong>
+                      <small>{m.organisationName}</small>
+                    </button>
                   )
                 })}
+              </div>
+              <select
+                className="visually-hidden"
+                aria-label="Signed in as"
+                tabIndex={-1}
+                value={customerId ?? ''}
+                onChange={(e) => choose(e.target.value)}
+              >
+                <option value="" disabled>Choose your role</option>
+                {mandates.data.map((m) => (
+                  <option key={m.customerId} value={m.customerId}>
+                    {m.approver.role} · {m.organisationName}
+                  </option>
+                ))}
               </select>
-            </label>
+            </div>
           )
         )}
       </header>

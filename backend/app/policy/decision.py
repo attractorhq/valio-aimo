@@ -170,7 +170,7 @@ def decide(
     total = sum((v.line.line_total_excl_vat for v in kept), Decimal(0))
     exposure = total + committed_excl_vat
     context = (
-        f"{format_money(committed_excl_vat)} already committed for delivery on "
+        f"{format_money(committed_excl_vat)} already ordered or awaiting approval for "
         f"{format_days(committed_days or (request.requestedDate,))}; with this order {format_money(exposure)}"
         if committed_excl_vat > 0 else None
     )
