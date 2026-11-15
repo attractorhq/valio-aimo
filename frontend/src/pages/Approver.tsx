@@ -57,12 +57,11 @@ export function Approver() {
         <div>
           <h1>Approver{mandate ? ` — ${mandate.approver.role}` : ''}</h1>
           <p>Human sign-off channel · not the agent</p>
-          <p>Sign-in: role only, no password</p>
-          {mandate && (
-            <div className="mt-1.5">
-              <ApproverPasskeyControl role={mandate.approver.role} />
-            </div>
-          )}
+          <p>Sign-in: role, or a passkey on this phone</p>
+          {/* Reserve the control's height so it does not shift the page when the mandate arrives (T84). */}
+          <div className="mt-1.5" style={{ minHeight: 32 }}>
+            {mandate && <ApproverPasskeyControl role={mandate.approver.role} />}
+          </div>
         </div>
         {mandates.isPending ? (
           <label className="approver-switch" aria-hidden="true">
