@@ -1166,22 +1166,16 @@ def _iter_agent_steps_inner(
         # If the top ranked candidate is a product-type substitute (AGENT_SUBSTITUTE) and item.productId
         # was not yet set, bind item.productId to the primary requested-type candidate so the gateway's
         # L10 rule deterministically flags AGENT_SUBSTITUTE.
+        # T117: only a product the buyer named is ever bound; the type guard flags any other substitute itself, and
+        # the reason text never speaks of "the named product" the buyer did not name.
         effective_item = item
         if (
             ranked
             and ranked[0].substitutionSource == "AGENT"
             and effective_item.productId is None
+            and named_prod is not None
         ):
-            fallback_target = (
-                named_prod.productId
-                if named_prod is not None
-                else next(
-                    (c.productId for c in cands if c.productId != ranked[0].productId),
-                    None,
-                )
-            )
-            if fallback_target is not None:
-                effective_item = effective_item.model_copy(update={"productId": fallback_target})
+            effective_item = effective_item.model_copy(update={"productId": named_prod.productId})
         updated_request_items.append(effective_item)
 
         chosen_ids = [rc.productId for rc in ranked[:2]]
