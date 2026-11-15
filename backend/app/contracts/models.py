@@ -18,6 +18,7 @@ from .common import (
     TrustLevel,
 )
 from .reasons import ReasonCode, ReasonEffect
+from .requirements import validate_allergen_code, validate_claim_code
 from .trust import TrustLabel
 
 
@@ -74,6 +75,14 @@ class Product(Contract):
 class Requirement(Contract):
     kind: Literal["CLAIM", "AVOID_ALLERGEN"]
     code: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _validate_known_code(self) -> "Requirement":
+        if self.kind == "CLAIM":
+            validate_claim_code(self.code)
+        else:
+            validate_allergen_code(self.code)
+        return self
 
 
 class Preference(Contract):

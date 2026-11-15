@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from app.catalog.build import CatalogArtifact, get_cached_catalog
 from app.catalog.categories import (
@@ -43,6 +43,7 @@ from app.contracts import (
     TrustLabel,
 )
 from app.contracts.common import Contract
+from app.contracts.requirements import VALID_CLAIM_CODES, validate_allergen_code
 from app.policy.requirements import (
     CERTIFICATION_ALIASES,
     check_requirements,
@@ -179,6 +180,13 @@ class SearchProductsRequest(Contract):
     productId: str | None = None
     includeNonFood: bool = False
 
+    @field_validator("forbiddenAllergens")
+    @classmethod
+    def _validate_forbidden_allergens(cls, values: list[str]) -> list[str]:
+        for code in values:
+            validate_allergen_code(code)
+        return values
+
 
 class SearchProductsResult(Contract):
     query: str
@@ -293,6 +301,7 @@ def _coerce_requirement(req: Requirement | str) -> Requirement:
         return Requirement(kind="CLAIM", code=CERTIFICATION_ALIASES[norm])
     if (
         norm.startswith("FREE_FROM_")
+        or norm in VALID_CLAIM_CODES
         or norm in CLAIM_DISPLAY_NAMES
         or norm in LABEL_DISPLAY_NAMES
     ):

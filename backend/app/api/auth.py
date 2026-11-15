@@ -34,16 +34,28 @@ def bind_customer(authenticated: str, supplied: str | None) -> str:
     return authenticated
 
 
-def audit_scope(request: Request, state, proposal_id: str | None, customer_id: str | None) -> str | None:
+def audit_scope(
+    request: Request,
+    state,
+    proposal_id: str | None,
+    customer_id: str | None,
+    *,
+    all_sessions: bool = False,
+) -> str | None:
     """Resolve proposal ownership before reading any trail, export, or chain."""
+    from .state import find_proposal_state
+
     if proposal_id is not None and customer_id is not None:
         raise HTTPException(400, "Pass at most one of proposalId or customerId.")
     if request.headers.get("x-demo-admin-key") is not None:
         require_admin(request)
+        if proposal_id is not None and all_sessions:
+            find_proposal_state(state, proposal_id, all_sessions=True)
         return customer_id
     authenticated = agent_customer(request)
     if proposal_id is not None:
-        proposal = state.gateway.get_proposal(proposal_id)
+        owner_state = find_proposal_state(state, proposal_id, all_sessions=all_sessions)
+        proposal = owner_state.gateway.get_proposal(proposal_id)
         bind_customer(authenticated, proposal.customerId)
     else:
         if customer_id is None:

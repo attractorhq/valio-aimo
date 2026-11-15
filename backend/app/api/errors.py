@@ -107,9 +107,19 @@ def register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def validation_failed(_: Request, exc: RequestValidationError):
-        return error(422, "VALIDATION_ERROR", "Request validation failed", [
-            {"field": ".".join(str(part) for part in e["loc"]), "message": e["msg"]} for e in exc.errors()
-        ])
+        details = []
+        custom_messages: list[str] = []
+        for e in exc.errors():
+            clean_msg = str(e["msg"]).removeprefix("Value error, ")
+            details.append({"field": ".".join(str(part) for part in e["loc"]), "message": clean_msg})
+            if e.get("type") == "value_error":
+                custom_messages.append(clean_msg)
+        top_message = (
+            f"Request validation failed: {custom_messages[0]}"
+            if custom_messages
+            else "Request validation failed"
+        )
+        return error(422, "VALIDATION_ERROR", top_message, details)
 
     @app.exception_handler(NoOrderError)
     async def no_order(_: Request, exc: NoOrderError):
