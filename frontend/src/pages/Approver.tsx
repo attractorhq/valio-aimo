@@ -6,6 +6,7 @@ import { formatClock, formatMoney, reasonChip } from '../lib/format'
 import { ApprovalCard } from '../components/approver/ApprovalCard'
 import { LoadingSection, Skeleton } from '../components/Loading'
 import { chooseApproverRole, chosenApproverRole } from '../lib/demoAccess'
+import { ApproverPasskeyControl } from './ApproverPasskey'
 import {
   approvalReasons,
   contextReasons,
@@ -57,6 +58,11 @@ export function Approver() {
           <h1>Approver{mandate ? ` — ${mandate.approver.role}` : ''}</h1>
           <p>Human sign-off channel · not the agent</p>
           <p>Sign-in: role only, no password</p>
+          {mandate && (
+            <div className="mt-1.5">
+              <ApproverPasskeyControl role={mandate.approver.role} />
+            </div>
+          )}
         </div>
         {mandates.isPending ? (
           <label className="approver-switch" aria-hidden="true">

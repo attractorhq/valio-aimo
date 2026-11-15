@@ -4,6 +4,7 @@ import { useParams, useSearchParams } from 'react-router-dom'
 import { ApprovalCard } from '../components/approver/ApprovalCard'
 import { approverChannel, gateway } from '../lib/gateway'
 import { LoadingSection } from '../components/Loading'
+import { ApproverPasskeyControl } from './ApproverPasskey'
 
 /**
  * `/approve/:token` phone sign-off page (P3, P10 S3).
@@ -42,6 +43,11 @@ export function ApproveMobile() {
               <Smartphone size={12} aria-hidden />
               <span>Phone sign-off · not the agent</span>
             </p>
+            {decodedToken && (
+              <div className="mt-1.5">
+                <ApproverPasskeyControl role={role} approvalToken={decodedToken} />
+              </div>
+            )}
           </div>
         </div>
       </header>
