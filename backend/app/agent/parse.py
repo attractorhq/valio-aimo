@@ -2568,3 +2568,68 @@ def parse_request(
         fallbackReason=fallback_reason,
         restaurantPreferences=preference_status,
     )
+
+
+# ---- T119: requirements stated in the request text, for the gateway's cross-check ---------------------------------
+
+
+_SEGMENT_SPLIT_RE = re.compile(r"[,.;:!?]|\s(?:and|ja|och|sekä|plus|&)\s", re.IGNORECASE)
+
+
+def _text_requirement_groups(text: str) -> list[tuple[tuple[Requirement, ...], str | None]]:
+    """Each phrase's requirements, e.g. "nut allergy" → (tree nuts, peanuts), by the parser's own vocabulary,
+    with the clause it sits in (None for a diet word such as "coeliac", which concerns the whole order)."""
+    groups: list[tuple[tuple[Requirement, ...], str | None]] = []
+    for pattern, requirements in (*_REQUIREMENT_RES, ((_PLANT_BASE_RE, (_MILK_FREE,)))):
+        for match in pattern.finditer(text):
+            start = max((m.end() for m in _SEGMENT_SPLIT_RE.finditer(text, 0, match.start())), default=0)
+            stop = next((m.start() for m in _SEGMENT_SPLIT_RE.finditer(text, match.end())), len(text))
+            groups.append((tuple(requirements), text[start:stop].lower()))
+    groups.extend((tuple(requirements), None) for pattern, requirements in _DIET_RES if pattern.search(text))
+    return groups
+
+
+def requirements_in_text(text: str) -> list[Requirement]:
+    """Hard requirements the buyer wrote anywhere in the request text (free-from words, allergies, diets, a plant
+    base), EN/FI/SV, by the same deterministic vocabulary the parser uses."""
+    return list(dict.fromkeys(r for group, _clause in _text_requirement_groups(text) for r in group))
+
+
+def _item_words(item: RequestItem) -> set[str]:
+    return {w for w in re.findall(r"[^\W\d_]{3,}", item.what.lower())}
+
+
+def with_text_requirements(request: StructuredRequest) -> tuple[StructuredRequest, list[Requirement]]:
+    """T119: a requirement the request text states but the structured request dropped is added back, and said so in
+    the assumptions. A structured request can never drop the buyer's own "gluten-free" or "coeliac".
+
+    - A diet word ("coeliac", "maitoallergia") concerns every item.
+    - A free-from phrase concerns the items named in its clause ("gluten-free flour" → the flour); with one item and
+      no mention of it anywhere in the text (a product id or a brand name), that item.
+    - A phrase counts as kept when its item carries any of the phrase's requirements ("nut allergy" → tree nuts).
+    """
+    added: list[Requirement] = []
+    extra: dict[str, list[Requirement]] = {item.itemId: [] for item in request.items}
+    text_words = set(re.findall(r"[^\W\d_]{3,}", request.requestText.lower()))
+    for group, clause in _text_requirement_groups(request.requestText):
+        if clause is None:
+            targets = list(request.items)
+        else:
+            clause_words = set(re.findall(r"[^\W\d_]{3,}", clause))
+            targets = [item for item in request.items if _item_words(item) & clause_words]
+            if not targets and len(request.items) == 1 and not _item_words(request.items[0]) & text_words:
+                targets = list(request.items)  # the text never names the item (an id or a product name): it
+        for item in targets:
+            have = set(item.requirements) | set(extra[item.itemId])
+            if have & set(group):
+                continue
+            extra[item.itemId].extend(group)
+            added.extend(r for r in group if r not in added)
+    if not added:
+        return request, []
+    items = [item.model_copy(update={"requirements": [*item.requirements, *extra[item.itemId]]})
+             if extra[item.itemId] else item for item in request.items]
+    labels = ", ".join(_REQUIREMENT_LABELS.get(r.code, r.code) for r in added)
+    note = f"From the request text: {labels} (missing from the structured request)"
+    assumptions = [*request.assumptions, note] if note not in request.assumptions else request.assumptions
+    return request.model_copy(update={"items": items, "assumptions": assumptions}), added
