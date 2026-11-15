@@ -116,6 +116,13 @@ Agent-facing pending responses contain only the proposal, `state: PENDING_APPROV
 
 The buyer admin sets them with `PATCH /v0.1/admin/mandates/{customerId}` (`allowedCategories`, `validFrom`, `validTo`; an explicit `null` clears a bound). The change is versioned and audited like any other mandate change, and open proposals are re-decided.
 
+**Restaurant preferences (#174).** `restaurantPreferences: string` (≤ 1,000 characters, default `""`) holds soft, free-text kitchen preferences saved by the buyer admin, e.g. "Our head chef prefers cream rather than milk for cooking and baking, when appropriate." They are set with the same `PATCH` (`""` clears them) and are versioned and audited like any other mandate change.
+
+- They go to the request-interpreting LLM only, as delimited data (`restaurantPreferences` next to `requestText`). Instruction-like clauses are cut before the model sees them. They never reach the policy, so AUTO / ASK / BLOCK, limits, requirements, allergens and approvals are unchanged by them.
+- A product the buyer named is never replaced: if the model's reading changes a named product (milk → cream), the named product is kept with the note "Restaurant preference · Not applied: milk was requested explicitly, so it was kept."
+- The model reports what it used as `restaurantPreferenceNotes` ("Applied: …", "Not applied: …", "Unclear: …"). They are added to `StructuredRequest.assumptions` as "Restaurant preference · …", shown in the UI as read-only notes.
+- Without a model reading (no LLM configured, timeout, invalid output), the deterministic parser ignores them and the request says "Restaurant preferences not applied: the request was read without the language model." 
+
 `AuditEntry` records timestamp, actor, event/summary, customer/proposal/offer binding, mandate version, optional old/new state, rule, reason codes, facts, and optional human comment. There is no arbitrary credential-bearing metadata field. Rejection/approval comments and request text remain untrusted data. Hash chaining and audit export are later tickets.
 
 ## Reason-code registry

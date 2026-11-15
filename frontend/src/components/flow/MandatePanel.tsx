@@ -106,6 +106,10 @@ export function MandatePanel({
                 <dd>{validity(selected)}</dd>
               </div>
               <div>
+                <dt>Restaurant preferences</dt>
+                <dd>{selected.restaurantPreferences || 'None'}</dd>
+              </div>
+              <div>
                 <dt>Allergen mode</dt>
                 <dd>
                   {selected.allergenMode === 'STRICT'

@@ -744,7 +744,10 @@ def _iter_agent_steps_inner(
     eval_now = now or (channel.now() if hasattr(channel, "now") else datetime.now(UTC))
 
     # ------------------------------------------------------------------ Step 1: REQUEST
-    parse_res: ParseResult = parse_request(request_text, eval_now, interpreter=interpreter)
+    parse_res: ParseResult = parse_request(
+        request_text, eval_now, interpreter=interpreter,
+        restaurant_preferences=mandate.restaurantPreferences,  # #174: soft context for the LLM only
+    )
     if parse_res.request is None or parse_res.clarificationQuestion is not None:
         exp = explain_proposal(
             reasons=parse_res.reasons,

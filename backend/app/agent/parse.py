@@ -60,6 +60,8 @@ class ParseResult(BaseModel):
     ignoredInstructions: list[IgnoredInstruction] = []
     mode: ParseMode
     fallbackReason: str | None = None  # why the LLM result was not used: no_llm, timeout, invalid_output, llm_error
+    # #174: NONE (no saved preferences), CONSIDERED (sent to the LLM as data) or NOT_APPLIED (no LLM reading).
+    restaurantPreferences: Literal["NONE", "CONSIDERED", "NOT_APPLIED"] = "NONE"
 
 
 # --------------------------------------------------------------------------- vocabulary
@@ -1921,6 +1923,66 @@ def _from_llm(raw: dict, text: str, today: date, fallback: _Fallback) -> tuple[S
     return request, None
 
 
+# --------------------------------------------------------------------------- restaurant preferences (#174)
+
+MAX_PREFERENCE_NOTES = 3
+_NOTE_PREFIXES = ("Applied:", "Not applied:", "Unclear:")
+PREFERENCES_NOT_APPLIED = (
+    "Restaurant preferences not applied: the request was read without the language model."
+)
+PREFERENCES_INSTRUCTIONS_IGNORED = "Restaurant preferences: instruction-like text was ignored."
+
+
+def clean_restaurant_preferences(text: str) -> tuple[str, bool]:
+    """Free text saved by the buyer admin, as data for the LLM: instruction-like clauses are cut out.
+
+    Returns `(clean_text, instructions_found)`. The text never reaches the policy; this only keeps the model's
+    input to kitchen preferences."""
+    clean = " ".join((text or "").split())[:1000]
+    if not clean:
+        return "", False
+    ignored = detect_instructions(clean)
+    if not ignored and not detect_instruction(clean):
+        return clean, False
+    cut = _cut_instruction_clauses(clean, ignored) if ignored else ""
+    return (" ".join(cut.split()) if cut and not detect_instruction(cut) else ""), True
+
+
+def _preference_notes(raw: dict) -> list[str]:
+    """The model's notes on which saved preference it used, kept short and only in the agreed shape."""
+    notes = []
+    for note in raw.get("restaurantPreferenceNotes") or []:
+        if not isinstance(note, str):
+            continue
+        note = " ".join(note.split())[:200]
+        if not note.startswith(_NOTE_PREFIXES) or detect_instructions(note) or re.search(r"https?://", note):
+            continue
+        notes.append(f"Restaurant preference · {note}")
+    return notes[:MAX_PREFERENCE_NOTES]
+
+
+def _keep_explicit_products(
+    request: StructuredRequest, fallback_request: StructuredRequest | None
+) -> tuple[StructuredRequest, list[str]]:
+    """A saved preference never replaces a product the buyer named (e.g. milk stays milk, not cream)."""
+    if fallback_request is None or len(fallback_request.items) != len(request.items):
+        return request, []
+    items, notes = [], []
+    for llm_item, det_item in zip(request.items, fallback_request.items, strict=True):
+        stated = resolve_query_concepts(det_item.what)
+        read = resolve_query_concepts(llm_item.what)
+        if stated and (not read or read[0].concept_id != stated[0].concept_id):
+            items.append(llm_item.model_copy(update={"what": det_item.what}))
+            notes.append(
+                f"Restaurant preference · Not applied: {det_item.what} was requested explicitly, so it was kept."
+            )
+        else:
+            items.append(llm_item)
+    if not notes:
+        return request, []
+    return request.model_copy(update={"items": items}), notes
+
+
 # --------------------------------------------------------------------------- entry point
 
 
@@ -1929,8 +1991,13 @@ def parse_request(
     now: datetime,
     interpreter: LlmInterpreter | None = None,
     deadline_s: float = LLM_DEADLINE_S,
+    restaurant_preferences: str = "",
 ) -> ParseResult:
-    """Parse buyer text into a StructuredRequest. `now` must be timezone-aware."""
+    """Parse buyer text into a StructuredRequest. `now` must be timezone-aware.
+
+    `restaurant_preferences` (#174) are the buyer admin's saved soft preferences. They go to the LLM as
+    delimited data only; the deterministic fallback never uses them, and they never reach the policy.
+    """
     if now.tzinfo is None:
         raise ValueError("now must be timezone-aware")
     local = now.astimezone(HELSINKI)
@@ -1961,20 +2028,38 @@ def parse_request(
     request, question = fallback.request, fallback.question
     mode: ParseMode = "FALLBACK"
     fallback_reason: str | None = "no_llm"
+    preferences, preference_instructions = clean_restaurant_preferences(restaurant_preferences)
+    preference_notes: list[str] = [PREFERENCES_INSTRUCTIONS_IGNORED] if preference_instructions else []
     if interpreter is not None:
         try:
             clean_for_llm = _cut_instruction_clauses(text, ignored) if ignored else text
-            raw = call_with_deadline(interpreter, clean_for_llm, today, deadline_s)
+            raw = call_with_deadline(interpreter, clean_for_llm, today, deadline_s, restaurant_preferences=preferences)
             if not isinstance(raw, dict):
                 raise ValueError("LLM result is not an object")
             request, question = _from_llm(raw, text, today, fallback)
             mode, fallback_reason = "LLM", None
+            if preferences and request is not None:
+                request, kept = _keep_explicit_products(request, fallback.request)
+                notes = _preference_notes(raw)
+                if kept:  # the model applied a preference against the request: its "Applied" notes are void
+                    notes = [n for n in notes if "· Applied:" not in n]
+                preference_notes += kept + notes
         except TimeoutError:
             fallback_reason = "timeout"
         except (ValidationError, ValueError, TypeError, KeyError):
             fallback_reason = "invalid_output"
         except Exception:  # network, auth, provider errors: the demo survives an LLM outage
             fallback_reason = "llm_error"
+
+    preference_status: Literal["NONE", "CONSIDERED", "NOT_APPLIED"] = "NONE"
+    if preferences:
+        preference_status = "CONSIDERED" if mode == "LLM" else "NOT_APPLIED"
+        if mode != "LLM":
+            preference_notes.append(PREFERENCES_NOT_APPLIED)
+    if preference_notes and request is not None:
+        request = request.model_copy(update={"assumptions": [
+            *request.assumptions, *(n for n in preference_notes if n not in request.assumptions)
+        ]})
 
     if fallback.safety_question is not None:
         question = fallback.safety_question
@@ -1991,4 +2076,5 @@ def parse_request(
         ignoredInstructions=ignored,
         mode=mode,
         fallbackReason=fallback_reason,
+        restaurantPreferences=preference_status,
     )

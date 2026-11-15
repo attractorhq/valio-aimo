@@ -69,6 +69,8 @@ class MandateChangeRequest(Contract):
     allowedCategories: list[str] | None = None
     validFrom: date | None = None
     validTo: date | None = None
+    # #174: soft restaurant preferences for the purchasing LLM; "" clears them.
+    restaurantPreferences: str | None = Field(default=None, max_length=1000)
 
 
 # Fields where an explicit null is a change (clear the bound), not "leave as it is".
@@ -80,6 +82,8 @@ def _changes(body: MandateChangeRequest) -> dict:
         name: value for name, value in body.model_dump(exclude_unset=True).items()
         if value is not None or name in _CLEARABLE
     }
+    if "restaurantPreferences" in changes:
+        changes["restaurantPreferences"] = changes["restaurantPreferences"].strip()
     if "allowedCategories" in changes:
         changes["allowedCategories"] = sorted({c.strip() for c in changes["allowedCategories"] if c.strip()})
     return changes
