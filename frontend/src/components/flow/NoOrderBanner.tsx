@@ -50,7 +50,7 @@ export function NoOrderBanner({
                 {item.closestMatches.map((match) => (
                   <li key={match.productId}>
                     {match.name}
-                    {match.lacks ? ` — ${match.lacks}` : ''}
+                    {match.lacks ? ` · ${match.lacks}` : ''}
                   </li>
                 ))}
               </ul>
