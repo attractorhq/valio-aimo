@@ -944,6 +944,7 @@ def _no_order_step(
                 excluded=item_excluded,
                 requirements=requirements,
                 deadline_is_today=deadline <= now.astimezone(HELSINKI).date(),
+                unit=item.unit,
             ),
             closestMatches=matches,
         ))

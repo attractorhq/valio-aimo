@@ -515,3 +515,20 @@ test('T86: ASK proposal without hard requirements explains why it was not auto-a
   await expect(approval).toContainText('Only 40 kg of macaroni in stock; 60 kg needed.')
   await expect(approval).toContainText('Delivered in full only 91 % of the time historically.')
 })
+
+test('T121: clicking a step header opens and closes its evidence, not only the chevron', async ({
+  page,
+}) => {
+  await runScenario(page, 'A')
+  const lookup = step(page, 'Lookup')
+  const toggle = page.getByRole('button', { name: 'Lookup details' })
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await lookup.locator('.step-title').click()
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  await expect(lookup.locator('.step-content')).toBeVisible()
+  await lookup.locator('.step-summary').click()
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  // The chevron still works on its own (one toggle per click, never two).
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+})

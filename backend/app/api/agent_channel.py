@@ -490,6 +490,12 @@ def verify_audit_trail(
         result = aggregate_audit_verification(logs, customer_id=customerId)
     else:
         result = state.gateway.log.verify(customer_id=customerId)
+        if result.chainLength == 0 and result.reason is None:
+            # T121: an empty chain is a scope, not a verdict. Say where the entries are.
+            result = result.model_copy(update={"reason": (
+                "No decision-log entries for this buyer in this session. Orders made in a browser live in that "
+                "browser's private session; add scope=all to verify every active session."
+            )})
     return result.model_copy(update={"customerId": customerId})
 
 

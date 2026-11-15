@@ -895,6 +895,13 @@
       "title": "Notordered",
       "type": "array"
     },
+    "shortfalls": {
+      "items": {
+        "$ref": "#/$defs/NotOrderedItem"
+      },
+      "title": "Shortfalls",
+      "type": "array"
+    },
     "supersededBy": {
       "anyOf": [
         {

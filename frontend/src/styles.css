@@ -2137,3 +2137,8 @@ button.chip {
 [class*='rounded-[12px]'][class*='uppercase'] {
   white-space: nowrap;
 }
+
+/* T121: the step header opens its evidence on click. */
+.step-header-toggle {
+  cursor: pointer;
+}

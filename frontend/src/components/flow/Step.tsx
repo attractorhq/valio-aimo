@@ -60,7 +60,16 @@ export function Step({
         <span className="step-number">{number}</span>
       </div>
       <section className="step-body">
-        <header className="step-header">
+        {/* T121: the whole header opens the evidence, not only the small chevron (the button stays for keyboards
+            and screen readers; a click on it or on a link inside is left to that control). */}
+        <header
+          className={`step-header ${hasDetails ? 'step-header-toggle' : ''}`}
+          onClick={(event) => {
+            if (!hasDetails) return
+            if ((event.target as HTMLElement).closest('button, a, input, select, textarea')) return
+            onToggle()
+          }}
+        >
           <div>
             <h2 id={id} className="step-title">
               <span className="visually-hidden">Step {number}: </span>

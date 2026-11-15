@@ -514,6 +514,31 @@ def _infer_stock_from_offer_line(line: OfferLine) -> tuple[StockKind, Decimal | 
     return StockKind.PLENTY, None
 
 
+def item_shortfalls(
+    request: StructuredRequest, lines: Sequence[OfferLine], not_ordered: Sequence[NotOrderedItem] = (),
+) -> list[NotOrderedItem]:
+    """T121: each partly delivered item's missing quantity, e.g. 220.6 kg of 400 kg feta for Tue 17 Nov."""
+    skipped = {entry.itemId for entry in not_ordered}
+    out: list[NotOrderedItem] = []
+    for item in request.items:
+        item_lines = [ln for ln in lines if ln.itemId == item.itemId]
+        delivered = sum((ln.deliveredQuantity.value for ln in item_lines), Decimal(0))
+        if item.itemId in skipped or not item_lines or delivered >= item.quantity:
+            continue
+        days = " and ".join(format_date(d) for d in sorted({ln.deliveryDate for ln in item_lines}))
+        missing = item.quantity - delivered
+        out.append(NotOrderedItem(
+            itemId=item.itemId, what=item.what, quantity=missing, unit=item.unit,
+            reason=(f"only {_plain_qty(delivered)} {item.unit} of the {_plain_qty(item.quantity)} {item.unit} "
+                    f"can be delivered for {days}; {_plain_qty(missing)} {item.unit} is not available"),
+        ))
+    return out
+
+
+def _plain_qty(value: Decimal) -> str:
+    return f"{value.normalize():,f}"
+
+
 def line_input_from_offer_line(line: OfferLine, product: Product) -> LineInput:
     """Build a `LineInput` from a frozen `OfferLine` and its catalogue `Product`."""
     stock, stock_amount = _infer_stock_from_offer_line(line)
@@ -1246,6 +1271,7 @@ class ProposalGateway:
             totals=totals,
             reasonDetails=reason_details,
             notOrdered=create_req.notOrdered,
+            shortfalls=item_shortfalls(create_req.request, kept_lines, create_req.notOrdered),
         )
         preview_proposal = preview_proposal.model_copy(
             update={

@@ -129,7 +129,15 @@ export function orderedProducts(proposal: Proposal): string {
     .filter(Boolean)
     .join(' ')
   const more = proposal.lines.length - 1
-  return more > 0 ? `${head} and ${more} more` : head
+  if (more <= 0) return head
+  // T121: one item split over several products leads with its total, never only the first line's quantity.
+  const units = new Set(proposal.lines.map((line) => line.deliveredQuantity.unit))
+  const items = new Set(proposal.lines.map((line) => line.itemId))
+  if (units.size === 1 && items.size === 1) {
+    const total = proposal.lines.reduce((sum, line) => sum + Number(line.deliveredQuantity.value), 0)
+    return `${formatQuantity(String(Math.round(total * 1000) / 1000), first.deliveredQuantity.unit)} in total · ${name} and ${more} more`
+  }
+  return `${head} and ${more} more`
 }
 
 export function ResultBanner({

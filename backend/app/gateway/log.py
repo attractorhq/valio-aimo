@@ -41,7 +41,7 @@ from app.contracts import (
 )
 from app.contracts.common import Contract
 from app.db.models import DecisionLogRow
-from app.gateway.signing import SIGNED_AUDIT_EVENTS, GatewaySigner
+from app.gateway.signing import GatewaySigner
 from app.policy import Finding
 from app.policy.limits import format_days
 
@@ -817,7 +817,8 @@ class DecisionLog:
     def append(self, entry: AuditEntry) -> AuditEntry:
         """Validate and append an immutable `AuditEntry`, sealing only the new link incrementally."""
         _check_no_credentials(entry, self._forbidden_tokens)
-        if self._signer is not None and entry.event in SIGNED_AUDIT_EVENTS and entry.signature is None:
+        # T121: every entry is signed, not only decisions, so no entry in the log is unattributed.
+        if self._signer is not None and entry.signature is None:
             entry = entry.model_copy(
                 update={
                     "kid": self._signer.kid,

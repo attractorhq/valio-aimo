@@ -69,7 +69,7 @@ REASON_REGISTRY = MappingProxyType({r.code: r for r in (
     _reason("SUPPLIER_STOCK_UNKNOWN", "ASK", "Supplier stock",
             "Ships from the supplier's warehouse. Valio Aimo can't see the quantity."),
     _reason("PARTIAL_AVAILABILITY", "ASK", "Partial stock",
-            "Only {available} in stock; {needed} needed. The rest comes from {otherProduct}."),
+            "Only {available} of the {needed} can be delivered. {rest}"),
     _reason("SPLIT", "INFO", "Split order", "Covered by {n} products that all meet your requirements."),
     _reason("DATA_CONFLICT", "EXCLUDE", "Conflicting data", "{detail}"),
     _reason("AGENT_SUBSTITUTE", "ASK", "Agent substitute", "Not exactly what you asked for: {tradeoff}."),
