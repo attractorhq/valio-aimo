@@ -173,12 +173,52 @@ class SandboxRegistry:
             return count
 
 
+# T116: sessions the gateway issues to cookieless API clients (`api-…`) and MCP sessions (`mcp-…`) live in their own
+# LRU, so a client that never echoes its session id cannot evict browser sessions.
+AGENT_SESSION_PREFIXES = ("api-", "mcp-")
+SESSION_HEADER = "X-Demo-Sandbox"
+
+
+def is_agent_session(sandbox_id: str) -> bool:
+    return sandbox_id.startswith(AGENT_SESSION_PREFIXES)
+
+
+def new_agent_session_id() -> str:
+    return "api-" + secrets.token_hex(16)
+
+
+class SessionRegistries:
+    """Browser/explicit sessions and agent sessions behind one `SandboxRegistry`-like interface."""
+
+    def __init__(self, browsers: SandboxRegistry, agents: SandboxRegistry):
+        self.browsers, self.agents = browsers, agents
+
+    def _for(self, sandbox_id: str) -> SandboxRegistry:
+        return self.agents if is_agent_session(sandbox_id) else self.browsers
+
+    @property
+    def factory(self) -> Callable[[str], GatewayState]:
+        return self.browsers.factory
+
+    def get(self, sandbox_id: str, *, create=True) -> GatewayState:
+        return self._for(sandbox_id).get(sandbox_id, create=create)
+
+    def count(self) -> int:
+        return self.browsers.count() + self.agents.count()
+
+    def snapshots(self) -> list[tuple[str, GatewayState]]:
+        return [*self.browsers.snapshots(), *self.agents.snapshots()]
+
+    def reset_all(self) -> int:
+        return self.browsers.reset_all() + self.agents.reset_all()
+
+
 _state: GatewayState | None = None  # resource template only; never used for visitor mutations
-_registry: SandboxRegistry | None = None
+_registry: SessionRegistries | None = None
 _lock = Lock()
 
 
-def sandbox_registry() -> SandboxRegistry:
+def sandbox_registry() -> SessionRegistries:
     global _state, _registry
     with _lock:
         if _state is None:
@@ -186,7 +226,14 @@ def sandbox_registry() -> SandboxRegistry:
             _registry = None
         if _registry is None:
             resources = _state
-            _registry = SandboxRegistry(lambda sandbox_id: fresh_sandbox(resources, sandbox_id))
+
+            def factory(sandbox_id: str) -> GatewayState:
+                return fresh_sandbox(resources, sandbox_id)
+
+            _registry = SessionRegistries(
+                SandboxRegistry(factory),
+                SandboxRegistry(factory, capacity=300, idle_seconds=2 * 60 * 60),
+            )
         return _registry
 
 
@@ -235,8 +282,14 @@ async def try_state(request: Request) -> GatewayState | GatewayUnavailable:
 
 
 async def get_state(request: Request) -> GatewayState:
-    """FastAPI dependency. Cookieless REST and MCP clients share the `shared` session, so an agent can mix both
-    channels (an offer over REST, a proposal over MCP). Browsers get a cookie session; X-Demo-Sandbox picks one."""
+    """FastAPI dependency: which private session (sandbox) serves this request.
+
+    - Browsers get a cookie session. `X-Demo-Sandbox` picks a session explicitly (any channel).
+    - MCP clients use their `Mcp-Session-Id` (issued on `initialize`).
+    - T116: any other cookieless client gets a fresh private session, returned in the `X-Demo-Sandbox` response
+      header. Echoing it keeps later calls (offer → proposal, REST ↔ MCP) in that session; two clients never
+      share totals, proposals or suspensions unless they send the same id.
+    """
     sandbox_id = request_sandbox_id(request)
     if sandbox_id is None and request.url.path.rstrip("/") == "/mcp":
         session_id = request.headers.get("mcp-session-id")
@@ -251,4 +304,18 @@ async def get_state(request: Request) -> GatewayState:
                 request.state.mcp_session_id = session_id
         if session_id is not None and (not SANDBOX_ID_RE.fullmatch(session_id) or len(session_id) > 90):
             raise HTTPException(400, "Invalid MCP session id.")
-    return sandbox_registry().get(sandbox_id or "shared")
+        if session_id is not None:
+            sandbox_id = session_id if is_agent_session(session_id) else "mcp-" + session_id
+    registry = sandbox_registry()
+    cookie_session = sandbox_id is not None and request.headers.get("x-demo-sandbox") is None and (
+        request.url.path.rstrip("/") != "/mcp")
+    if sandbox_id is None:
+        sandbox_id = new_agent_session_id()
+        request.state.response_sandbox = sandbox_id
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            # A read in a brand-new session sees only the shipped state; do not keep an empty session for it.
+            # Echoing the id later creates the same fresh session.
+            return registry.factory(sandbox_id)
+    if not cookie_session:
+        request.state.response_sandbox = sandbox_id
+    return registry.get(sandbox_id)

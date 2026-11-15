@@ -25,7 +25,8 @@ def agent_customer(request: Request, extra_hint: str = "") -> str:
     customer = DEMO_AGENT_KEYS.get(token) if scheme.lower() == "bearer" else None
     if customer is None:
         raise HTTPException(401, f"Send the buyer's public agent key: {AGENT_KEY_HINT} "
-                                 f"(one of: {', '.join(sorted(DEMO_AGENT_KEYS))}).{extra_hint} See /docs.",
+                                 f"(one of: {', '.join(sorted(DEMO_AGENT_KEYS))}).{extra_hint} Echo the "
+                                 "X-Demo-Sandbox response header on later calls to stay in your session. See /docs.",
                             headers={"WWW-Authenticate": "Bearer"})
     return customer
 

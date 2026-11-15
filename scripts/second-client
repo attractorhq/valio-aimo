@@ -184,6 +184,11 @@ def canonical_decision_payload(proposal: dict) -> bytes:
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
 
+# The gateway gives every API client its own private session and returns its id in X-Demo-Sandbox; echoing it
+# keeps the offer and the proposal in the same session.
+_SESSION: dict[str, str] = {}
+
+
 def http_json(
     method: str,
     url: str,
@@ -194,11 +199,15 @@ def http_json(
     # Cloudflare answers the default "Python-urllib" User-Agent with 403 on the deployed origin.
     headers = {"Accept": "application/json", "User-Agent": "aimo-connect-second-client/0.1"}
     headers["Authorization"] = f"Bearer demo-agent-{CUSTOMER_ID}"
+    if "id" in _SESSION:
+        headers["X-Demo-Sandbox"] = _SESSION["id"]
     if data is not None:
         headers["Content-Type": "application/json"] if False else headers.__setitem__("Content-Type", "application/json")
     req = urllib.request.Request(url, data=data, headers=headers, method=method.upper())
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
+            if session := resp.headers.get("X-Demo-Sandbox"):
+                _SESSION.setdefault("id", session)
             raw = resp.read().decode("utf-8")
             return json.loads(raw)
     except urllib.error.HTTPError as exc:

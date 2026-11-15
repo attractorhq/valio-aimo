@@ -47,7 +47,12 @@ app = FastAPI(
         "**Simulated order — mock environment**. No order is sent to Valio.\n\n"
         "**Demo access:** customer-scoped Bearer agent keys, an explicit approver-role header, and "
         "X-Demo-Admin-Key for admin writes/global audit. These public demo credentials are not production "
-        "identity; production requires scoped secrets and organisation SSO (OAuth 2.0 / OIDC)."
+        "identity; production requires scoped secrets and organisation SSO (OAuth 2.0 / OIDC).\n\n"
+        "**Sessions:** every API client works in its own private session. A call without a session gets a new one, "
+        "returned in the `X-Demo-Sandbox` response header: send it back as `X-Demo-Sandbox` on every later call "
+        "(an offer and its proposal must be in the same session). MCP clients use their `Mcp-Session-Id`; send it "
+        "as `X-Demo-Sandbox` to continue the same session over REST. Totals, proposals and suspensions never "
+        "cross sessions."
     ),
 )
 # Public demo credentials illustrate scope; production replaces them with authenticated identities.
@@ -105,6 +110,7 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PATCH", "DELETE"],
     allow_headers=["Content-Type", "X-Demo-Sandbox", "X-Approval-Token", "Mcp-Session-Id", "Authorization",
                    "X-Demo-Admin-Key", "X-Demo-Approver-Role"],
+    expose_headers=["X-Demo-Sandbox", "Mcp-Session-Id", "X-Agent-Warning"],
 )
 
 
@@ -128,6 +134,10 @@ async def demo_session_cookie(request: Request, call_next):
                             max_age=6 * 60 * 60)
     if request.url.path.startswith(("/v0.1/", "/mcp", "/health", "/.well-known/")):
         response.headers["Cache-Control"] = "no-store"
+    # T116: a cookieless client learns its private session id and echoes it to stay in it. Never sent for a browser
+    # cookie session (the cookie is httpOnly; the header would expose it to scripts).
+    if (session := getattr(request.state, "response_sandbox", None)) and "x-demo-sandbox" not in response.headers:
+        response.headers["X-Demo-Sandbox"] = session
     # T111: the refusal before the suspending one carries a warning, also on error responses.
     if (warning := getattr(request.state, "agent_warning", None)) and "x-agent-warning" not in response.headers:
         response.headers["X-Agent-Warning"] = warning
