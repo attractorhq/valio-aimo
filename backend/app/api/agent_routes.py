@@ -228,7 +228,14 @@ def _ordered_products(lines: list) -> str:
     ):
         text += f" ({_amount(first.quantitySalesUnits)} × {_amount(content.value)} {unit})"
     more = len(lines) - 1
-    return f"{text} and {more} more" if more else text
+    if not more:
+        return text
+    # T121: one item split over several products leads with its total, never only the first line's quantity.
+    units = {line.deliveredQuantity.unit for line in lines}
+    if len(units) == 1 and len({line.itemId for line in lines}) == 1:
+        total = sum((line.deliveredQuantity.value for line in lines), first.deliveredQuantity.value * 0)
+        return f"{_amount(total)} {unit} in total · {' '.join(first.name.split())} and {more} more"
+    return f"{text} and {more} more"
 
 
 def _compact_summary(

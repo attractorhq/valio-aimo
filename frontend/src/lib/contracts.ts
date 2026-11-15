@@ -243,6 +243,7 @@ export type Proposal = {
   totals: Totals;
   reasonDetails?: { [key: string]: string };
   notOrdered?: Array<NotOrderedItem>;
+  shortfalls?: Array<NotOrderedItem>;
   supersededBy?: string | null;
   kid?: string | null;
   signature?: string | null;
@@ -367,7 +368,7 @@ export const REASON_REGISTRY = {
     "effect": "ASK",
     "approvable": true,
     "chipText": "Partial stock",
-    "template": "Only {available} in stock; {needed} needed. The rest comes from {otherProduct}.",
+    "template": "Only {available} of the {needed} can be delivered. {rest}",
     "allowedEffects": [
       "ASK"
     ]

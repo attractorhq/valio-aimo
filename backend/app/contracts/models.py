@@ -220,6 +220,8 @@ class Proposal(Decision):
     reasonDetails: dict[ReasonCode, str] = Field(default_factory=dict)
     # T106: requested lines this proposal does not order (decided as PARTIAL_AVAILABILITY, never AUTO).
     notOrdered: list[NotOrderedItem] = Field(default_factory=list)
+    # T121: how much of each partly delivered item is missing ("220.6 kg of 400 kg feta"), as data, not only text.
+    shortfalls: list[NotOrderedItem] = Field(default_factory=list)
     supersededBy: Identifier | None = None
     kid: str | None = None
     signature: str | None = None

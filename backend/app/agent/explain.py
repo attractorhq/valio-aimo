@@ -56,6 +56,30 @@ def no_order_item_reason(
     excluded: Sequence[ExcludedProduct],
     requirements: Sequence[Requirement],
     deadline_is_today: bool = False,
+    unit: str | None = None,
+) -> str:
+    reason = _no_order_item_reason(
+        has_candidates=has_candidates, deadline_label=deadline_label, delivery_label=delivery_label,
+        delivered=delivered, excluded=excluded, requirements=requirements, deadline_is_today=deadline_is_today,
+    )
+    # T121: a product of the right type sold in the other unit is named, never silently left out.
+    other = {"kg": "litres", "l": "kilograms"}.get(unit or "")
+    sold_other = [entry for entry in excluded if ReasonCode.UNIT_MISMATCH in entry.reasons]
+    if other and sold_other:
+        count = f"{len(sold_other)} matching product{'s are' if len(sold_other) > 1 else ' is'}"
+        reason += f" {count} sold in {other}: if you meant {other}, edit the quantity."
+    return reason
+
+
+def _no_order_item_reason(
+    *,
+    has_candidates: bool,
+    deadline_label: str,
+    delivery_label: str | None,
+    delivered: bool,
+    excluded: Sequence[ExcludedProduct],
+    requirements: Sequence[Requirement],
+    deadline_is_today: bool = False,
 ) -> str:
     if delivered and not delivery_label:
         return "Availability was found by the deadline."
@@ -86,10 +110,13 @@ def no_order_item_reason(
                 else (f"required claim missing ({claim_labels})" if claim_labels else "claim missing")
             )
         )
+        # T121: name the requirement that knocked a near-match out ("milk-free not declared"), not only its code.
+        avoid = ", ".join(requirement_display_name(req) for req in requirements if req.kind == "AVOID_ALLERGEN")
         descriptions = {
             ReasonCode.CLAIM_MISSING: claim_desc,
-            ReasonCode.ALLERGEN_CONTAINS: "allergen present",
-            ReasonCode.ALLERGEN_MAY_CONTAIN: "possible allergen traces",
+            ReasonCode.ALLERGEN_CONTAINS: f"allergen present ({avoid})" if avoid else "allergen present",
+            ReasonCode.ALLERGEN_MAY_CONTAIN: f"possible traces ({avoid})" if avoid else "possible allergen traces",
+            ReasonCode.ALLERGEN_UNKNOWN: f"{avoid} not declared" if avoid else "allergen not declared",
         }
         labels = ", ".join(dict.fromkeys(descriptions.get(code, REASON_REGISTRY[code].chipText.lower())
                                          for code in codes))
@@ -232,16 +259,7 @@ def render_reason_occurrence(
             if proposal and proposal.lines and proposal.lines[0].closingTime
             else "the cut-off time"
         ),
-        "available": (
-            f"{format(proposal.lines[0].deliveredQuantity.value.normalize(), 'f')} {proposal.lines[0].deliveredQuantity.unit}"
-            if proposal and proposal.lines
-            else "partial stock"
-        ),
-        "needed": (
-            f"{format(proposal.request.items[0].quantity.normalize(), 'f')} {proposal.request.items[0].unit}"
-            if proposal and proposal.request.items
-            else "the requested quantity"
-        ),
+        **_partial_fills(proposal),
         "otherProduct": "a second compliant product" if proposal and len(proposal.lines) > 1 else "partial delivery",
         "n": str(len(proposal.lines)) if proposal and proposal.lines else "multiple",
         "detail": "Conflicting supplier data",
@@ -350,6 +368,29 @@ def overbuy_notes(proposal: Proposal) -> list[str]:
             notes.append(f"{format(delivered.normalize(), ',f')} {item.unit} for "
                          f"{format(item.quantity.normalize(), ',f')} {item.unit} asked{pack}")
     return notes
+
+
+def _partial_fills(proposal: Proposal | None) -> dict[str, str]:
+    """T121: {available}/{needed}/{rest} for the first partly delivered item, totalled over all its lines, with
+    the missing quantity named ("Only 179.4 kg of the 400 kg can be delivered. 220.6 kg is not available.")."""
+    if proposal is None or not proposal.request.items:
+        return {"available": "partial stock", "needed": "the requested quantity", "rest": ""}
+
+    def qty(value: Decimal, unit: str) -> str:
+        return f"{format(value.normalize(), ',f')} {unit}"
+
+    for item in proposal.request.items:
+        lines = [ln for ln in proposal.lines if ln.itemId == item.itemId]
+        delivered = sum((ln.deliveredQuantity.value for ln in lines), Decimal(0))
+        if lines and delivered < item.quantity:
+            missing = item.quantity - delivered
+            source = f" from {len(lines)} compliant products" if len(lines) > 1 else ""
+            return {"available": qty(delivered, item.unit) + source,
+                    "needed": f"{qty(item.quantity, item.unit)} {item.what}",
+                    "rest": f"{qty(missing, item.unit)} is not available."}
+    item = proposal.request.items[0]
+    return {"available": "partial stock", "needed": f"{qty(item.quantity, item.unit)} {item.what}",
+            "rest": "The rest comes from a second compliant product." if len(proposal.lines) > 1 else ""}
 
 
 def template_explanation(
