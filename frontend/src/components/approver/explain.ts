@@ -240,6 +240,17 @@ export function formatApprovalStatement(proposal: Proposal, mandate?: Mandate): 
           ? WEEKDAY_NAMES[delivDate.getUTCDay()]
           : formatDate(earliestIso)
       dateClause = `on ${delivLabel} instead of ${reqLabel}`
+    } else {
+      const earlyIso = proposal.lines
+        .map((l) => l.deliveryDate)
+        .filter((d) => d < proposal.requestedDate)
+        .sort()[0]
+      if (earlyIso) {
+        const delivDate = parseIsoDay(earlyIso)
+        const reqDate = parseIsoDay(proposal.requestedDate)
+        const daysEarly = Math.round((reqDate.getTime() - delivDate.getTime()) / 86_400_000)
+        dateClause = `on ${formatDate(earlyIso)} (${daysEarly} ${daysEarly === 1 ? 'day' : 'days'} before your ${formatDate(proposal.requestedDate)})`
+      }
     }
   }
 
@@ -376,7 +387,27 @@ export function plainReason(
     return `${formatMoney(proposal.totals.exclVat)} excl. VAT is above the buyer's hard limit. No agent or approver can override this.`
   }
   if (code === 'DATE_LATER') {
+    if (proposal.reasonDetails?.DATE_LATER) {
+      const d = proposal.reasonDetails.DATE_LATER.replace(/\.$/, '')
+      return `${d}.`
+    }
     const delivIso = latestDeliveryIso(proposal)
+    if (delivIso && delivIso > proposal.requestedDate) {
+      return reasonText('DATE_LATER', {
+        availableDate: formatDate(delivIso),
+        requestedDate: formatDate(proposal.requestedDate),
+      })
+    }
+    const earlyIso = proposal.lines
+      .map((l) => l.deliveryDate)
+      .filter((d) => d < proposal.requestedDate)
+      .sort()[0]
+    if (earlyIso) {
+      const daysEarly = Math.round(
+        (parseIsoDay(proposal.requestedDate).getTime() - parseIsoDay(earlyIso).getTime()) / 86_400_000,
+      )
+      return `Arrives ${formatDate(earlyIso)}, ${daysEarly} ${daysEarly === 1 ? 'day' : 'days'} before your ${formatDate(proposal.requestedDate)}.`
+    }
     if (delivIso) {
       return reasonText('DATE_LATER', {
         availableDate: formatDate(delivIso),
@@ -442,7 +473,31 @@ export function explainWhyNotAuto(
       continue
     }
     if (code === 'DATE_LATER') {
+      if (proposal.reasonDetails?.DATE_LATER) {
+        const d = proposal.reasonDetails.DATE_LATER.replace(/\.$/, '')
+        clauses.push(d.charAt(0).toLowerCase() + d.slice(1))
+        continue
+      }
       const delivIso = latestDeliveryIso(proposal)
+      if (delivIso && delivIso > proposal.requestedDate) {
+        clauses.push(
+          `earliest delivery is ${formatDate(delivIso)} instead of requested ${formatDate(proposal.requestedDate)}`,
+        )
+        continue
+      }
+      const earlyIso = proposal.lines
+        .map((l) => l.deliveryDate)
+        .filter((d) => d < proposal.requestedDate)
+        .sort()[0]
+      if (earlyIso) {
+        const daysEarly = Math.round(
+          (parseIsoDay(proposal.requestedDate).getTime() - parseIsoDay(earlyIso).getTime()) / 86_400_000,
+        )
+        clauses.push(
+          `arrives ${formatDate(earlyIso)}, ${daysEarly} ${daysEarly === 1 ? 'day' : 'days'} before your ${formatDate(proposal.requestedDate)}`,
+        )
+        continue
+      }
       clauses.push(
         delivIso
           ? `earliest delivery is ${formatDate(delivIso)} instead of requested ${formatDate(proposal.requestedDate)}`

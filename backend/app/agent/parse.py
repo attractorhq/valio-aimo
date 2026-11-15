@@ -507,12 +507,14 @@ _FI_PLACE_CASE_RE = re.compile(
     r"[^\W\d_]{2,}(?:lla|llä|lle|ssa|ssä|lta|ltä|hin|seen|siin|aan|een|iin|oon|uun|yyn|ään|öön|mme|nne)$",
     re.IGNORECASE,
 )
-# A head count ("for 200 guests", "200 vieraalle") is the occasion, not a quantity or the product.
+# A head count ("for 200 guests", "200 vieraalle", "noin sadalle hengelle") is the occasion, not a quantity or the product.
 _HEADCOUNT_RE = re.compile(
-    r"\b(?:for\s+)?\d+\s+(?:guests?|people|persons?|pax|diners?|students?|pupils?|children|kids|customers?|"
-    r"employees?|covers)\b|\b\d+\s+(?:vieraalle|hengelle|henkilölle|oppilaalle|lapselle|asiakkaalle|"
-    r"ruokailijalle|työntekijälle|vierasta|henkeä|henkilöä|oppilasta|lasta|asiakasta|ruokailijaa|"
-    r"työntekijää)\b",
+    r"\b(?:for\s+)?(?:(?:about|around|approx(?:imately)?|roughly)\s+)?(?:\d+|a\s+hundred|two\s+hundred|fifty)\s+"
+    r"(?:guests?|people|persons?|pax|diners?|students?|pupils?|children|kids|customers?|employees?|covers)\b|"
+    r"\b(?:noin\s+)?(?:\d+|sada(?:lle|n)|sadalle|kahdelle\s*sadalle|kolmelle\s*sadalle|viidelle\s*kymmenelle|"
+    r"kymmenelle|parille\s*sadalle|parillekymmenelle|usealle\s*sadalle)\s+"
+    r"(?:vieraalle|hengelle|henkilölle|oppilaalle|lapselle|asiakkaalle|ruokailijalle|työntekijälle|"
+    r"vierasta|henkeä|henkilöä|oppilasta|lasta|asiakasta|ruokailijaa|työntekijää)\b",
     re.IGNORECASE,
 )
 # Occasion words kept for a clarifying question ("Which product do you need for dessert for 200 guests …?").
@@ -1588,6 +1590,47 @@ def _how_much_question(what: str, originals: list[str], finnish: bool) -> str:
     return f"Kuinka paljon tarvitsette ({UNIT_WORDS_FI})?"
 
 
+def _how_much_multi_question(named_items: list[tuple[str, list[str]]], finnish: bool) -> str:
+    """T103: ask per item when a vague request names multiple products ('maitoa ja juustoa')."""
+    unit_en = {"l": "in litres", "kg": "in kilograms", "pcs": "in pieces"}
+    unit_fi = {"l": "litroina", "kg": "kiloina", "pcs": "kappaleina"}
+    parts: list[str] = []
+    for what, originals in named_items:
+        u = _natural_unit_for_alternative(what)
+        if finnish:
+            noun = " ".join(originals) if originals and originals[-1].lower().endswith(("a", "ä")) else what
+            u_label = unit_fi.get(u, UNIT_WORDS_FI)
+            parts.append(f"{noun} ({u_label})")
+        else:
+            u_label = unit_en.get(u, f"in {UNIT_WORDS}")
+            parts.append(f"{what} ({u_label})")
+    if finnish:
+        joined = f"{', '.join(parts[:-1])} ja {parts[-1]}" if len(parts) > 2 else " ja ".join(parts)
+        return f"Kuinka paljon kutakin tuotetta tarvitsette: {joined}?"
+    joined = f"{', '.join(parts[:-1])} and {parts[-1]}" if len(parts) > 2 else " and ".join(parts)
+    return f"How much of each item do you need: {joined}?"
+
+
+def _missing_quantity_items(clean: str, finnish: bool) -> list[tuple[str, list[str]]]:
+    """Extract distinct product items from a quantity-less request, splitting on conjunctions ('ja', 'and', ',')."""
+    _full_rest, found_requirements, *_ = _extract(clean)
+    stripped_clean = _strip_lead(clean)
+    has_lead = stripped_clean != clean
+    found: list[tuple[str, list[str]]] = []
+    seen_what: set[str] = set()
+    for chunk in _split_chunks(stripped_clean):
+        rest_chunk, chunk_reqs, *_ = _extract(chunk)
+        what, originals = _words(_strip_lead(rest_chunk), finnish)
+        if not what or _form_only(what):
+            continue
+        all_known = bool(originals) and all(_translate(orig)[1] for orig in originals)
+        if has_lead or found_requirements or chunk_reqs or all_known:
+            if what not in seen_what:
+                seen_what.add(what)
+                found.append((what, originals))
+    return found
+
+
 def _what_question(clean: str, finnish: bool, dated: bool) -> str:
     occasion = _OCCASION_FI_RE if finnish else _OCCASION_EN_RE
     spans = [m for m in _HEADCOUNT_RE.finditer(clean) if m.group(0).lower().endswith("lle") == finnish]
@@ -1760,14 +1803,14 @@ def _fallback(
         safety_question = _what_question(clean, finnish, dated=explicit is not None)
     question = None
     if not items:
-        rest, found_requirements, *_ = _extract(clean)
-        stripped = _strip_lead(rest)
-        # Name the product only when the text reads as a purchase ("we need …", "gluten-free …").
-        what, originals = _words(stripped, finnish) if (stripped != rest or found_requirements) else (None, [])
-        question = (
-            _how_much_question(what, originals, finnish) if what
-            else _what_question(clean, finnish, dated=explicit is not None or deadline is not None)
-        )
+        named_items = _missing_quantity_items(clean, finnish)
+        if len(named_items) >= 2:
+            question = _how_much_multi_question(named_items, finnish)
+        elif len(named_items) == 1:
+            what, originals = named_items[0]
+            question = _how_much_question(what, originals, finnish)
+        else:
+            question = _what_question(clean, finnish, dated=explicit is not None or deadline is not None)
         if safety_question is None and _HEDGE_RE.search(_SIMILAR_RE.sub(" ", clean)):
             safety_question = question
     for item in items:

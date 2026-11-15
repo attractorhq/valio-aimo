@@ -89,6 +89,16 @@ def test_l5_date_later(available, requested, late):
     assert (("DATE_LATER", "ASK", "L5") in found(line(available_date=available), requested=requested)) is late
 
 
+def test_l5_much_earlier_delivery_more_than_two_days_before_requested_date_is_ask():
+    # Up to 2 days early (Mon 16 Nov for Tue 17 Nov or Wed 18 Nov): no DATE_LATER trade-off.
+    assert found(line(available_date=MONDAY), requested=MONDAY + timedelta(days=2)) == []
+    # 4 days early (Mon 16 Nov for Fri 20 Nov): ASK with exact early-delivery detail.
+    v = verdict(line(available_date=MONDAY), requested=MONDAY + timedelta(days=4))
+    assert [(f.code, f.effect, f.rule, f.detail) for f in v.findings] == [
+        ("DATE_LATER", "ASK", "L5", "Arrives Mon 16 Nov, 4 days before your Fri 20 Nov")
+    ]
+
+
 @pytest.mark.parametrize(
     ("closing", "now", "passed"),
     [

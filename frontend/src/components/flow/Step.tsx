@@ -48,6 +48,8 @@ export function Step({
   const id = `step-${number}`
   const detailsId = `${id}-details`
   const hasDetails = Children.toArray(children).length > 0
+  const resolvedStatusWord =
+    statusWord ?? (status === 'blocked' && number === 1 ? 'Needs detail' : undefined)
   return (
     <li
       className={`step step-${status}`}
@@ -69,7 +71,7 @@ export function Step({
             </p>
           </div>
           <div className="step-controls">
-            <StatusPill status={status} word={statusWord} />
+            <StatusPill status={status} word={resolvedStatusWord} />
             {hasDetails && (
               <button
                 type="button"

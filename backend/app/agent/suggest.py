@@ -61,12 +61,37 @@ _DEFAULT = ("milk", "butter", "sliced cheese")
 _WEEKEND_RE = re.compile(r"\b(?:the\s+)?weekend\b|\bviikonlopu\w*", re.IGNORECASE)
 
 
-def _kind_named(text: str) -> _Kind | None:
-    low = text.lower()
+_SUBTYPE_PARENTS: dict[str, str] = {
+    "sliced cheese": "cheese",
+    "grated cheese": "cheese",
+    "coffee cream": "cream",
+    "whipping cream": "cream",
+    "cooking cream": "cream",
+    "oat drink": "milk",
+}
+
+
+def _kinds_named(text: str) -> list[_Kind]:
+    """All distinct product kinds named in `text`, in text order (specific subtypes win over their parent)."""
+    cleaned, _ = extract_inline_requirements(text)
+    low = cleaned.lower()
+    matched: list[tuple[int, _Kind]] = []
+    covered_parents: set[str] = set()
     for kind in _KINDS:
-        if any(re.search(rf"\b{word}", low) for word in kind.words):
-            return kind
-    return None
+        if kind.en in covered_parents:
+            continue
+        positions = [m.start() for word in kind.words if (m := re.search(rf"\b{word}", low))]
+        if positions:
+            matched.append((min(positions), kind))
+            if parent := _SUBTYPE_PARENTS.get(kind.en):
+                covered_parents.add(parent)
+    matched.sort(key=lambda entry: entry[0])
+    return [kind for _, kind in matched]
+
+
+def _kind_named(text: str) -> _Kind | None:
+    kinds = _kinds_named(text)
+    return kinds[0] if kinds else None
 
 
 def _occasion_kinds(text: str) -> tuple[str, ...]:
@@ -146,7 +171,33 @@ def clarification_options(text: str, now: datetime, *, limit: int = 3) -> list[C
     _, stated_requirements = extract_inline_requirements(text)
     wanted = _codes(stated_requirements)
     requirement_words = " ".join(requirement_display_name(r) for r in stated_requirements)
-    named = _kind_named(text)
+    named_kinds = _kinds_named(text)
+    if len(named_kinds) >= 2:
+        joiner = " ja " if finnish else " and "
+        options: list[ClarificationOption] = []
+        for tier_idx in range(3):
+            parts: list[str] = []
+            for kind in named_kinds:
+                amount = kind.amounts[min(tier_idx, len(kind.amounts) - 1)]
+                noun = kind.fi if finnish else kind.en
+                parts.append(" ".join(p for p in (f"{amount} {kind.unit}", requirement_words, noun) if p))
+            chip = joiner.join(parts)
+            candidate = f"{chip} {context}".strip()
+            parsed = parse_request(candidate, now)
+            if (
+                parsed.request is None
+                or parsed.clarificationQuestion is not None
+                or len(parsed.request.items) != len(named_kinds)
+            ):
+                continue
+            if not all(wanted <= _codes(item.requirements) for item in parsed.request.items):
+                continue
+            options.append(ClarificationOption(label=chip, requestText=candidate))
+            if len(options) == limit:
+                break
+        return options
+
+    named = named_kinds[0] if named_kinds else None
     if named is not None:
         stated = _stated_amount(text, named.unit)
         amounts = [stated] if stated else []
@@ -155,7 +206,7 @@ def clarification_options(text: str, now: datetime, *, limit: int = 3) -> list[C
     else:
         drafts = [(_BY_EN[en], _BY_EN[en].amounts[1]) for en in _occasion_kinds(text)]
 
-    options: list[ClarificationOption] = []
+    options = []
     for kind, amount in drafts:
         noun = kind.fi if finnish else kind.en
         label = " ".join(part for part in (f"{amount} {kind.unit}", requirement_words, noun) if part)
