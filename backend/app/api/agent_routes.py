@@ -29,6 +29,7 @@ from app.contracts import (
     REASON_REGISTRY,
     GetOfferRequest,
     Mandate,
+    NotOrderedItem,
     OfferItem,
     ReasonCode,
     ReasonEffect,
@@ -132,6 +133,8 @@ class CompactAgentRunResult(Contract):
         description="Set when no proposal was created because items could not be matched or delivered in time.",
     )
     links: CompactAgentLinks | None
+    # T106: requested lines this proposal does not order, each with its plain reason.
+    notOrdered: list[NotOrderedItem] = Field(default_factory=list)
 
 
 def _compact_no_order(result: AgentRunResult) -> CompactNoOrder | None:
@@ -254,6 +257,7 @@ def _compact_result(result: AgentRunResult, mandate: Mandate | None = None) -> C
         links=CompactAgentLinks(
             proposal=f"/v0.1/proposals/{pid}", audit=f"/v0.1/audit?proposalId={pid}",
         ) if proposal else None,
+        notOrdered=list(proposal.notOrdered) if proposal else [],
     )
 
 

@@ -168,6 +168,17 @@ class Decision(Contract):
     approverRole: str | None = None
 
 
+class NotOrderedItem(Contract):
+    """T106: a requested line left out of a multi-line proposal because no compliant product was found.
+    It is never ordered; `reason` is the plain sentence shown to the buyer and the approver."""
+
+    itemId: Identifier
+    what: str
+    quantity: PositiveDecimal
+    unit: RequestUnit
+    reason: str
+
+
 class Proposal(Decision):
     proposalId: Identifier
     customerId: Identifier
@@ -188,6 +199,8 @@ class Proposal(Decision):
     # T97: the decision's own wording where a code alone is not enough, e.g. OVER_AUTO_LIMIT from the same-day
     # total: "€297.96 already committed for delivery on Mon 16 Nov; with this order €595.92 > €500.00 …".
     reasonDetails: dict[ReasonCode, str] = Field(default_factory=dict)
+    # T106: requested lines this proposal does not order (decided as PARTIAL_AVAILABILITY, never AUTO).
+    notOrdered: list[NotOrderedItem] = Field(default_factory=list)
     supersededBy: Identifier | None = None
     kid: str | None = None
     signature: str | None = None
@@ -298,6 +311,8 @@ class CreateProposalRequest(Contract):
     offerId: Identifier
     offerVersion: int = Field(ge=1)
     request: StructuredRequest
+    # T106: requested lines left out because no compliant product was found; the gateway then never auto-approves.
+    notOrdered: list[NotOrderedItem] = Field(default_factory=list)
 
 
 class GetProposalRequest(Contract):

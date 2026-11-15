@@ -523,6 +523,27 @@ AGENT_TOOLS: list[dict[str, Any]] = [
                     "required": ["requestText", "requestedDate", "items"],
                     "additionalProperties": False,
                 },
+                "notOrdered": {
+                    "type": "array",
+                    "description": (
+                        "Requested lines left out of this proposal because no compliant product was found. "
+                        "The gateway then decides PARTIAL_AVAILABILITY (a person signs off, never AUTO); "
+                        "these lines are never ordered. Each reason is one plain clause, e.g. "
+                        "'no gluten-free oat drink was found'."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "itemId": {"type": "string"},
+                            "what": {"type": "string"},
+                            "quantity": {"type": "number", "exclusiveMinimum": 0},
+                            "unit": {"type": "string", "enum": ["l", "kg", "pcs", "cases"]},
+                            "reason": {"type": "string"},
+                        },
+                        "required": ["itemId", "what", "quantity", "unit", "reason"],
+                        "additionalProperties": False,
+                    },
+                },
             },
             "required": ["offerId", "offerVersion", "request"],
             "additionalProperties": False,

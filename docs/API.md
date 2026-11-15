@@ -222,7 +222,8 @@ documents the `view` parameter, the schema and two response examples (`compact_a
   "approverRole": "Head Chef",
   "clarificationQuestion": null,
   "noOrder": null,
-  "links": {"proposal": "/v0.1/proposals/PR-EXAMPLE-v1", "audit": "/v0.1/audit?proposalId=PR-EXAMPLE-v1"}
+  "links": {"proposal": "/v0.1/proposals/PR-EXAMPLE-v1", "audit": "/v0.1/audit?proposalId=PR-EXAMPLE-v1"},
+  "notOrdered": []
 }
 ```
 
@@ -239,6 +240,17 @@ No facts, candidate lists, approval tokens, approval links or QR payloads are in
   sentence the buyer UI shows for that code with the real values (limit, total, dates, the same-day
   committed total when that is what crossed the limit, the clarification question). `reasons` stays a
   plain code list for existing clients.
+
+`notOrdered` (T106) lists requested lines the proposal leaves out because no compliant product was
+found or every candidate failed at the offer stage (cut-off passed, no stock, too late, requirement not declared), e.g. `{"itemId": "I2", "what": "oat drink", "quantity": "30", "unit": "l", "reason": "no gluten-free
+oat drink was found"}`. It mirrors `proposal.notOrdered` in the full view. When a multi-line request has at
+least one deliverable line and at least one line with no compliant candidate, the agent proposes the
+deliverable lines on their own; the gateway decides that version from scratch with `PARTIAL_AVAILABILITY`
+(never AUTO), and `reasonDetails.PARTIAL_AVAILABILITY` and the approval statement start with one plain
+sentence: "Approving means pasta only; oat drink is not ordered: no gluten-free oat drink was found." The
+not-ordered lines are never ordered. If no line is deliverable, the result is the usual no-order result.
+`createProposal` (REST and MCP) accepts the same optional `notOrdered` list; it can only make a decision
+stricter.
 
 If no proposal is created (clarification or no candidate), `proposalId`, `decision`, `state`,
 `totals`, `approverRole` and `links` are null, and `lines` is empty. `reasons`, `reasonTexts` and any

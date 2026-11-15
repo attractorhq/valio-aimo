@@ -69,6 +69,7 @@ export type CreateProposalRequest = {
   offerId: string;
   offerVersion: number;
   request: StructuredRequest;
+  notOrdered?: Array<NotOrderedItem>;
 };
 
 export type Decision = {
@@ -135,6 +136,14 @@ export type Mandate = {
   validFrom?: string | null;
   validTo?: string | null;
   restaurantPreferences?: string;
+};
+
+export type NotOrderedItem = {
+  itemId: string;
+  what: string;
+  quantity: string;
+  unit: "l" | "kg" | "pcs" | "cases";
+  reason: string;
 };
 
 export type Offer = {
@@ -232,6 +241,7 @@ export type Proposal = {
   excluded?: Array<ExcludedProduct>;
   totals: Totals;
   reasonDetails?: { [key: string]: string };
+  notOrdered?: Array<NotOrderedItem>;
   supersededBy?: string | null;
   kid?: string | null;
   signature?: string | null;

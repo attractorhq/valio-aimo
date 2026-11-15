@@ -59,7 +59,9 @@ function parseIsoDay(iso: string): Date {
 function deliveryDays(proposal: Proposal): string {
   const days = [...new Set(proposal.lines.map((line) => line.deliveryDate.slice(0, 10)))].sort()
   const names = (days.length ? days : [proposal.requestedDate]).map((day) => formatDate(day))
-  return names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+  return names.length <= 1
+    ? names.join('')
+    : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
 }
 
 /**
@@ -75,7 +77,9 @@ export function committedLimitSentence(
 ): string | null {
   if (code !== 'OVER_AUTO_LIMIT' && code !== 'OVER_HARD_LIMIT') return null
   const hard = code === 'OVER_HARD_LIMIT'
-  const limit = hard ? resolveHardLimitEur(proposal, mandate) : resolveAutoLimitEur(proposal, mandate)
+  const limit = hard
+    ? resolveHardLimitEur(proposal, mandate)
+    : resolveAutoLimitEur(proposal, mandate)
   if (!limit || Number(proposal.totals.exclVat) > Number(limit)) return null
   const order = omitTotalAmount ? 'this order' : `${formatMoney(proposal.totals.exclVat)} excl. VAT`
   const threshold = hard ? 'hard limit' : 'auto-approve limit'
@@ -114,7 +118,8 @@ function extractReliabilityPercent(proposal: Proposal): string | undefined {
     for (const fact of line.facts ?? []) {
       if (fact.fact !== 'reliability') continue
       if (typeof fact.value === 'number' && Number.isFinite(fact.value)) {
-        const pct = fact.value <= 1 ? Math.round(fact.value * 1000) / 10 : Math.round(fact.value * 10) / 10
+        const pct =
+          fact.value <= 1 ? Math.round(fact.value * 1000) / 10 : Math.round(fact.value * 10) / 10
         return `${pct} %`
       }
       if (typeof fact.value === 'string' && fact.value.trim() !== '') {
@@ -189,13 +194,40 @@ function partialAvailabilityReasonText(proposal: Proposal): string {
     }
   }
 
+  const dropped = notOrderedSentence(proposal)
+  if (dropped) parts.unshift(dropped)
   if (parts.length > 0) return parts.join(' ')
   return 'Available stock covers only part of the requested quantity.'
+}
+
+function joinNames(names: string[]): string {
+  const unique = [...new Set(names)]
+  return unique.length <= 1
+    ? (unique[0] ?? '')
+    : `${unique.slice(0, -1).join(', ')} and ${unique[unique.length - 1]}`
+}
+
+/** T106: "Approving means pasta only; oat drink is not ordered: no gluten-free oat drink was found." */
+export function notOrderedSentence(proposal: Proposal): string | null {
+  const notOrdered = proposal.notOrdered ?? []
+  if (notOrdered.length === 0) return null
+  const ordered = joinNames(proposal.request.items.map((item) => item.what))
+  const dropped = notOrdered
+    .map((item) => `${item.what} is not ordered: ${item.reason.replace(/\.$/, '')}`)
+    .join('; ')
+  return `Approving means ${ordered} only; ${dropped}.`
 }
 
 /** Plain-language summary of what approving this proposal version means (patch P8 B2, P10). */
 export function formatApprovalStatement(proposal: Proposal, mandate?: Mandate): string | null {
   if (proposal.decision !== 'ASK') return null
+  const parts = [notOrderedSentence(proposal), coreApprovalStatement(proposal, mandate)].filter(
+    Boolean,
+  )
+  return parts.length > 0 ? parts.join(' ') : null
+}
+
+function coreApprovalStatement(proposal: Proposal, mandate?: Mandate): string | null {
   const reasons = new Set(proposal.reasons)
 
   const deliveredByItem = new Map<string, number>()
@@ -328,7 +360,8 @@ export function overbuyNotes(proposal: Proposal): string[] {
         lines.map((line) => Number(line.deliveredQuantity.value) / Number(line.quantitySalesUnits)),
       ),
     ]
-    const pack = packs.length === 1 ? `: whole ${formatNumber(String(packs[0]))} ${item.unit} packs` : ''
+    const pack =
+      packs.length === 1 ? `: whole ${formatNumber(String(packs[0]))} ${item.unit} packs` : ''
     notes.push(
       `${formatNumber(String(delivered))} ${item.unit} for ${formatNumber(String(item.quantity))} ${item.unit} asked${pack}`,
     )
@@ -475,10 +508,15 @@ export function explainWhyNotAuto(
           }
         }
       }
+      for (const item of proposal.notOrdered ?? []) {
+        itemShortfalls.push(`${item.what} is not ordered: ${item.reason.replace(/\.$/, '')}`)
+      }
       if (itemShortfalls.length > 0) {
         clauses.push(itemShortfalls.join(' and '))
       } else {
-        clauses.push('available stock for the primary product covers only part of the requested quantity')
+        clauses.push(
+          'available stock for the primary product covers only part of the requested quantity',
+        )
       }
       continue
     }
