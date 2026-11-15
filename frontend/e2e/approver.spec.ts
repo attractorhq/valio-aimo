@@ -402,5 +402,7 @@ test('T97: delivery before the requested date is said out loud to the approver',
   await page.getByLabel('Signed in as').selectOption('mock-school')
   const why = page.getByRole('region', { name: 'Why you are asked' })
   await expect(why).toContainText('Early delivery')
-  await expect(why).toContainText('Arrives Mon 16 Nov, 4 days early')
+  await expect(why).toContainText(
+    'Valio offers delivery on Mon 16 Nov for these products; they arrive 4 days before Friday.',
+  )
 })

@@ -1530,6 +1530,11 @@ button.chip {
   color: var(--muted);
   white-space: nowrap;
 }
+.approval-line-note {
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: 12px;
+}
 .approval-line-details {
   margin-top: var(--space-2);
 }

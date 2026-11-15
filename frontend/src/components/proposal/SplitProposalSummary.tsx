@@ -1,4 +1,5 @@
 import type { Offer, OfferLine, Proposal, StructuredRequest } from '../../lib/contracts'
+import { splitStockSentence } from '../../lib/clarity'
 import { formatMoney, formatQuantity } from '../../lib/format'
 import { ProposalRefText } from '../trust/ProposalRefText'
 
@@ -78,6 +79,17 @@ export function formatSplitApprovalSentence(
   return `Approving means ${clauses.join(', ')}.`
 }
 
+/** T109: why each split happened, one sentence per split item (held stock or line 1's verified stock). */
+export function splitReasonLines(source: Proposal | Offer, request?: StructuredRequest): string[] {
+  return splitItemPairs(source, request)
+    .map(([lineA]) => {
+      const held = lineA.facts.find((f) => f.fact === 'stock.heldByYourOrders')?.display
+      if (held) return held.endsWith('.') ? held : `${held}.`
+      return splitStockSentence(lineA)
+    })
+    .filter((text): text is string => Boolean(text))
+}
+
 /**
  * T69 split detail lines:
  * - Price guard when line 2's price per kg/l is > 10 % above line 1's;
@@ -94,6 +106,10 @@ export function formatSplitDetailLines(
     const heldFact = lineA.facts.find((f) => f.fact === 'stock.heldByYourOrders')?.display
     if (heldFact) {
       details.push(heldFact.endsWith('.') ? heldFact : `${heldFact}.`)
+    } else {
+      // T109: why the order was split, from line 1's verified stock count.
+      const why = splitStockSentence(lineA)
+      if (why) details.push(why)
     }
     const factGuard = lineB.facts.find((f) => f.fact === 'split.priceGuard')?.display
     if (factGuard) {

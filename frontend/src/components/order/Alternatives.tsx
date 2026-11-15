@@ -378,7 +378,7 @@ export function Alternatives({
               {entry.topOptions.map((cand) => (
                 <span
                   key={cand.productId}
-                  title={`${cand.name} (${cand.productId}) — ${cand.tradeoff}`}
+                  title={`${cand.name} (${cand.productId}): ${cand.tradeoff}`}
                   className={`inline-flex items-center gap-0.5 text-[10px] font-semibold ${tierBadgeClass(cand.tier)}`}
                 >
                   <span>{TIER_LABEL[cand.tier]}</span>
