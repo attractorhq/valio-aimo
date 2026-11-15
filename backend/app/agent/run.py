@@ -679,6 +679,41 @@ def _not_found_reason(item: RequestItem, search: SearchProductsRequest, mandate:
     return f"no {', '.join(words)} {item.what} was found"
 
 
+def _offer_drop_reason(
+    item: RequestItem,
+    offer: Offer,
+    compliant_lines: Sequence[OfferLine],
+    mandate: Mandate,
+    deadline: date,
+) -> str:
+    """T106: one plain clause for a line whose candidates all failed at the offer stage."""
+    late = sorted(line.deliveryDate for line in compliant_lines if line.itemId == item.itemId)
+    if late:
+        return f"not deliverable by {format_date(deadline)} (earliest {format_date(late[0])})"
+    requirement_codes = {
+        ReasonCode.CLAIM_MISSING, ReasonCode.ALLERGEN_CONTAINS, ReasonCode.ALLERGEN_MAY_CONTAIN,
+        ReasonCode.ALLERGEN_UNKNOWN, ReasonCode.DATA_CONFLICT,
+    }
+    codes = {code for entry in offer.excluded if entry.itemId == item.itemId for code in entry.reasons}
+    if any(line.itemId == item.itemId for line in offer.lines) or codes & requirement_codes:
+        labels = [
+            requirement_display_name(req)
+            for req in hard_requirements(
+                [*item.requirements, *extract_inline_requirements(item.what)[1]], mandate
+            )
+        ]
+        if labels:
+            return f"no candidate is declared {', '.join(dict.fromkeys(label.lower() for label in labels))}"
+        return "no candidate meets your requirements"
+    if codes and codes <= {ReasonCode.CUTOFF_PASSED}:
+        return f"order cut-off passed for every candidate for {format_date(deadline)}"
+    if ReasonCode.NOT_AVAILABLE in codes:
+        return f"no stock available for {format_date(deadline)} delivery"
+    if ReasonCode.CUTOFF_PASSED in codes:
+        return f"order cut-off passed or no stock for every candidate for {format_date(deadline)}"
+    return f"no candidate can be delivered by {format_date(deadline)}"
+
+
 def _no_order_step(
     *,
     channel: AgentChannel,
@@ -1183,6 +1218,57 @@ def _iter_agent_steps_inner(
 
     compliant_lines = _compliant_offer_lines(offer, planned_request, products_by_id, mandate)
     deadline = planned_request.requestedDate
+
+    # T106: a line whose candidates all fail at the offer stage (cut-off passed, no stock, too late, requirement
+    # not declared) is dropped too while another line still has a valid offer line. The remaining lines get one
+    # fresh offer (at most one re-offer) and the gateway decides that proposal from scratch.
+    def offerable(item_id: str) -> bool:
+        return any(
+            line.itemId == item_id and (lookup_date is not None or line.deliveryDate <= deadline)
+            for line in compliant_lines
+        )
+
+    late_ids = [item.itemId for item in planned_request.items if not offerable(item.itemId)]
+    if late_ids and len(late_ids) < len(planned_request.items):
+        late_reasons = {
+            item.itemId: _offer_drop_reason(item, offer, compliant_lines, mandate, deadline)
+            for item in planned_request.items if item.itemId in late_ids
+        }
+        late_step = no_order(offer)  # no offer_request: no extra probe for a later date
+        kept_offer_items = [oi for oi in offer_request.items if oi.itemId not in late_ids]
+        try:
+            reoffer_request = offer_request.model_copy(update={"items": kept_offer_items})
+            reoffer = channel.get_offer(reoffer_request)
+        except IntegrationError:
+            reoffer = None  # Keep the original no-order result if the narrower quote is unavailable.
+        if reoffer is None:
+            yield no_order(offer, offer_request)
+            return
+        dropped_no_order = [
+            *dropped_no_order,
+            *(entry for entry in late_step.noOrder.items if entry.itemId in late_ids),
+        ]
+        not_ordered = [
+            *not_ordered,
+            *(
+                NotOrderedItem(
+                    itemId=item.itemId, what=item.what, quantity=item.quantity, unit=item.unit,
+                    reason=late_reasons[item.itemId],
+                )
+                for item in planned_request.items if item.itemId in late_ids
+            ),
+        ]
+        order = {item.itemId: n for n, item in enumerate(full_request.items)}
+        not_ordered.sort(key=lambda entry: order.get(entry.itemId, 0))
+        dropped_no_order.sort(key=lambda entry: order.get(entry.itemId, 0))
+        planned_request = planned_request.model_copy(update={
+            "items": [item for item in planned_request.items if item.itemId not in late_ids],
+        })
+        item_plans = [plan for plan in item_plans if plan.item.itemId not in late_ids]
+        candidates_by_item = {k: v for k, v in candidates_by_item.items() if k not in late_ids}
+        offer, offer_request = reoffer, reoffer_request
+        compliant_lines = _compliant_offer_lines(offer, planned_request, products_by_id, mandate)
+
     coverage = [_coverage_date(compliant_lines, item) for item in planned_request.items]
     # Keep the existing partial-availability approval flow. When the whole request can
     # be fulfilled but an item has no on-time delivery, let the buyer choose to retry.

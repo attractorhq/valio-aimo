@@ -101,3 +101,51 @@ def test_policy_counts_a_dropped_line_as_partial_availability():
     assert any(f.code == ReasonCode.PARTIAL_AVAILABILITY and f.effect == "ASK" for f in decision.findings)
     with pytest.raises(ValueError):
         decide(mandate=M1, request=request, lines=[], now=when, not_ordered_items=["I1"])
+
+
+def _cutoff_passed_except(provider_cls, keep: set[str]):
+    class CutoffProvider(provider_cls):
+        def _stock_row(self, code, requested_date):
+            row = super()._stock_row(code, requested_date)
+            if code not in keep:
+                row["closingTime"] = "2026-11-12T14:00:00+02:00"  # before NOW for every other product
+            return row
+
+    return CutoffProvider()
+
+
+def test_line_failing_at_the_offer_stage_is_dropped_and_the_rest_reoffered(synthetic_api):
+    from test_agent_run import SyntheticAgentProvider
+
+    client, state = synthetic_api
+    oat = run(client, "We need 50 litres of gluten-free oat drink by 20.11.")["proposal"]
+    oat_ids = {line["productId"] for line in oat["lines"]}
+    state.gateway.provider = _cutoff_passed_except(SyntheticAgentProvider, oat_ids)
+
+    text = "We need 50 litres of gluten-free oat drink and 10 litres of lactose-free milk by 20.11."
+    result = run(client, text)
+    proposal = result["proposal"]
+    assert proposal is not None
+    assert proposal["state"] == "PENDING_APPROVAL"
+    assert proposal["reasons"][0] == ReasonCode.PARTIAL_AVAILABILITY
+    assert {line["productId"] for line in proposal["lines"]} <= oat_ids
+    assert [item["what"] for item in proposal["request"]["items"]] == ["oat drink"]
+    # A fresh offer for the remaining line only, decided from scratch.
+    assert proposal["offerId"] != oat["offerId"]
+    assert all(line["itemId"] == "I1" for line in result["offer"]["lines"])
+    assert [entry["itemId"] for entry in proposal["notOrdered"]] == ["I2"]
+    assert proposal["notOrdered"][0]["reason"] == "order cut-off passed for every candidate for Fri 20 Nov"
+    assert proposal["reasonDetails"][ReasonCode.PARTIAL_AVAILABILITY].startswith(
+        "Approving means oat drink only; milk is not ordered: order cut-off passed for every candidate for Fri 20 Nov."
+    )
+    assert [entry["itemId"] for entry in result["steps"][-1]["noOrder"]["items"]] == ["I2"]
+
+
+def test_offer_stage_failure_on_every_line_keeps_the_no_order_result(synthetic_api):
+    from test_agent_run import SyntheticAgentProvider
+
+    client, state = synthetic_api
+    state.gateway.provider = _cutoff_passed_except(SyntheticAgentProvider, set())
+    result = run(client, "We need 50 litres of gluten-free oat drink and 10 litres of lactose-free milk by 20.11.")
+    assert result["proposal"] is None
+    assert [entry["itemId"] for entry in result["steps"][-1]["noOrder"]["items"]] == ["I1", "I2"]
