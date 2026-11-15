@@ -7,6 +7,7 @@ import {
   formatQuantity,
   formatTime,
 } from '../../lib/format'
+import { ProposalRefText } from '../trust/ProposalRefText'
 import { TrustBadge } from '../trust/TrustBadge'
 import { TrustCard } from '../trust/TrustCard'
 import { SplitProposalSummary } from '../proposal/SplitProposalSummary'
@@ -73,7 +74,7 @@ export function OrderProposalView({
                     {stockFact && (
                       <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs font-normal">
                         <span className="muted" title={stockFact.method ?? undefined}>
-                          {stockFact.display}
+                          <ProposalRefText text={stockFact.display} />
                         </span>
                         <TrustBadge level={stockFact.level} conflict={stockFact.conflict} />
                       </div>

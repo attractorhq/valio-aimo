@@ -1,5 +1,6 @@
 import type { Offer, OfferLine, Proposal, StructuredRequest } from '../../lib/contracts'
 import { formatMoney, formatQuantity } from '../../lib/format'
+import { ProposalRefText } from '../trust/ProposalRefText'
 
 const FROZEN_WORDS = ['frozen', 'pakaste', 'pakastettu', 'jäädytetty', 'fryst', 'iqf']
 
@@ -90,6 +91,10 @@ export function formatSplitDetailLines(
   const details: string[] = []
 
   for (const [lineA, lineB] of pairs) {
+    const heldFact = lineA.facts.find((f) => f.fact === 'stock.heldByYourOrders')?.display
+    if (heldFact) {
+      details.push(heldFact.endsWith('.') ? heldFact : `${heldFact}.`)
+    }
     const factGuard = lineB.facts.find((f) => f.fact === 'split.priceGuard')?.display
     if (factGuard) {
       details.push(factGuard.endsWith('.') ? factGuard : `${factGuard}.`)
@@ -161,7 +166,7 @@ export function SplitProposalSummary({
       </p>
       {details.map((detail, idx) => (
         <p key={idx} className="mt-0.5 text-xs text-[var(--ink)]" data-testid="split-detail-line">
-          {detail}
+          <ProposalRefText text={detail} />
         </p>
       ))}
     </div>

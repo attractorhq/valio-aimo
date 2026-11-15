@@ -147,6 +147,18 @@ def contains_forbidden_agent_content(text: str) -> bool:
     return bool(_FORBIDDEN_AGENT_PATTERNS.search(text))
 
 
+def _held_stock_partial_clauses(proposal: Proposal) -> list[str]:
+    items_by_id = {i.itemId: i for i in proposal.request.items}
+    clauses: list[str] = []
+    for ln in proposal.lines:
+        held_fact = next((f for f in ln.facts if f.fact == "stock.heldByYourOrders"), None)
+        req_item = items_by_id.get(ln.itemId)
+        if held_fact is not None and held_fact.display and req_item is not None:
+            req_str = f"{format(req_item.quantity.normalize(), 'f')} {req_item.unit}"
+            clauses.append(f"{held_fact.display}; {req_str} requested")
+    return clauses
+
+
 def render_reason_occurrence(
     code: ReasonCode,
     *,
@@ -225,6 +237,10 @@ def render_reason_occurrence(
         msg = defn.template.format(**params)
     except KeyError:
         msg = defn.chipText
+    if code == ReasonCode.PARTIAL_AVAILABILITY and proposal:
+        held_clauses = _held_stock_partial_clauses(proposal)
+        if held_clauses:
+            msg = ". ".join(held_clauses) + "."
     if code in (ReasonCode.OVER_AUTO_LIMIT, ReasonCode.OVER_HARD_LIMIT) and proposal and mandate:
         # T62: true also when the day, not this order alone, is over the limit.
         limit = mandate.hardLimitEur if code == ReasonCode.OVER_HARD_LIMIT else mandate.autoApproveLimitEur
@@ -391,12 +407,16 @@ def template_explanation(
         ask_parts.append(f"earliest verified delivery is {format_date(earliest)} instead of {date_str}")
 
     if ReasonCode.PARTIAL_AVAILABILITY in active_reasons and proposal.lines:
-        ln0 = proposal.lines[0]
-        req0 = next((i for i in proposal.request.items if i.itemId == ln0.itemId), proposal.request.items[0])
-        ask_parts.append(
-            f"only {format(ln0.deliveredQuantity.value.normalize(), 'f')} {ln0.deliveredQuantity.unit} "
-            f"of {format(req0.quantity.normalize(), 'f')} {req0.unit} is available in verified stock"
-        )
+        held_clauses = _held_stock_partial_clauses(proposal)
+        if held_clauses:
+            ask_parts.extend(held_clauses)
+        else:
+            ln0 = proposal.lines[0]
+            req0 = next((i for i in proposal.request.items if i.itemId == ln0.itemId), proposal.request.items[0])
+            ask_parts.append(
+                f"only {format(ln0.deliveredQuantity.value.normalize(), 'f')} {ln0.deliveredQuantity.unit} "
+                f"of {format(req0.quantity.normalize(), 'f')} {req0.unit} is available in verified stock"
+            )
 
     if ReasonCode.AGENT_SUBSTITUTE in active_reasons and proposal.lines:
         ln0 = proposal.lines[0]

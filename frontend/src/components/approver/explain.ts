@@ -131,6 +131,15 @@ function extractReliabilityPercent(proposal: Proposal): string | undefined {
   return undefined
 }
 
+function heldStockDisplayForItem(proposal: Proposal, itemId: string): string | undefined {
+  for (const line of proposal.lines) {
+    if (line.itemId !== itemId) continue
+    const heldFact = (line.facts ?? []).find((f) => f.fact === 'stock.heldByYourOrders')
+    if (heldFact?.display) return heldFact.display
+  }
+  return undefined
+}
+
 function partialAvailabilityReasonText(proposal: Proposal): string {
   const deliveredByItem = new Map<string, number>()
   const linesByItem = new Map<string, Proposal['lines']>()
@@ -149,23 +158,34 @@ function partialAvailabilityReasonText(proposal: Proposal): string {
     const deliv = deliveredByItem.get(item.itemId) ?? 0
     const req = Number(item.quantity)
     const itemLines = linesByItem.get(item.itemId) ?? []
+    const heldNote = heldStockDisplayForItem(proposal, item.itemId)
     if (deliv > 0 && deliv < req) {
-      parts.push(
-        `Only ${formatNumber(String(deliv))} ${item.unit} of ${item.what} in stock; ${formatNumber(String(req))} ${item.unit} needed.`,
-      )
+      if (heldNote) {
+        parts.push(`${heldNote}; ${formatNumber(String(req))} ${item.unit} needed.`)
+      } else {
+        parts.push(
+          `Only ${formatNumber(String(deliv))} ${item.unit} of ${item.what} in stock; ${formatNumber(String(req))} ${item.unit} needed.`,
+        )
+      }
     } else if (itemLines.length >= 2) {
       const first = itemLines[0]
       const restNames = itemLines
         .slice(1)
         .map((l) => l.name)
         .join(' + ')
-      parts.push(
-        reasonText('PARTIAL_AVAILABILITY', {
-          available: `${formatNumber(first.deliveredQuantity.value)} ${first.deliveredQuantity.unit}`,
-          needed: `${formatNumber(item.quantity)} ${item.unit}`,
-          otherProduct: restNames,
-        }),
-      )
+      if (heldNote) {
+        parts.push(
+          `${heldNote}; ${formatNumber(item.quantity)} ${item.unit} needed — remainder covered by ${restNames}.`,
+        )
+      } else {
+        parts.push(
+          reasonText('PARTIAL_AVAILABILITY', {
+            available: `${formatNumber(first.deliveredQuantity.value)} ${first.deliveredQuantity.unit}`,
+            needed: `${formatNumber(item.quantity)} ${item.unit}`,
+            otherProduct: restNames,
+          }),
+        )
+      }
     }
   }
 
@@ -416,9 +436,16 @@ export function explainWhyNotAuto(
         const deliv = deliveredByItem.get(item.itemId) ?? 0
         const req = Number(item.quantity)
         if (deliv > 0 && deliv < req) {
-          itemShortfalls.push(
-            `only ${formatNumber(String(deliv))} ${item.unit} of the requested ${formatNumber(String(req))} ${item.unit} of ${item.what} is available in stock`,
-          )
+          const heldNote = heldStockDisplayForItem(proposal, item.itemId)
+          if (heldNote) {
+            itemShortfalls.push(
+              `${heldNote} (${formatNumber(String(req))} ${item.unit} of ${item.what} requested)`,
+            )
+          } else {
+            itemShortfalls.push(
+              `only ${formatNumber(String(deliv))} ${item.unit} of the requested ${formatNumber(String(req))} ${item.unit} of ${item.what} is available in stock`,
+            )
+          }
         }
       }
       if (itemShortfalls.length > 0) {

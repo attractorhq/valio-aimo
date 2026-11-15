@@ -214,15 +214,99 @@ def _partial_stock_pack_explanation(
     )
 
 
-def _with_committed_display(facts: Sequence[TrustLabel], held: Decimal, stock: Decimal) -> list[TrustLabel]:
-    """T97: say that part of the stock is already held by the buyer's own committed orders."""
-    free = max(stock - held, Decimal(0))
-    note = f"{_format_qty_amount(held)} already in your orders, {_format_qty_amount(free)} left"
-    return [
-        f.model_copy(update={"display": f"{f.display} · {note}" if f.display else note})
-        if f.fact == "stock.quantity" else f
-        for f in facts
-    ]
+def _stock_value_str(val: Decimal) -> str:
+    return _format_qty_amount(val)
+
+
+def format_held_stock_note(
+    *,
+    left_qty: Decimal,
+    raw_qty: Decimal,
+    held_qty: Decimal,
+    unit: str,
+    proposal_ids: Sequence[str] = (),
+) -> str:
+    """T102: '35 kg left for you: 95 kg in stock, 60 kg already in your earlier order today (PR-…)'."""
+    left_s = f"{_format_qty_comma(left_qty)} {unit}"
+    raw_s = f"{_format_qty_comma(raw_qty)} {unit}"
+    held_s = f"{_format_qty_comma(held_qty)} {unit}"
+    unique_ids = list(dict.fromkeys(pid for pid in proposal_ids if pid))
+    if len(unique_ids) == 1:
+        order_part = f"your earlier order today ({unique_ids[0]})"
+    elif len(unique_ids) > 1:
+        order_part = f"your earlier orders today ({', '.join(unique_ids)})"
+    else:
+        order_part = "your earlier orders today"
+    return f"{left_s} left for you: {raw_s} in stock, {held_s} already in {order_part}"
+
+
+def _with_held_stock_facts(
+    facts: Sequence[TrustLabel],
+    *,
+    held_sales: Decimal,
+    raw_sales: Decimal,
+    free_sales: Decimal,
+    content_val: Decimal,
+    unit: str,
+    proposal_ids: Sequence[str] = (),
+    retrieved_at: datetime | None = None,
+) -> list[TrustLabel]:
+    """T102: adjust `stock.quantity` to what remains for this buyer and emit `stock.heldByYourOrders` next to it."""
+    left_phys = free_sales * content_val
+    raw_phys = raw_sales * content_val
+    held_phys = held_sales * content_val
+    unique_ids = list(dict.fromkeys(pid for pid in proposal_ids if pid))
+    note = format_held_stock_note(
+        left_qty=left_phys,
+        raw_qty=raw_phys,
+        held_qty=held_phys,
+        unit=unit,
+        proposal_ids=unique_ids,
+    )
+    held_label = TrustLabel(
+        fact="stock.heldByYourOrders",
+        value={
+            "rawStockSalesUnits": _stock_value_str(raw_sales),
+            "heldSalesUnits": _stock_value_str(held_sales),
+            "availableSalesUnits": _stock_value_str(free_sales),
+            "rawStockQuantity": f"{_format_qty_comma(raw_phys)} {unit}",
+            "heldQuantity": f"{_format_qty_comma(held_phys)} {unit}",
+            "availableQuantity": f"{_format_qty_comma(left_phys)} {unit}",
+            "unit": unit,
+            "proposalIds": unique_ids,
+        },
+        display=note,
+        level="VERIFIED",
+        source=TrustSource(
+            system="derived",
+            field="session.committedOrders",
+            retrievedAt=retrieved_at,
+        ),
+        method="session stock deduction (T97/T102)",
+        conflict=None,
+    )
+    out: list[TrustLabel] = []
+    inserted = False
+    for f in facts:
+        if f.fact == "stock.quantity":
+            out.append(
+                f.model_copy(
+                    update={
+                        "value": _stock_value_str(free_sales),
+                        "display": note,
+                        "method": "session-adjusted stock (T97/T102)",
+                    }
+                )
+            )
+            out.append(held_label)
+            inserted = True
+        elif f.fact == "stock.heldByYourOrders":
+            continue
+        else:
+            out.append(f)
+    if not inserted:
+        out.append(held_label)
+    return out
 
 
 def _with_stock_display(facts: Sequence[TrustLabel], display: str) -> list[TrustLabel]:
@@ -370,6 +454,7 @@ def build_offer(
     offer_id: str | None = None,
     offer_version: int = 1,
     committed_units: Mapping[tuple[str, date], Decimal] | None = None,
+    committed_orders: Mapping[tuple[str, date], Sequence[tuple[str, Decimal]]] | None = None,
 ) -> OfferResult:
     """Size, allocate and price the shortlist from one snapshot. Deterministic for the same inputs.
 
@@ -412,7 +497,13 @@ def build_offer(
                                                 price.comparison_unit)
             sizing = size(product, remaining if remaining > 0 else requested_qty, unit)
             line_id = f"L{len(lines) + 1}"
-            held = (committed_units or {}).get((product.productId, facts.availability.delivery_date), Decimal(0))
+            stock_key = (product.productId, facts.availability.delivery_date)
+            order_refs = list((committed_orders or {}).get(stock_key, ()))
+            held = (committed_units or {}).get(
+                stock_key,
+                sum((qty for _, qty in order_refs), Decimal(0)),
+            )
+            held_pids = [pid for pid, _ in order_refs]
             if held > 0 and product.productId not in used:
                 used[product.productId] = held
             probe = _line_input(line_id, item_id, product, facts, sizing)
@@ -430,19 +521,34 @@ def build_offer(
 
             units = sizing.quantity_sales_units
             pack_explanation: str | None = None
+            free_before_line: Decimal | None = None
             if probe.stock is StockKind.EXACT:
                 free = max(probe.stock_amount - used.get(product.productId, Decimal(0)), Decimal(0))
+                free_before_line = free
                 if free < units:
                     units = _floor_to_lot(free, product.allowedLotSize)
                     if units <= 0:
+                        ex_facts = [*facts.facts, *product.facts]
+                        if held > 0 and sizing.content is not None:
+                            ex_facts = _with_held_stock_facts(
+                                ex_facts,
+                                held_sales=held,
+                                raw_sales=probe.stock_amount,
+                                free_sales=free,
+                                content_val=sizing.content.value,
+                                unit=sizing.content.unit,
+                                proposal_ids=held_pids,
+                                retrieved_at=snapshot.captured_at,
+                            )
                         excluded.append(ExcludedProduct(
                             productId=product.productId, name=product.name, itemId=item_id,
-                            reasons=[ReasonCode.NOT_AVAILABLE], facts=[*facts.facts, *product.facts],
+                            reasons=[ReasonCode.NOT_AVAILABLE], facts=ex_facts,
                         ))
                         continue
                     sizing = Sizing(units, Quantity(value=units * sizing.content.value, unit=unit),
                                     sizing.content, sizing.basis, sizing.unit_mismatch)
-                    pack_explanation = _partial_stock_pack_explanation(product, sizing, units, free)
+                    if held <= 0:
+                        pack_explanation = _partial_stock_pack_explanation(product, sizing, units, free)
             final = _line_input(line_id, item_id, product, facts, sizing)
             if final.stock is StockKind.EXACT:
                 # The pool left for this line after earlier items used the same product.
@@ -459,8 +565,17 @@ def build_offer(
             line_facts = [*facts.facts, *product.facts]
             if pack_explanation is not None:
                 line_facts = _with_stock_display(line_facts, pack_explanation)
-            if held > 0 and probe.stock is StockKind.EXACT:
-                line_facts = _with_committed_display(line_facts, held, probe.stock_amount)
+            if held > 0 and probe.stock is StockKind.EXACT and sizing.content is not None:
+                line_facts = _with_held_stock_facts(
+                    line_facts,
+                    held_sales=held,
+                    raw_sales=probe.stock_amount,
+                    free_sales=free_before_line if free_before_line is not None else max(probe.stock_amount - held, Decimal(0)),
+                    content_val=sizing.content.value,
+                    unit=sizing.content.unit,
+                    proposal_ids=held_pids,
+                    retrieved_at=snapshot.captured_at,
+                )
             lines.append(OfferLine(
                 lineId=line_id,
                 itemId=item_id,
@@ -505,7 +620,12 @@ def build_offer(
                     updated_reasons.append(ReasonCode.PARTIAL_AVAILABILITY)
                 updated_facts = [
                     f.model_copy(update={"display": f"{f.display} · {shortfall_clause}"})
-                    if f.fact == "stock.quantity" and f.display and shortfall_clause not in f.display
+                    if (
+                        f.fact == "stock.quantity"
+                        and f.display
+                        and shortfall_clause not in f.display
+                        and not any(other.fact == "stock.heldByYourOrders" for other in ln.facts)
+                    )
                     else f
                     for f in ln.facts
                 ]
@@ -579,6 +699,7 @@ def get_offer(
     offer_version: int = 1,
     force_refresh: bool = False,
     committed_units: Mapping[tuple[str, date], Decimal] | None = None,
+    committed_orders: Mapping[tuple[str, date], Sequence[tuple[str, Decimal]]] | None = None,
 ) -> OfferResult:
     """One batched price + one batched availability read for the whole shortlist, then `build_offer`."""
     lists = shortlists(request)
@@ -588,5 +709,13 @@ def get_offer(
         raise ValueError(f"unknown product ids: {', '.join(missing)}")
     snapshot = provider.lookup(lists, request.lookupDate or request.requestedDate, request.customerId,
                                products={code: products[code] for code in wanted}, force_refresh=force_refresh)
-    return build_offer(request, products=products, snapshot=snapshot, mandate=mandate,
-                       offer_id=offer_id, offer_version=offer_version, committed_units=committed_units)
+    return build_offer(
+        request,
+        products=products,
+        snapshot=snapshot,
+        mandate=mandate,
+        offer_id=offer_id,
+        offer_version=offer_version,
+        committed_units=committed_units,
+        committed_orders=committed_orders,
+    )

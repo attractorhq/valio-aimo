@@ -215,6 +215,8 @@ class GatewayAgentChannel:
             products=self.state.gateway.products,
             provider=self.state.gateway.provider,
             mandate=mandate,
+            committed_units=self.state.gateway.committed_units(request.customerId),
+            committed_orders=self.state.gateway.committed_stock_orders(request.customerId),
         ).offer
 
     def get_offer(self, request: GetOfferRequest) -> Offer:
