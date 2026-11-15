@@ -19,7 +19,7 @@ type Entry = {
 
 type AgentActivity = {
   paused: boolean
-  suspended: Array<{ clientId: string; client: string; customerId: string }>
+  suspended: Array<{ clientId: string; client: string; customerId: string; until?: string | null }>
   entries: Entry[]
 }
 
@@ -203,7 +203,14 @@ export function ValioAgentActivity() {
             <ul className="mt-2 grid gap-1" aria-label="Suspended agents">
               {data.suspended.map((client) => (
                 <li key={client.clientId} className="flex flex-wrap items-center gap-2 text-sm">
-                  <strong className="break-words">{client.client} suspended</strong>
+                  <strong className="break-words">
+                    {client.client} suspended
+                    {client.until && (
+                      <>
+                        {' '}until <time dateTime={client.until}>{formatTime(client.until)}</time>
+                      </>
+                    )}
+                  </strong>
                   <button
                     type="button"
                     className="disclosure-btn"
