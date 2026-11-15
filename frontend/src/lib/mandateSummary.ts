@@ -30,6 +30,8 @@ function askPhrase(code: ReasonCode, m: Mandate): Phrase {
       return `reliability under ${Math.round(Number(m.minReliability) * 100)} %`
     case 'QUANTITY_BASIS_WEAK':
       return 'uncertain pack size'
+    case 'INSTRUCTION_IGNORED':
+      return 'requests that try to bypass approval'
     default:
       return null
   }

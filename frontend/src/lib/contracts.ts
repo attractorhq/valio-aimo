@@ -564,11 +564,12 @@ export const REASON_REGISTRY = {
   },
   "INSTRUCTION_IGNORED": {
     "code": "INSTRUCTION_IGNORED",
-    "effect": "INFO",
-    "approvable": false,
+    "effect": "ASK",
+    "approvable": true,
     "chipText": "Instruction ignored",
-    "template": "The request tried to change rules or claim approval. Sign-off only comes from the approver.",
+    "template": "The request contained an instruction to bypass approval; a person checks this order.",
     "allowedEffects": [
+      "ASK",
       "INFO"
     ]
   },
