@@ -373,18 +373,28 @@ INLINE_REQUIREMENT_PATTERNS: tuple[tuple[re.Pattern[str], Requirement], ...] = (
     (
         re.compile(
             r"\b(?:peanut[\s-]?free|free\s+(?:of|from)\s+peanuts?|no\s+peanuts?|without\s+peanuts?|"
-            r"maapähkinät(?:ön|töm\w*|öntä)|ilman\s+maapähkin\w*|jordnötsfri\w*)\b",
+            r"maapähkinät(?:ön|töm\w*|öntä)|ilman\s+maapähkin\w*|jordnöts?fri\w*|utan\s+jordnöt\w*)\b",
             re.IGNORECASE,
         ),
         Requirement(kind="AVOID_ALLERGEN", code="AP"),
     ),
     (
         re.compile(
-            r"\b(?:(?:tree[\s-]?)?nut[\s-]?free|free\s+(?:of|from)\s+(?:tree\s+)?nuts?|no\s+(?:tree\s+)?nuts?|"
-            r"without\s+(?:tree\s+)?nuts?|(?<!maa)pähkinät(?:ön|töm\w*|öntä)|ilman\s+pähkin\w*|nötfri\w*)\b",
+            r"\b(?:tree[\s-]?nuts?[\s-]?free|free\s+(?:of|from)\s+tree[\s-]?nuts?|no\s+tree[\s-]?nuts?|"
+            r"without\s+tree[\s-]?nuts?|puupähkinät(?:ön|töm\w*|öntä)|ilman\s+puupähkin\w*|trädnöts?fri\w*|"
+            r"utan\s+trädnöt\w*)\b",
             re.IGNORECASE,
         ),
         Requirement(kind="AVOID_ALLERGEN", code="AN"),
+    ),
+    (
+        re.compile(
+            r"\b(?:(?<!tree\s)(?<!tree-)(?<!tree)nuts?[\s-]?free|free\s+(?:of|from)\s+(?!tree)nuts?|"
+            r"no\s+(?!tree)nuts?|without\s+(?!tree)nuts?|(?<!maa)(?<!puu)pähkinät(?:ön|töm\w*|öntä)|"
+            r"ilman\s+(?!maa)(?!puu)pähkin\w*|(?<!jord)(?<!träd)nöts?fri\w*|utan\s+(?!jord)(?!träd)nöt\w*)\b",
+            re.IGNORECASE,
+        ),
+        (Requirement(kind="AVOID_ALLERGEN", code="AN"), Requirement(kind="AVOID_ALLERGEN", code="AP")),
     ),
     (
         re.compile(
@@ -468,10 +478,37 @@ FI_SV_TO_EN_SYNONYMS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("kuohukerma", ("whipping cream", "cream")),
     ("ruokakerma", ("cooking cream", "cream")),
     ("kerma", ("cream",)),
+    ("vispgrädd", ("whipping cream", "cream")),
+    ("matgrädd", ("cooking cream", "cream")),
+    ("kaffegrädd", ("coffee cream", "cream")),
+    ("gräddfil", ("sour cream",)),
     ("grädde", ("cream",)),
     ("kermaviili", ("sour cream",)),
     ("ranskankerma", ("creme fraiche", "sour cream")),
+    ("färskost", ("cream cheese", "cheese")),
+    ("smältost", ("processed cheese", "cheese")),
+    ("salladsost", ("salad cheese", "cheese")),
     ("juusto", ("cheese",)),
+    ("ost", ("cheese",)),
+    ("smör", ("butter",)),
+    ("margarin", ("margarine",)),
+    ("matfett", ("fat spread",)),
+    ("ägg", ("eggs", "egg")),
+    ("laxfilé", ("salmon fillet", "salmon")),
+    ("laxfile", ("salmon fillet", "salmon")),
+    ("regnbågslax", ("rainbow trout", "trout")),
+    ("lax", ("salmon",)),
+    ("fisk", ("fish",)),
+    ("kyckling", ("chicken",)),
+    ("skinka", ("ham",)),
+    ("korv", ("sausage",)),
+    ("köttbull", ("meatballs",)),
+    ("potatis", ("potatoes", "potato")),
+    ("tomat", ("tomato", "tomatoes")),
+    ("morot", ("carrot", "carrots")),
+    ("gurka", ("cucumber",)),
+    ("lök", ("onion",)),
+    ("ris", ("rice",)),
     ("kaurajugurt", ("oat yogurt", "oat yoghurt")),
     ("kaurajogurt", ("oat yogurt", "oat yoghurt")),
     ("soijajugurt", ("soy yogurt", "soy yoghurt")),
@@ -525,16 +562,24 @@ QUERY_STOPWORDS: frozenset[str] = frozenset({
     "the", "to", "until", "we", "with", "i", "want", "order", "buy", "get",
     "tarvitsemme", "tarvitsen", "tarvitaan", "haluamme", "tilaamme", "meille", "ja", "tai",
     "mennessä", "viimeistään", "maanantaiksi", "maanantai", "huomiseksi", "huomenna", "tänään",
+    "vi", "jag", "behöver", "behövs", "vill", "ha", "till", "för", "med", "utan", "och", "samt",
+    "eller", "senast", "idag", "imorgon", "måndag", "tisdag", "onsdag", "torsdag", "fredag",
+    "lördag", "söndag", "st", "stycken", "frp", "lådor", "låda",
     "litraa", "litra", "kiloa", "kilo", "kpl", "laatikkoa", "pakettia", "pussia", "purkkia",
     "litres", "litre", "liters", "liter", "kg", "kgs", "kilos", "g", "grams", "l", "dl", "cl", "ml",
     "pcs", "pc", "packs", "pack", "bags", "bag", "cases", "case", "boxes", "box", "bottles",
     "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "today", "tomorrow",
     "grated", "raaste", "raasteena", "raastetta", "raastettu", "raastettua", "raastettuna",
+    "riven", "rivet", "rivna",
     "sliced", "slices", "viipale", "viipaleena", "viipaleina", "viipaleita", "viipaloitu", "viipaloitua",
     "viipaloituna", "siivu", "siivuna", "siivuina", "siivuja", "siivutettu", "siivutettua",
+    "skivad", "skivat", "skivor",
     "block", "blocks", "palana", "paloina", "kimpale", "kimpaleena", "kimpaleina", "kimpaleita", "tahko", "tahkona",
+    "helbit",
     "shredded", "strips", "strip", "suikale", "suikaleena", "suikaleina", "suikaleita", "suikaloitu", "suikaloitua",
+    "strimlad", "strimlat", "strimlor",
     "cubed", "cubes", "diced", "kuutio", "kuutiona", "kuutioina", "kuutioita", "kuutioitu", "kuutioitua",
+    "tärnad", "tärnat", "tärningar", "kuber",
     "kokonainen", "kokonaisena", "kokonaisia", "kokonaiset", "kokonaista", "kokonaisen",
     "powder", "powdered", "jauhe", "jauheena", "jauhetta",
 })
@@ -844,7 +889,7 @@ _SIMILAR_ALT_RE = re.compile(
     r"tai\s+(?:muu\s+|muuta\s+|jotain\s+)?vastaava\w*)\b",
     re.IGNORECASE,
 )
-_ALT_CONJUNCTION_RE = re.compile(r"\s+\b(?:or|tai)\b\s+", re.IGNORECASE)
+_ALT_CONJUNCTION_RE = re.compile(r"\s+\b(?:or|tai|eller)\b\s+", re.IGNORECASE)
 
 
 def split_query_alternatives(query: str) -> tuple[str, ...]:
@@ -906,10 +951,12 @@ def extract_inline_requirements(query: str) -> tuple[str, list[Requirement]]:
     """Extract inline dietary/allergen requirements from a query string and return cleaned query text."""
     cleaned = query
     extracted: list[Requirement] = []
-    for pattern, req in INLINE_REQUIREMENT_PATTERNS:
+    for pattern, req_or_reqs in INLINE_REQUIREMENT_PATTERNS:
         if pattern.search(cleaned):
-            if req not in extracted:
-                extracted.append(req)
+            reqs = req_or_reqs if isinstance(req_or_reqs, tuple) else (req_or_reqs,)
+            for req in reqs:
+                if req not in extracted:
+                    extracted.append(req)
             cleaned = pattern.sub(" ", cleaned)
     cleaned = _QUANTITY_STRIP_RE.sub(" ", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
