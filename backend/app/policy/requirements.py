@@ -89,7 +89,7 @@ X99 = "X99"
 
 # K1/K2 (brief §5.3): a free-from claim next to an explicit CONTAINS of the same substance.
 CLAIM_CONFLICTS = {"K1": ("FREE_FROM_GLUTEN", "AW"), "K2": ("FREE_FROM_LACTOSE", "ML")}
-K6_MESSAGE = "Dairy product declared free from milk — supplier data is inconsistent."
+K6_MESSAGE = "Dairy product declared free from milk: supplier data is inconsistent."
 
 DAIRY_PRODUCT_TYPES: frozenset[str] = frozenset({
     "milk", "milk_drink", "cream", "condensed_milk", "milk_powder", "fermented_milk",

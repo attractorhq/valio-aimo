@@ -163,7 +163,7 @@ def availability_facts(row: dict, requested_date: date, time_now: datetime,
             stock_display = "Out of stock"
         reasons.append(ReasonCode.NOT_AVAILABLE)
     elif parsed.logisticModel == "Terminal":
-        tier, stock_display = "SUPPLIER", "Ships from supplier's warehouse — quantity not visible to Valio Aimo"
+        tier, stock_display = "SUPPLIER", "Ships from supplier's warehouse; quantity not visible to Valio Aimo"
         if closing is not None and closing >= time_now:
             reasons.append(ReasonCode.SUPPLIER_STOCK_UNKNOWN)
     elif parsed.logisticModel == "Stock":
