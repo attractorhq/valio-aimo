@@ -206,6 +206,7 @@ export function Spec() {
               ['#facts', 'Facts'],
               ['#reasons', 'Reason codes'],
               ['#operations', 'Operations'],
+              ['#signatures', 'Signatures'],
               ['#machine-readable', 'OpenAPI & Schemas'],
             ].map(([href, label]) => (
               <li key={href}>
@@ -387,6 +388,40 @@ export function Spec() {
             </div>
           </div>
         ))}
+      </Section>
+
+      <Section id="signatures" title="Detached signatures and offline verification">
+        <ul className="ml-5 list-disc text-sm">
+          <li>
+            Algorithm: detached <strong>Ed25519</strong> (<code>alg: EdDSA</code>, base64url without padding) over
+            UTF-8 canonical JSON (<code>sort_keys=true</code>, <code>,&nbsp;:</code> separators), keyed by{' '}
+            <code>kid</code>.
+          </li>
+          <li>
+            Published keys &amp; discovery:{' '}
+            <a href="/.well-known/aimo-connect-keys.json" className="underline">
+              <code>/.well-known/aimo-connect-keys.json</code>
+            </a>{' '}
+            (RFC 8037 OKP JWK Set) and{' '}
+            <a href="/.well-known/aimo-connect.json" className="underline">
+              <code>/.well-known/aimo-connect.json</code>
+            </a>
+            .
+          </li>
+          <li>
+            Signed receipts: every <code>Offer</code> (<code>offerId</code>, <code>offerVersion</code>,{' '}
+            <code>offerHash</code>, <code>totals</code>, validity), every <code>Proposal</code> decision (
+            <code>signature</code>), and every simulated confirmation (<code>confirmationSignature</code>).
+          </li>
+          <li>
+            Hash-chained audit exports: JSON and CSV exports carry each entry’s SHA-256 <code>prevHash</code> and{' '}
+            <code>hash</code> plus milestone Ed25519 <code>signature</code>s.
+          </li>
+          <li>
+            Offline verification: <code>scripts/verify-audit &lt;export.json&gt; [--keys &lt;jwks&gt;]</code> verifies
+            the SHA-256 chain and Ed25519 signatures using the Python standard library alone.
+          </li>
+        </ul>
       </Section>
 
       <Section id="machine-readable" title="OpenAPI and JSON Schemas">

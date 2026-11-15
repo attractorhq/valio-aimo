@@ -1,0 +1,397 @@
+#!/usr/bin/env python3
+"""Standalone offline audit-chain and Ed25519 receipt verifier (stdlib only, zero repo imports).
+
+Verifies:
+1. Offline SHA-256 hash-chain integrity (`prevHash` and `hash`) of an exported `AuditTrail` JSON file.
+2. Detached Ed25519 (`EdDSA`) signatures on `AuditEntry`, `Offer`, or `Proposal` JSON files when given
+   a JWK Set URL or file (`/.well-known/aimo-connect-keys.json`).
+
+Usage:
+  scripts/verify-audit decision-log-proposal-PR-1.json
+  scripts/verify-audit decision-log-proposal-PR-1.json --keys http://localhost:8000/.well-known/aimo-connect-keys.json
+  scripts/verify-audit offer.json --keys keys.json
+"""
+
+import argparse
+import base64
+import hashlib
+import json
+import pathlib
+import sys
+import urllib.error
+import urllib.request
+
+GENESIS_HASH = "0" * 64
+UNHASHED_ENTRY_FIELDS = frozenset({"prevHash", "hash", "kid", "signature"})
+
+# RFC 8032 §5.1 Ed25519 parameters (pure Python stdlib verification).
+_P = (1 << 255) - 19
+_L = (1 << 252) + 27742317777372353535851937790883648493
+_D = (-121665 * pow(121666, _P - 2, _P)) % _P
+_I = pow(2, (_P - 1) // 4, _P)
+
+
+def _decode_point(enc: bytes) -> tuple[int, int, int, int] | None:
+    if len(enc) != 32:
+        return None
+    y = int.from_bytes(enc, "little") & ((1 << 255) - 1)
+    sign = enc[31] >> 7
+    if y >= _P:
+        return None
+    y2 = (y * y) % _P
+    u = (y2 - 1) % _P
+    v = (_D * y2 + 1) % _P
+    v3 = pow(v, 3, _P)
+    v7 = (v3 * v3 * v) % _P
+    x = (u * v3 * pow((u * v7) % _P, (_P - 5) // 8, _P)) % _P
+    vx2 = (v * x * x) % _P
+    if vx2 == u:
+        pass
+    elif vx2 == (-u) % _P:
+        x = (x * _I) % _P
+    else:
+        return None
+    if x == 0 and sign == 1:
+        return None
+    if (x & 1) != sign:
+        x = _P - x
+    return (x, y, 1, (x * y) % _P)
+
+
+def _point_add(
+    p1: tuple[int, int, int, int],
+    p2: tuple[int, int, int, int],
+) -> tuple[int, int, int, int]:
+    x1, y1, z1, t1 = p1
+    x2, y2, z2, t2 = p2
+    a = ((y1 - x1) * (y2 - x2)) % _P
+    b = ((y1 + x1) * (y2 + x2)) % _P
+    c = (t1 * 2 * _D * t2) % _P
+    d = (z1 * 2 * z2) % _P
+    e = (b - a) % _P
+    f = (d - c) % _P
+    g = (d + c) % _P
+    h = (b + a) % _P
+    return ((e * f) % _P, (g * h) % _P, (f * g) % _P, (e * h) % _P)
+
+
+def _scalar_mult(s: int, pt: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    acc = (0, 1, 1, 0)
+    cur = pt
+    while s > 0:
+        if s & 1:
+            acc = _point_add(acc, cur)
+        cur = _point_add(cur, cur)
+        s >>= 1
+    return acc
+
+
+def _point_eq(p1: tuple[int, int, int, int], p2: tuple[int, int, int, int]) -> bool:
+    x1, y1, z1, _ = p1
+    x2, y2, z2, _ = p2
+    return (x1 * z2 - x2 * z1) % _P == 0 and (y1 * z2 - y2 * z1) % _P == 0
+
+
+_BY = (4 * pow(5, _P - 2, _P)) % _P
+_BASE_ENC = _BY.to_bytes(32, "little")
+_BASE = _decode_point(_BASE_ENC)
+assert _BASE is not None
+
+
+def b64url_decode(text: str) -> bytes:
+    clean = text.strip()
+    padded = clean + "=" * ((4 - len(clean) % 4) % 4)
+    return base64.urlsafe_b64decode(padded.encode("ascii"))
+
+
+def ed25519_verify(pub_bytes: bytes, sig_bytes: bytes, message: bytes) -> bool:
+    if len(pub_bytes) != 32 or len(sig_bytes) != 64:
+        return False
+    r_enc, s_enc = sig_bytes[:32], sig_bytes[32:]
+    s = int.from_bytes(s_enc, "little")
+    if s >= _L:
+        return False
+    a_pt = _decode_point(pub_bytes)
+    r_pt = _decode_point(r_enc)
+    if a_pt is None or r_pt is None:
+        return False
+    k = int.from_bytes(hashlib.sha512(r_enc + pub_bytes + message).digest(), "little") % _L
+    lhs = _scalar_mult(s, _BASE)
+    rhs = _point_add(r_pt, _scalar_mult(k, a_pt))
+    return _point_eq(lhs, rhs)
+
+
+def verify_jwk_signature(jwks_doc: dict, kid: str | None, payload: bytes, signature: str | None) -> bool:
+    if not kid or not signature:
+        return False
+    keys = jwks_doc.get("keys") if "keys" in jwks_doc else [jwks_doc]
+    if not isinstance(keys, list):
+        return False
+    key = next(
+        (
+            k
+            for k in keys
+            if isinstance(k, dict)
+            and k.get("kid") == kid
+            and k.get("kty") == "OKP"
+            and k.get("crv") == "Ed25519"
+            and isinstance(k.get("x"), str)
+        ),
+        None,
+    )
+    if key is None:
+        return False
+    try:
+        return ed25519_verify(b64url_decode(key["x"]), b64url_decode(signature), payload)
+    except Exception:
+        return False
+
+
+def canonical_json_bytes(payload: dict) -> bytes:
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
+def canonical_entry_json(entry: dict) -> str:
+    payload = {k: v for k, v in entry.items() if k not in UNHASHED_ENTRY_FIELDS}
+    if payload.get("event") == "OFFER_CREATED":
+        payload["proposalId"] = None
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def compute_entry_hash(entry: dict, prev_hash: str) -> str:
+    canonical = canonical_entry_json(entry)
+    return hashlib.sha256(f"{prev_hash}:{canonical}".encode("utf-8")).hexdigest()
+
+
+def canonical_offer_payload(offer: dict) -> bytes:
+    totals = offer["totals"]
+    return canonical_json_bytes({
+        "type": "aimo-connect.offer.v0.1",
+        "customerId": str(offer["customerId"]),
+        "offerId": str(offer["offerId"]),
+        "offerVersion": int(offer["offerVersion"]),
+        "offerHash": str(offer["offerHash"]),
+        "totals": {
+            "exclVat": str(totals["exclVat"]),
+            "vat": str(totals["vat"]),
+            "inclVat": str(totals["inclVat"]),
+            "currency": str(totals.get("currency", "EUR")),
+        },
+        "createdAt": str(offer["createdAt"]),
+        "validUntil": str(offer["validUntil"]),
+    })
+
+
+def canonical_decision_payload(proposal: dict) -> bytes:
+    totals = proposal["totals"]
+    return canonical_json_bytes({
+        "type": "aimo-connect.decision.v0.1",
+        "proposalId": str(proposal["proposalId"]),
+        "customerId": str(proposal["customerId"]),
+        "mandateVersion": int(proposal["mandateVersion"]),
+        "offerId": str(proposal["offerId"]),
+        "offerVersion": int(proposal["offerVersion"]),
+        "offerHash": str(proposal["offerHash"]),
+        "decision": str(proposal["decision"]),
+        "reasons": [str(r) for r in proposal.get("reasons", ())],
+        "totalsExclVat": str(totals["exclVat"]),
+    })
+
+
+def canonical_confirmation_payload(proposal: dict) -> bytes:
+    totals = proposal["totals"]
+    return canonical_json_bytes({
+        "type": "aimo-connect.confirmation.v0.1",
+        "proposalId": str(proposal["proposalId"]),
+        "customerId": str(proposal["customerId"]),
+        "mandateVersion": int(proposal["mandateVersion"]),
+        "offerId": str(proposal["offerId"]),
+        "offerVersion": int(proposal["offerVersion"]),
+        "offerHash": str(proposal["offerHash"]),
+        "decision": str(proposal["decision"]),
+        "state": "CONFIRMED_SIMULATED",
+        "totalsExclVat": str(totals["exclVat"]),
+        "simulationNotice": str(proposal.get("simulationNotice", "Simulated order — mock environment")),
+    })
+
+
+def canonical_audit_entry_payload(entry: dict) -> bytes:
+    event = str(entry["event"])
+    return canonical_json_bytes({
+        "type": "aimo-connect.audit-entry.v0.1",
+        "entryId": str(entry["entryId"]),
+        "event": event,
+        "customerId": str(entry["customerId"]),
+        "proposalId": None if event == "OFFER_CREATED" else entry.get("proposalId"),
+        "offerId": entry.get("offerId"),
+        "offerVersion": entry.get("offerVersion"),
+        "offerHash": entry.get("offerHash"),
+        "mandateVersion": int(entry["mandateVersion"]),
+        "toState": entry.get("toState"),
+        "reasons": [str(r) for r in entry.get("reasons", ())],
+        "timestamp": str(entry["timestamp"]),
+        "summary": str(entry["summary"]),
+    })
+
+
+def load_json_source(target: str) -> dict:
+    if target.startswith(("http://", "https://")):
+        req = urllib.request.Request(
+            target,
+            headers={"Accept": "application/json", "User-Agent": "aimo-connect-verify-audit/0.1"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=20.0) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except (urllib.error.URLError, urllib.error.HTTPError) as exc:
+            raise RuntimeError(f"Could not fetch {target}: {exc}") from exc
+    return json.loads(pathlib.Path(target).read_text(encoding="utf-8"))
+
+
+def verify_audit_chain_offline(entries: list[dict]) -> tuple[bool, list[str], str]:
+    """Verify `prevHash` and `hash` on `entries`. Supports single-chain and `scope=all` multi-session exports."""
+    if not entries:
+        return True, [], GENESIS_HASH
+    errors: list[str] = []
+    # Track active chain heads so chronologically merged multi-session exports (`scope=all`) also verify cleanly
+    # while requiring at least one genesis-anchored link and exact SHA-256 recomputation on every entry.
+    active_heads: set[str] = {GENESIS_HASH}
+    last_hash = GENESIS_HASH
+    for idx, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            errors.append(f"entry[{idx}]: not a JSON object")
+            continue
+        eid = str(entry.get("entryId", f"#{idx}"))
+        prev_h = entry.get("prevHash")
+        curr_h = entry.get("hash")
+        if not isinstance(prev_h, str) or not isinstance(curr_h, str):
+            errors.append(f"entry[{idx}] ({eid}): missing prevHash or hash")
+            continue
+        if idx == 0 and prev_h != GENESIS_HASH:
+            errors.append(f"entry[0] ({eid}): expected genesis prevHash {GENESIS_HASH}, got {prev_h}")
+        elif prev_h != GENESIS_HASH and prev_h not in active_heads:
+            errors.append(f"entry[{idx}] ({eid}): broken prevHash link {prev_h}")
+        expected_h = compute_entry_hash(entry, prev_h)
+        if curr_h != expected_h:
+            errors.append(
+                f"entry[{idx}] ({eid}): tampered entry — expected hash {expected_h}, got {curr_h}"
+            )
+        if prev_h in active_heads and prev_h != GENESIS_HASH:
+            active_heads.discard(prev_h)
+        active_heads.add(curr_h)
+        last_hash = curr_h
+    return len(errors) == 0, errors, last_hash
+
+
+def verify_document(doc: dict, jwks: dict | None) -> dict:
+    if "entries" in doc and isinstance(doc["entries"], list):
+        entries = doc["entries"]
+        chain_ok, errors, head_hash = verify_audit_chain_offline(entries)
+        sig_count = 0
+        if jwks is not None:
+            for idx, entry in enumerate(entries):
+                if entry.get("signature") is not None or entry.get("kid") is not None:
+                    sig_count += 1
+                    eid = entry.get("entryId", f"#{idx}")
+                    if not verify_jwk_signature(
+                        jwks,
+                        entry.get("kid"),
+                        canonical_audit_entry_payload(entry),
+                        entry.get("signature"),
+                    ):
+                        errors.append(f"entry[{idx}] ({eid}): invalid Ed25519 signature")
+            if entries and sig_count == 0:
+                errors.append("no signed audit entries found in export")
+        return {
+            "kind": "audit-trail",
+            "verified": chain_ok and len(errors) == 0,
+            "chainLength": len(entries),
+            "headHash": head_hash,
+            "signaturesVerified": sig_count if jwks is not None else None,
+            "errors": errors,
+        }
+
+    if "proposalId" in doc:
+        if jwks is None:
+            raise RuntimeError("Pass --keys <jwks-url-or-file> to verify a Proposal receipt.")
+        errors = []
+        sig_count = 1
+        if not verify_jwk_signature(jwks, doc.get("kid"), canonical_decision_payload(doc), doc.get("signature")):
+            errors.append(f"proposal {doc.get('proposalId')}: invalid decision signature")
+        if doc.get("state") == "CONFIRMED_SIMULATED":
+            sig_count += 1
+            if not verify_jwk_signature(
+                jwks,
+                doc.get("kid"),
+                canonical_confirmation_payload(doc),
+                doc.get("confirmationSignature"),
+            ):
+                errors.append(f"proposal {doc.get('proposalId')}: invalid confirmationSignature")
+        return {
+            "kind": "proposal",
+            "verified": len(errors) == 0,
+            "proposalId": doc.get("proposalId"),
+            "signaturesVerified": sig_count if not errors else 0,
+            "errors": errors,
+        }
+
+    if "offerId" in doc and "offerHash" in doc:
+        if jwks is None:
+            raise RuntimeError("Pass --keys <jwks-url-or-file> to verify an Offer receipt.")
+        ok = verify_jwk_signature(jwks, doc.get("kid"), canonical_offer_payload(doc), doc.get("signature"))
+        return {
+            "kind": "offer",
+            "verified": ok,
+            "offerId": doc.get("offerId"),
+            "signaturesVerified": 1 if ok else 0,
+            "errors": [] if ok else [f"offer {doc.get('offerId')}: invalid offer signature"],
+        }
+
+    raise RuntimeError("Unsupported JSON document: expected AuditTrail, Proposal, or Offer.")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("file", help="Path to exported audit JSON (or Offer / Proposal JSON)")
+    parser.add_argument(
+        "keys_pos",
+        nargs="?",
+        default=None,
+        help="Optional JWK Set URL or file path (alternative to --keys)",
+    )
+    parser.add_argument("--keys", default=None, help="JWK Set URL or local JSON file")
+    parser.add_argument("--json", action="store_true", help="Output verification report as JSON")
+    args = parser.parse_args()
+
+    keys_source = args.keys or args.keys_pos
+    doc = load_json_source(args.file)
+    jwks = load_json_source(keys_source) if keys_source else None
+    report = verify_document(doc, jwks)
+
+    if args.json:
+        print(json.dumps(report, indent=2))
+    elif report["verified"]:
+        if report["kind"] == "audit-trail":
+            sig_note = (
+                f" · {report['signaturesVerified']} signature(s) verified"
+                if report["signaturesVerified"] is not None
+                else ""
+            )
+            print(
+                f"Audit chain verified ✓ ({report['chainLength']} entries · head={report['headHash'][:16]}…{sig_note})"
+            )
+        else:
+            print(f"{report['kind'].capitalize()} signature verified ✓ ({report['signaturesVerified']} verified)")
+    else:
+        for err in report["errors"]:
+            print(f"verify-audit: FAILED — {err}", file=sys.stderr)
+
+    sys.exit(0 if report["verified"] else 1)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as exc:
+        print(f"verify-audit: {exc}", file=sys.stderr)
+        sys.exit(1)

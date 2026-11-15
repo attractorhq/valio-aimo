@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Standalone second purchasing-agent client (stdlib + urllib only, zero repo imports).
 
-Reads `/openapi.json` to discover the public Agent channel operations and runs Scenario B
+Reads `/.well-known/aimo-connect.json`, `/.well-known/aimo-connect-keys.json` and `/openapi.json`
+to discover the public Agent channel operations, runs Scenario B
 ("We need 90 kg of gluten-free macaroni and 80 litres of gluten-free oat drink by Monday.")
-against a local or deployed Aimo Connect gateway URL.
+against a local or deployed Aimo Connect gateway URL, and verifies the Ed25519 signatures on
+the Offer and Proposal decision against the published JWK Set.
 
 Usage:
   scripts/second-client                                      # http://localhost:8000
@@ -12,6 +14,8 @@ Usage:
 """
 
 import argparse
+import base64
+import hashlib
 import json
 import os
 import sys
@@ -25,6 +29,160 @@ REQUESTED_DATE = "2026-11-16"
 REQUEST_TEXT = "We need 90 kg of gluten-free macaroni and 80 litres of gluten-free oat drink by Monday."
 GLUTEN_FREE = {"kind": "CLAIM", "code": "FREE_FROM_GLUTEN"}
 
+# RFC 8032 §5.1 Ed25519 parameters (pure Python stdlib verification, zero third-party deps).
+_P = (1 << 255) - 19
+_L = (1 << 252) + 27742317777372353535851937790883648493
+_D = (-121665 * pow(121666, _P - 2, _P)) % _P
+_I = pow(2, (_P - 1) // 4, _P)
+
+
+def _decode_point(enc: bytes) -> tuple[int, int, int, int] | None:
+    if len(enc) != 32:
+        return None
+    y = int.from_bytes(enc, "little") & ((1 << 255) - 1)
+    sign = enc[31] >> 7
+    if y >= _P:
+        return None
+    y2 = (y * y) % _P
+    u = (y2 - 1) % _P
+    v = (_D * y2 + 1) % _P
+    v3 = pow(v, 3, _P)
+    v7 = (v3 * v3 * v) % _P
+    x = (u * v3 * pow((u * v7) % _P, (_P - 5) // 8, _P)) % _P
+    vx2 = (v * x * x) % _P
+    if vx2 == u:
+        pass
+    elif vx2 == (-u) % _P:
+        x = (x * _I) % _P
+    else:
+        return None
+    if x == 0 and sign == 1:
+        return None
+    if (x & 1) != sign:
+        x = _P - x
+    return (x, y, 1, (x * y) % _P)
+
+
+def _point_add(
+    p1: tuple[int, int, int, int],
+    p2: tuple[int, int, int, int],
+) -> tuple[int, int, int, int]:
+    x1, y1, z1, t1 = p1
+    x2, y2, z2, t2 = p2
+    a = ((y1 - x1) * (y2 - x2)) % _P
+    b = ((y1 + x1) * (y2 + x2)) % _P
+    c = (t1 * 2 * _D * t2) % _P
+    d = (z1 * 2 * z2) % _P
+    e = (b - a) % _P
+    f = (d - c) % _P
+    g = (d + c) % _P
+    h = (b + a) % _P
+    return ((e * f) % _P, (g * h) % _P, (f * g) % _P, (e * h) % _P)
+
+
+def _scalar_mult(s: int, pt: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    acc = (0, 1, 1, 0)
+    cur = pt
+    while s > 0:
+        if s & 1:
+            acc = _point_add(acc, cur)
+        cur = _point_add(cur, cur)
+        s >>= 1
+    return acc
+
+
+def _point_eq(p1: tuple[int, int, int, int], p2: tuple[int, int, int, int]) -> bool:
+    x1, y1, z1, _ = p1
+    x2, y2, z2, _ = p2
+    return (x1 * z2 - x2 * z1) % _P == 0 and (y1 * z2 - y2 * z1) % _P == 0
+
+
+_BY = (4 * pow(5, _P - 2, _P)) % _P
+_BASE = _decode_point(_BY.to_bytes(32, "little"))
+assert _BASE is not None
+
+
+def _b64url_decode(text: str) -> bytes:
+    clean = text.strip()
+    padded = clean + "=" * ((4 - len(clean) % 4) % 4)
+    return base64.urlsafe_b64decode(padded.encode("ascii"))
+
+
+def verify_jwk_signature(jwks_doc: dict, kid: str | None, payload: bytes, signature: str | None) -> bool:
+    if not kid or not signature:
+        return False
+    keys = jwks_doc.get("keys")
+    if not isinstance(keys, list):
+        return False
+    key = next(
+        (
+            k
+            for k in keys
+            if isinstance(k, dict)
+            and k.get("kid") == kid
+            and k.get("kty") == "OKP"
+            and k.get("crv") == "Ed25519"
+            and isinstance(k.get("x"), str)
+        ),
+        None,
+    )
+    if key is None:
+        return False
+    try:
+        pub_bytes = _b64url_decode(key["x"])
+        sig_bytes = _b64url_decode(signature)
+    except Exception:
+        return False
+    if len(pub_bytes) != 32 or len(sig_bytes) != 64:
+        return False
+    r_enc, s_enc = sig_bytes[:32], sig_bytes[32:]
+    s = int.from_bytes(s_enc, "little")
+    if s >= _L:
+        return False
+    a_pt = _decode_point(pub_bytes)
+    r_pt = _decode_point(r_enc)
+    if a_pt is None or r_pt is None:
+        return False
+    k = int.from_bytes(hashlib.sha512(r_enc + pub_bytes + payload).digest(), "little") % _L
+    return _point_eq(_scalar_mult(s, _BASE), _point_add(r_pt, _scalar_mult(k, a_pt)))
+
+
+def canonical_offer_payload(offer: dict) -> bytes:
+    totals = offer["totals"]
+    payload = {
+        "type": "aimo-connect.offer.v0.1",
+        "customerId": str(offer["customerId"]),
+        "offerId": str(offer["offerId"]),
+        "offerVersion": int(offer["offerVersion"]),
+        "offerHash": str(offer["offerHash"]),
+        "totals": {
+            "exclVat": str(totals["exclVat"]),
+            "vat": str(totals["vat"]),
+            "inclVat": str(totals["inclVat"]),
+            "currency": str(totals.get("currency", "EUR")),
+        },
+        "createdAt": str(offer["createdAt"]),
+        "validUntil": str(offer["validUntil"]),
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
+def canonical_decision_payload(proposal: dict) -> bytes:
+    totals = proposal["totals"]
+    payload = {
+        "type": "aimo-connect.decision.v0.1",
+        "proposalId": str(proposal["proposalId"]),
+        "customerId": str(proposal["customerId"]),
+        "mandateVersion": int(proposal["mandateVersion"]),
+        "offerId": str(proposal["offerId"]),
+        "offerVersion": int(proposal["offerVersion"]),
+        "offerHash": str(proposal["offerHash"]),
+        "decision": str(proposal["decision"]),
+        "reasons": [str(r) for r in proposal.get("reasons", ())],
+        "totalsExclVat": str(totals["exclVat"]),
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
 
 def http_json(
     method: str,
@@ -37,7 +195,7 @@ def http_json(
     headers = {"Accept": "application/json", "User-Agent": "aimo-connect-second-client/0.1"}
     headers["Authorization"] = f"Bearer demo-agent-{CUSTOMER_ID}"
     if data is not None:
-        headers["Content-Type"] = "application/json"
+        headers["Content-Type": "application/json"] if False else headers.__setitem__("Content-Type", "application/json")
     req = urllib.request.Request(url, data=data, headers=headers, method=method.upper())
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -48,6 +206,19 @@ def http_json(
         raise RuntimeError(f"HTTP {exc.code} from {method} {url}: {err_body}") from exc
     except urllib.error.URLError as exc:
         raise RuntimeError(f"Could not connect to {url}: {exc.reason}") from exc
+
+
+def discover_jwks(base_url: str) -> dict:
+    discovery = http_json("GET", f"{base_url}/.well-known/aimo-connect.json")
+    if not isinstance(discovery, dict) or "jwks" not in discovery:
+        raise RuntimeError("Invalid discovery document at /.well-known/aimo-connect.json")
+    jwks_url = str(discovery["jwks"])
+    if jwks_url.startswith("/"):
+        jwks_url = f"{base_url}{jwks_url}"
+    jwks = http_json("GET", jwks_url)
+    if not isinstance(jwks, dict) or not isinstance(jwks.get("keys"), list):
+        raise RuntimeError(f"Invalid JWK Set at {jwks_url}")
+    return jwks
 
 
 def discover_agent_operations(base_url: str) -> tuple[str, dict[str, tuple[str, str]]]:
@@ -102,7 +273,6 @@ def resolve_shortlist_ids(
             if isinstance(c, dict) and c.get("productId")
         ]
         if cands:
-            # Put canonical Scenario B ID first when present in candidates so offer allocation is deterministic.
             preferred = [pid for pid in fallback_ids if pid in cands]
             rest = [pid for pid in cands if pid not in preferred]
             return (preferred + rest)[:5]
@@ -111,6 +281,7 @@ def resolve_shortlist_ids(
 
 def run_second_client(base_url: str) -> dict:
     clean_base = base_url.rstrip("/")
+    jwks = discover_jwks(clean_base)
     openapi_version, ops = discover_agent_operations(clean_base)
 
     # 1. Read mandate via discovered getMandate route
@@ -130,7 +301,7 @@ def run_second_client(base_url: str) -> dict:
         *[{"itemId": "I2", "productId": pid, "quantity": "80", "unit": "l"} for pid in oat_ids[:1]],
     ]
 
-    # 3. Live/recorded offer via discovered getOffer route
+    # 3. Live/recorded offer via discovered getOffer route + verify detached Ed25519 signature
     o_method, o_path = ops["getOffer"]
     offer = http_json(
         o_method,
@@ -142,6 +313,8 @@ def run_second_client(base_url: str) -> dict:
         },
     )
     assert isinstance(offer, dict)
+    if not verify_jwk_signature(jwks, offer.get("kid"), canonical_offer_payload(offer), offer.get("signature")):
+        raise RuntimeError(f"Offer signature verification failed for offer {offer.get('offerId')}")
 
     # 4. Create proposal via discovered createProposal route
     request_payload = {
@@ -180,7 +353,7 @@ def run_second_client(base_url: str) -> dict:
     )
     assert isinstance(proposal, dict)
 
-    # 5. Read back proposal via discovered getProposal route and verify P3 isolation
+    # 5. Read back proposal via discovered getProposal route, verify P3 isolation & decision signature
     gp_method, gp_path = ops["getProposal"]
     fetched = http_json(
         gp_method,
@@ -191,6 +364,8 @@ def run_second_client(base_url: str) -> dict:
     for forbidden in ("approvaltoken", "approvalurl", "qrpayload"):
         if forbidden in raw_text:
             raise RuntimeError(f"Agent channel leaked forbidden capability field: {forbidden}")
+    if not verify_jwk_signature(jwks, fetched.get("kid"), canonical_decision_payload(fetched), fetched.get("signature")):
+        raise RuntimeError(f"Proposal decision signature verification failed for {fetched.get('proposalId')}")
 
     return {
         "baseUrl": clean_base,
@@ -201,6 +376,8 @@ def run_second_client(base_url: str) -> dict:
         "offerId": fetched["offerId"],
         "offerVersion": fetched["offerVersion"],
         "offerHash": fetched["offerHash"],
+        "kid": offer["kid"],
+        "signatureVerified": True,
         "proposalId": fetched["proposalId"],
         "state": fetched["state"],
         "decision": fetched["decision"],
@@ -257,6 +434,7 @@ def main() -> None:
         f"€{totals['inclVat']} incl. VAT ({totals['currency']})"
     )
     print(f"offerHash:    {result['offerHash']}")
+    print(f"Signature:    signature verified ({result['kid']})")
 
 
 if __name__ == "__main__":

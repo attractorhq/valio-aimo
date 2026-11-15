@@ -374,7 +374,7 @@ def get_audit_trail(
         logs = [(sid, s.gateway.log) for sid, s in iter_audit_sessions(state)]
         return aggregate_audit_trails(logs, customer_id=customerId)
     if proposalId is None and customerId is None:
-        return AuditTrail(entries=list(state.gateway.log.entries()))
+        return state.gateway.log.global_trail()
     return state.gateway.get_audit_trail(proposal_id=proposalId, customer_id=customerId)
 
 
