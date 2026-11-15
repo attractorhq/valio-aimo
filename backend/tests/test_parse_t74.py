@@ -15,7 +15,7 @@ HKI = ZoneInfo("Europe/Helsinki")
 MORNING = datetime(2026, 11, 14, 9, 0, tzinfo=HKI)  # Sat 14 Nov, 09:00
 LACTOSE_FREE = Requirement(kind="CLAIM", code="FREE_FROM_LACTOSE")
 GLUTEN_FREE = Requirement(kind="CLAIM", code="FREE_FROM_GLUTEN")
-MSC = Preference(kind="LABEL", value="MARINE_STEWARDSHIP_COUNCIL_LABEL")
+MSC = Requirement(kind="CLAIM", code="MARINE_STEWARDSHIP_COUNCIL_LABEL")
 
 
 def only_item(text: str):
@@ -186,12 +186,9 @@ def test_judge_occasion_clause_keeps_the_same_day_deadline():
 
 
 def test_judge_certification_is_kept_out_of_the_name_and_said():
-    item, request = only_item("20 kg salmon fillet, MSC certified, by Wednesday 18.11.")
+    item, _request = only_item("20 kg salmon fillet, MSC certified, by Wednesday 18.11.")
     assert item.what == "salmon fillet"
-    assert MSC in item.preferences
-    assert "MSC label preferred: MSC-labelled products are ranked first (not a hard requirement)" in (
-        request.assumptions
-    )
+    assert MSC in item.requirements
 
 
 @pytest.mark.parametrize(
@@ -207,13 +204,13 @@ def test_judge_certification_is_kept_out_of_the_name_and_said():
 def test_certifications_become_label_preferences(text, what, label):
     item, _ = only_item(text)
     assert item.what == what
-    assert Preference(kind="LABEL", value=label) in item.preferences
+    assert Requirement(kind="CLAIM", code=label) in item.requirements
 
 
 def test_organic_certified_is_the_organic_preference_only():
     item, _ = only_item("10 kg organic certified butter tomorrow")
     assert item.what == "butter"
-    assert Preference(kind="ORGANIC", value="organic") in item.preferences
+    assert Requirement(kind="CLAIM", code="EU_ORGANIC_FARMING") in item.requirements
 
 
 # --------------------------------------------------------------------------- same-type clarifying question
@@ -269,8 +266,7 @@ def test_llm_name_is_cleaned_and_the_certification_label_is_kept():
     assert result.mode == "LLM"
     (item,) = result.request.items
     assert item.what == "salmon fillet"
-    assert MSC in item.preferences
-    assert any(a.startswith("MSC label preferred") for a in result.request.assumptions)
+    assert MSC in item.requirements
 
 
 def test_llm_path_keeps_the_kermajuusto_reading_and_a_brand_name_is_never_a_question():

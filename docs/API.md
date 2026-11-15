@@ -62,7 +62,7 @@ Request item IDs must be unique and describe every offered line. Quantities use 
 
 `StructuredRequest` carries the original `requestText` (data, never instructions), a Helsinki `requestedDate`, `items[]` and visible `assumptions[]`. Each item has a stable `itemId`, `what`, positive `quantity`, unit, optional explicitly named `productId`, hard `requirements[]`, and soft `preferences[]`.
 
-- Requirement: `{kind: "CLAIM", code: "FREE_FROM_GLUTEN"}` or `{kind: "AVOID_ALLERGEN", code: "AM"}`. A free-from claim is not an allergen-avoidance rule. Lactose-free does not imply milk-free.
+- Requirement: `{kind: "CLAIM", code: "FREE_FROM_GLUTEN"}` or `{kind: "AVOID_ALLERGEN", code: "AM"}`. A free-from claim is not an allergen-avoidance rule. Lactose-free does not imply milk-free. Certification and origin wishes (`MARINE_STEWARDSHIP_COUNCIL_LABEL` for MSC, `AQUACULTURE_STEWARDSHIP_COUNCIL` for ASC, `EU_ORGANIC_FARMING` for organic/luomu, `FAIR_TRADE_MARK` for Fairtrade/Reilu kauppa, and `FINNISH_ORIGIN` for Finnish/kotimainen/suomalainen) are also parsed and enforced as `CLAIM` hard requirements against `labels` and `countryOfOrigin`, excluding products without the required label/origin with `CLAIM_MISSING`.
 - Preference: `{kind: "BRAND" | "ORGANIC" | "ORIGIN" | "LABEL" | "FAT_PERCENT" | "PACK_SIZE" | "OTHER", value: string}`. Preferences never weaken hard requirements.
 - A contradiction or unsafe ambiguity must be clarified, not silently assumed; policy/parser tickets implement that behaviour.
 

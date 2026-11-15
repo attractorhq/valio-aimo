@@ -60,10 +60,27 @@ def no_order_item_reason(
     else:
         timing = ""
     codes = list(dict.fromkeys(code for entry in excluded for code in entry.reasons))
+    claim_labels = ", ".join(requirement_display_name(req) for req in requirements if req.kind == "CLAIM")
     if codes:
-        claim_labels = ", ".join(requirement_display_name(req) for req in requirements if req.kind == "CLAIM")
+        missing_label_details = list(
+            dict.fromkeys(
+                f.display
+                for entry in excluded
+                for f in entry.facts
+                if f.fact.startswith("claim.") and f.value is False and f.display.endswith("in product data")
+            )
+        )
+        claim_desc = (
+            f"required claim missing ({claim_labels}: {'; '.join(missing_label_details)})"
+            if claim_labels and missing_label_details
+            else (
+                f"required claim missing ({'; '.join(missing_label_details)})"
+                if missing_label_details
+                else (f"required claim missing ({claim_labels})" if claim_labels else "claim missing")
+            )
+        )
         descriptions = {
-            ReasonCode.CLAIM_MISSING: f"required claim missing ({claim_labels})" if claim_labels else "claim missing",
+            ReasonCode.CLAIM_MISSING: claim_desc,
             ReasonCode.ALLERGEN_CONTAINS: "allergen present",
             ReasonCode.ALLERGEN_MAY_CONTAIN: "possible allergen traces",
         }
@@ -74,6 +91,8 @@ def no_order_item_reason(
         return timing
     if has_candidates:
         return f"The requested quantity could not be offered by {deadline_label}."
+    if claim_labels:
+        return f"No eligible products matched this catalogue search ({claim_labels})."
     return "No eligible products matched this catalogue search."
 
 
@@ -299,6 +318,19 @@ def template_explanation(
                     f"Instructions in the request text were ignored. {q}"
                 )
             return clamp_to_two_sentences(q)
+        missing_label_details = list(
+            dict.fromkeys(
+                f.display
+                for entry in excluded
+                for f in entry.facts
+                if f.fact.startswith("claim.") and f.value is False and f.display.endswith("in product data")
+            )
+        )
+        if missing_label_details:
+            return (
+                f"The assortment could not fulfill the full request ({'; '.join(missing_label_details)}). "
+                "Nothing was ordered."
+            )
         return "The assortment could not fulfill the full request. Nothing was ordered."
 
     total_str = format_money(proposal.totals.exclVat)

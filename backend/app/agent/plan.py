@@ -103,6 +103,17 @@ _REQUIREMENT_DISPLAY: dict[str, str] = {
     "FREE_FROM_EGGS": "egg-free",
     "FREE_FROM_SOY": "soy-free",
     "NO_ADDED_SUGARS": "no added sugars",
+    "MARINE_STEWARDSHIP_COUNCIL_LABEL": "MSC label",
+    "MSC": "MSC label",
+    "AQUACULTURE_STEWARDSHIP_COUNCIL": "ASC label",
+    "ASC": "ASC label",
+    "EU_ORGANIC_FARMING": "organic",
+    "ORGANIC": "organic",
+    "LUOMU": "organic",
+    "FAIR_TRADE_MARK": "Fairtrade",
+    "FAIRTRADE": "Fairtrade",
+    "FINNISH_ORIGIN": "Finnish origin",
+    "ORIGIN_FI": "Finnish origin",
 }
 
 _NON_ORDERABLE_CODES: frozenset[ReasonCode] = frozenset({
@@ -1486,7 +1497,9 @@ def select_curated_static_excluded(
                 or not req_claims
             ):
                 curated.append(ex)
-            continue
+                continue
+            if ReasonCode.CLAIM_MISSING not in ex.reasons and ReasonCode.ALLERGEN_CONTAINS not in ex.reasons:
+                continue
         claim_missing_bucket.append(ex)
 
     claim_missing_bucket.sort(key=lambda e: (0 if e.productId in BRIEF_PRODUCT_IDS else 1, e.productId))
