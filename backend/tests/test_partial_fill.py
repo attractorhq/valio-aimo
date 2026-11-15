@@ -6,12 +6,16 @@ Synthetic hand-made records only (patch P7).
 from decimal import Decimal
 
 from test_proposals_gateway import (
+    LACTOSE_FREE,
     MONDAY,
     NOW,
     MutableSyntheticProvider,
     price_row,
     stock_row,
     syn_product,
+)
+from test_proposals_gateway import (
+    PRODUCTS as GW_PRODUCTS,
 )
 
 from app.agent.plan import (
@@ -110,36 +114,55 @@ def _blocked(quantity: int, stock: int = 100000, mandate=M1):
 
 
 def test_hard_limit_block_suggests_the_largest_feasible_order():
-    proposal = _blocked(10000)  # 2,000 bags × €10.00 = €20,000.00 > M1 €5,000 hard limit
+    proposal = _blocked(10000)  # 2,000 bags × €10.00 = €20,000.00 > M1 €15,000 hard limit
     assert proposal.decision == "BLOCK" and ReasonCode.OVER_HARD_LIMIT in proposal.reasons
     feasible = feasible_within_hard_limit(proposal, M1)
     assert feasible is not None
-    assert feasible.totalExclVat == Decimal("5000.00") and feasible.totalExclVat <= M1.hardLimitEur
+    assert feasible.totalExclVat == Decimal("15000.00") and feasible.totalExclVat <= M1.hardLimitEur
     (line,) = feasible.lines
-    assert (line.quantitySalesUnits, line.deliveredQuantity.value) == (Decimal(500), Decimal(2500))
+    assert (line.quantitySalesUnits, line.deliveredQuantity.value) == (Decimal(1500), Decimal(7500))
     assert feasible.text == (
-        "Feasible within your €5,000.00 hard limit: 2,500 kg for €5,000.00 excl. VAT. "
+        "Feasible within your €15,000.00 hard limit: 7,500 kg for €15,000.00 excl. VAT. "
         "Information only; nothing has been proposed or ordered."
     )
 
 
 def test_feasible_order_respects_lot_sizes():
     proposal = _blocked(10000)
-    feasible = feasible_within_hard_limit(proposal, M1, {"SYN-PENNE-A": Decimal(6)})
+    feasible = feasible_within_hard_limit(proposal, M1, {"SYN-PENNE-A": Decimal(8)})
     assert feasible is not None
-    assert feasible.lines[0].quantitySalesUnits == Decimal(498)  # 6-bag lots: 83 × 6
-    assert feasible.totalExclVat == Decimal("4980.00")
+    assert feasible.lines[0].quantitySalesUnits == Decimal(1496)  # 8-bag lots: 187 × 8
+    assert feasible.totalExclVat == Decimal("14960.00")
 
 
 def test_no_suggestion_unless_the_hard_limit_blocks():
     assert feasible_within_hard_limit(_blocked(100), M1) is None  # AUTO, inside the limits
-    assert feasible_within_hard_limit(_blocked(1000), M1) is None  # €2,000: ASK over the auto limit only
+    assert feasible_within_hard_limit(_blocked(2000), M1) is None  # €4,000: ASK over the auto limit only
 
 
 def test_countable_sales_units_are_suggested_whole_even_with_a_fractional_lot():
     proposal = _blocked(10000)
     feasible = feasible_within_hard_limit(proposal, M1, {"SYN-PENNE-A": Decimal("0.01")})
-    assert feasible is not None and feasible.lines[0].quantitySalesUnits == Decimal(500)
+    assert feasible is not None and feasible.lines[0].quantitySalesUnits == Decimal(1500)
+
+
+def test_t91_scenario_c_feasible_within_15000_hard_limit_is_14851_litres():
+    item = RequestItem(itemId="I1", what="milk drink", quantity=Decimal(20000), unit="l", requirements=[LACTOSE_FREE])
+    gateway = ProposalGateway(products=GW_PRODUCTS, mandates=MandateBook(DEMO_MANDATES),
+                              provider=MutableSyntheticProvider())
+    offer = gateway.get_offer(GetOfferRequest(
+        customerId=M1.customerId, requestedDate=MONDAY,
+        items=[{"itemId": "I1", "productId": "SYN-MILK", "quantity": Decimal(20000), "unit": "l"}],
+    )).offer
+    request = StructuredRequest(requestText="20,000 l lactose-free milk.", requestedDate=MONDAY, items=[item])
+    proposal = gateway.create_proposal(M1.customerId, offer.offerId, offer.offerVersion, request, now=NOW)
+    assert proposal.decision == "BLOCK" and ReasonCode.OVER_HARD_LIMIT in proposal.reasons
+    feasible = feasible_within_hard_limit(proposal, M1)
+    assert feasible is not None
+    assert (feasible.lines[0].deliveredQuantity.value, feasible.totalExclVat) == (
+        Decimal(14851),
+        Decimal("14999.51"),
+    )
 
 
 def test_t51_feasible_within_hard_limit_drops_unrelated_or_invalid_lines():

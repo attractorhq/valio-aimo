@@ -17,9 +17,9 @@ A trusted trade gateway for Valio Aimo plus a demo purchasing agent. It separate
   - The interface is a structured control room, not a chat thread.
   - Free text works in English and Finnish ("Tarvitsen tuhat litraa laktoositonta maitoa maanantaiksi").
 - **One interface, three outcomes:**
-  - "1,000 litres of lactose-free milk by Monday" is confirmed automatically at €1,010.00, inside the hotel's mandate.
+  - "1,000 litres of lactose-free milk by Monday" is confirmed automatically at €1,010.00, inside the hotel's €2,500.00 auto-approve limit.
   - A €506.16 gluten-free school order above its €500.00 auto-approve limit waits for the Head Chef.
-  - €20,200.00 above a €5,000.00 hard limit is blocked, and the attempted "ignore the hard limit" instruction is logged as ignored. The block also shows what would fit within the limit, as information only.
+  - €20,200.00 above a €15,000.00 hard limit is blocked, and the attempted "ignore the hard limit" instruction is logged as ignored. The block also shows what would fit within the limit (14,851 l for €14,999.51), as information only.
   - The figures come from the live API at request time.
 - **Evidence with provenance:**
   - Every decisive fact shows Verified, Declared, Estimate or Unknown, together with its source and retrieval time.
@@ -40,7 +40,7 @@ A trusted trade gateway for Valio Aimo plus a demo purchasing agent. It separate
   - Each line shows Good / Better / Best alternatives with a one-line trade-off (price per litre or kilo, pack, brand, stock certainty, labels and CO₂ estimate). Only compliant products are listed.
   - The agent's assumptions are editable chips, for example "Any fat %" → "1.5 %". Editing one re-runs the flow, and the gateway's shortlist changes.
 - **Buyer control:** the mandate reads as three plain lists: what the agent may order alone, what needs a person, and what is always refused. A buyer admin (`/admin`) can change the limits, allowed product categories and the validity window. Open proposals are then re-decided live, and the change is logged. The mandate can be reset to its defaults.
-  - The same buyer's orders for the same delivery day count together against the limits, so a need split into small orders cannot slip under the auto-approve limit.
+  - The same buyer's orders for the same delivery day count together against the limits, so a need split into small orders cannot slip under the auto-approve limit. Daily limits: hotel chain €2,500.00 auto-approve / €15,000.00 hard; school kitchen €500.00 / €6,000.00.
   - Each browser gets its own private session, so one visitor's changes never affect another's.
 - **Inspectable and tamper-evident decisions:**
   - The decision log shows actors, rules and evidence for every state change. `/log` lists recent proposals per buyer.

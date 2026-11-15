@@ -58,12 +58,12 @@ def test_committed_same_day_orders_count_against_the_auto_approve_limit():
 
 
 def test_committed_same_day_orders_count_against_the_hard_limit():
-    decision = _decide("300.00", "2900.00")
+    decision = _decide("300.00", "5900.00")
     assert decision.outcome == "BLOCK"
     assert ReasonCode.OVER_HARD_LIMIT in decision.reasons
     (finding,) = [f for f in decision.findings if f.code == ReasonCode.OVER_HARD_LIMIT]
     assert finding.detail == (
-        "€2,900.00 already committed for delivery on Mon 16 Nov; with this order €3,200.00 > €3,000.00 hard limit"
+        "€5,900.00 already committed for delivery on Mon 16 Nov; with this order €6,200.00 > €6,000.00 hard limit"
     )
 
 
@@ -206,31 +206,31 @@ def test_orders_requested_for_different_days_but_delivered_on_one_day_count_toge
 
 
 def test_review_repro_three_requested_dates_one_delivery_day_m1():
-    """Reviewer's repro: three €599.94 M1 orders requested for Sat 14, Sun 15 and Mon 16 Nov all deliver on
-    Mon 16 Nov. The third takes the delivery day to €1,799.82, over the €1,500.00 auto-approve limit."""
+    """Reviewer's repro: three €909.00 M1 orders requested for Sat 14, Sun 15 and Mon 16 Nov all deliver on
+    Mon 16 Nov. The third takes the delivery day to €2,727.00, over the €2,500.00 auto-approve limit."""
     gateway = ProposalGateway(products=PRODUCTS, mandates=MandateBook(DEMO_MANDATES),
                               provider=MutableSyntheticProvider())
     proposals = []
     for n, day in enumerate((MONDAY - timedelta(days=2), MONDAY - timedelta(days=1), MONDAY), start=1):
         offer_req = GetOfferRequest(
             customerId=M1.customerId, requestedDate=day,
-            items=[OfferItem(itemId="I1", productId="SYN-MILK", quantity=Decimal("594"), unit="l")],
+            items=[OfferItem(itemId="I1", productId="SYN-MILK", quantity=Decimal("900"), unit="l")],
         )
         struct_req = StructuredRequest(
-            requestText="594 l lactose-free milk.", requestedDate=day,
-            items=[RequestItem(itemId="I1", what="milk", quantity=Decimal("594"), unit="l",
+            requestText="900 l lactose-free milk.", requestedDate=day,
+            items=[RequestItem(itemId="I1", what="milk", quantity=Decimal("900"), unit="l",
                                requirements=[LACTOSE_FREE])],
         )
         offer = gateway.get_offer(offer_req, offer_id=f"OF-REPRO-{n}").offer
         proposals.append(create_proposal(gateway, M1.customerId, offer.offerId, offer.offerVersion, struct_req))
 
     assert all({line.deliveryDate for line in p.lines} == {MONDAY} for p in proposals)
-    assert ReasonCode.OVER_AUTO_LIMIT not in proposals[1].reasons  # €1,199.88 for the day: within €1,500.00
+    assert ReasonCode.OVER_AUTO_LIMIT not in proposals[1].reasons  # €1,818.00 for the day: within €2,500.00
     assert ReasonCode.OVER_AUTO_LIMIT in proposals[2].reasons
     assert proposals[2].decision == "ASK"
     trail = get_audit_trail(gateway, proposal_id=proposals[2].proposalId)
     decided = [e for e in trail.entries if e.event == "POLICY_DECIDED"][-1]
-    assert "€1,199.88 already committed for delivery on Mon 16 Nov; with this order €1,799.82" in decided.summary
+    assert "€1,818.00 already committed for delivery on Mon 16 Nov; with this order €2,727.00" in decided.summary
 
 
 def test_delivery_days_and_their_wording():

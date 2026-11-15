@@ -95,7 +95,7 @@ def test_cookie_does_not_override_explicit_api_sandbox_and_invalid_headers_fail(
         browser.get("/health")
         lower_limit(browser)
         response = browser.get(f"/v0.1/mandates/{M1.customerId}", headers={"X-Demo-Sandbox": "explicit"})
-        assert response.json()["autoApproveLimitEur"] == "1500.00"
+        assert response.json()["autoApproveLimitEur"] == "2500.00"
         for bad in ("bad/id", "x" * 101, ""):
             assert browser.get("/health", headers={"X-Demo-Sandbox": bad}).status_code == 400
 

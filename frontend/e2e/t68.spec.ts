@@ -9,7 +9,7 @@ const M2 = {
   segment: 'school kitchen',
   allergenMode: 'STRICT' as const,
   autoApproveLimitEur: '500.00',
-  hardLimitEur: '3000.00',
+  hardLimitEur: '6000.00',
   autoAcceptValioSubstitutes: false,
   autoAcceptAgentSubstitutes: false,
   autoAcceptSupplierStock: false,
@@ -84,7 +84,7 @@ test('T68: summary on the main view and /admin follows a buyer-admin edit', asyn
     'Agent may order aloneIn-stock, verified products up to €500.00 per delivery day',
   )
   await expect(summary(page)).toContainText('Needs the Head ChefOver €500.00, later delivery')
-  await expect(summary(page)).toContainText('Always refusedOver €3,000.00')
+  await expect(summary(page)).toContainText('Always refusedOver €6,000.00')
   await expect(summary(page)).toContainText('missing evidence')
 
   await page.goto('/admin')
