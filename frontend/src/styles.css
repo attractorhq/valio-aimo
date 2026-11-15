@@ -1381,7 +1381,10 @@ button.chip {
 .approver-role {
   flex: 1 1 140px;
   min-width: 0;
-  min-height: 52px;
+  /* Same fixed height as the loading skeleton, so the header does not shift when the roles arrive (T84). */
+  height: 52px;
+  line-height: 1.2;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -1421,18 +1424,16 @@ button.chip {
 .skeleton-roles {
   height: 52px;
 }
+/* T112: the native select is only a hidden fallback; the role buttons are the control. */
 .approver-switch select {
-  width: 100%;
-  min-width: 0;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  padding: 6px 10px;
-  border-radius: var(--radius-input);
-  border: 1px solid var(--valio-aluminum);
-  background: var(--valio-white);
-  color: var(--valio-iconic-blue);
-  min-height: 38px;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  opacity: 0;
 }
 .approver-grid {
   display: grid;
