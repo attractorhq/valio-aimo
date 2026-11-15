@@ -14,7 +14,7 @@ from app.api import state as state_module
 from app.api.state import GatewayState, SandboxRegistry, fresh_sandbox
 from app.gateway.proposals import ProposalGateway
 from app.main import app
-from app.policy import M1
+from app.policy import M1, M2
 
 
 @pytest.fixture
@@ -133,20 +133,60 @@ def test_reads_in_a_new_session_do_not_fill_the_registry(sandboxes):
         assert registry.count() == before
 
 
-def test_offer_then_proposal_works_when_the_session_is_echoed_and_fails_across_sessions(sandboxes):
+def _a_offer(client, headers=None):
+    run = client.post("/v0.1/agent/run", json={"customerId": M1.customerId, "requestText": A_TEXT})
+    offer = client.post("/v0.1/offers", json=run.json()["plan"]["offerRequest"], headers=headers or {})
+    assert offer.status_code == 200, offer.text
+    body = {"customerId": M1.customerId, "offerId": offer.json()["offerId"],
+            "offerVersion": offer.json()["offerVersion"], "request": run.json()["request"]}
+    return offer, body
+
+
+def test_offer_then_proposal_works_when_the_session_is_echoed(sandboxes):
     with TestClient(app) as client:
-        run = client.post("/v0.1/agent/run", json={"customerId": M1.customerId, "requestText": A_TEXT})
-        offer_request = run.json()["plan"]["offerRequest"] if run.json().get("plan") else None
-        assert offer_request is not None
-        offer = client.post("/v0.1/offers", json=offer_request)
+        offer, body = _a_offer(client)
         session = offer.headers["x-demo-sandbox"]
-        body = {"customerId": M1.customerId, "offerId": offer.json()["offerId"],
-                "offerVersion": offer.json()["offerVersion"], "request": run.json()["request"]}
-        lost = client.post("/v0.1/proposals", json=body)  # no header: a new, empty session
-        assert lost.status_code == 404
         created = client.post("/v0.1/proposals", json=body, headers={"X-Demo-Sandbox": session})
         assert created.status_code == 201, created.text
         assert created.headers["x-demo-sandbox"] == session
+
+
+def test_header_less_offer_then_proposal_continues_in_the_offers_session(sandboxes):
+    """Generic HTTP helpers never echo custom headers: naming one's own offer/proposal finds its session."""
+    registry, _ = sandboxes
+    with TestClient(app) as client:
+        offer, body = _a_offer(client)
+        session = offer.headers["x-demo-sandbox"]
+        created = client.post("/v0.1/proposals", json=body)  # no header
+        assert created.status_code == 201, created.text
+        assert created.headers["x-demo-sandbox"] == session
+        proposal_id = created.json()["proposalId"]
+        assert registry.get(session).gateway.get_proposal(proposal_id).customerId == M1.customerId
+
+        read = client.get(f"/v0.1/proposals/{proposal_id}")
+        assert read.status_code == 200 and read.headers["x-demo-sandbox"] == session
+        audit = client.get("/v0.1/audit", params={"proposalId": proposal_id})
+        assert audit.status_code == 200 and audit.headers["x-demo-sandbox"] == session
+        verify = client.get("/v0.1/audit/verify", params={"proposalId": proposal_id})
+        assert verify.status_code == 200 and verify.headers["x-demo-sandbox"] == session
+        mcp = client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+            "name": "getProposal", "arguments": {"proposalId": proposal_id}}})
+        assert mcp.json()["result"]["structuredContent"]["proposalId"] == proposal_id
+        assert mcp.headers["x-demo-sandbox"] == session
+
+
+def test_another_buyers_key_never_resolves_a_header_less_offer_or_proposal(sandboxes):
+    with TestClient(app) as client:
+        offer, body = _a_offer(client)
+        created = client.post("/v0.1/proposals", json=body)
+        proposal_id = created.json()["proposalId"]
+        other = {"Authorization": f"Bearer demo-agent-{M2.customerId}"}
+        stolen = client.post("/v0.1/proposals", json={**body, "customerId": M2.customerId}, headers=other)
+        assert stolen.status_code in (403, 404)
+        assert stolen.headers["x-demo-sandbox"] != offer.headers["x-demo-sandbox"]
+        read = client.get(f"/v0.1/proposals/{proposal_id}", headers=other)
+        assert read.status_code in (403, 404)
+        assert read.headers["x-demo-sandbox"] != offer.headers["x-demo-sandbox"]
 
 
 def test_daily_totals_and_suspension_never_cross_cookieless_clients(sandboxes):

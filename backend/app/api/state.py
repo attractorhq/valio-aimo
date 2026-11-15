@@ -273,6 +273,63 @@ def request_sandbox_id(request: Request) -> str | None:
     return cookie if cookie and SANDBOX_ID_RE.fullmatch(cookie) else None
 
 
+_ID_FIELDS = ("offerId", "proposalId")
+
+
+def _key_customer(request: Request) -> str | None:
+    scheme, _, token = request.headers.get("authorization", "").partition(" ")
+    if scheme.lower() != "bearer":
+        return None
+    return {f"demo-agent-{m.customerId}": m.customerId for m in DEMO_MANDATES}.get(token.strip())
+
+
+async def _named_ids(request: Request) -> dict[str, set[str]]:
+    """offerId / proposalId the request names: path, query, JSON body and MCP tool arguments."""
+    ids: dict[str, set[str]] = {name: set() for name in _ID_FIELDS}
+
+    def take(source) -> None:
+        if isinstance(source, dict):
+            for name in _ID_FIELDS:
+                if isinstance(value := source.get(name), str) and SANDBOX_ID_RE.fullmatch(value):
+                    ids[name].add(value)
+
+    take(dict(request.path_params))
+    take(dict(request.query_params))
+    if request.method in ("POST", "PUT", "PATCH") and "json" in request.headers.get("content-type", ""):
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        for message in body if isinstance(body, list) else [body]:
+            take(message)
+            if isinstance(message, dict) and isinstance(params := message.get("params"), dict):
+                take(params.get("arguments"))
+    return ids
+
+
+def _owning_session(registry, customer: str, ids: dict[str, set[str]]) -> str | None:
+    """T116: the one agent session holding an offer/proposal this key's buyer owns, or None (absent or ambiguous).
+
+    Offer and proposal ids are unguessable, so a header-less client that names one is the client that created it
+    (or was given it by that buyer); another buyer's key never resolves it."""
+    agents = getattr(registry, "agents", registry)
+    matches: set[str] = set()
+    for sandbox_id, state in agents.snapshots():
+        if not is_agent_session(sandbox_id):
+            continue
+        gateway = state.gateway
+        for (offer_id, _version), stored in list(getattr(gateway, "_offers", {}).items()):
+            if offer_id in ids["offerId"] and stored.offer.customerId == customer:
+                matches.add(sandbox_id)
+        for proposal_id in ids["proposalId"]:
+            try:
+                if gateway.get_proposal(proposal_id).customerId == customer:
+                    matches.add(sandbox_id)
+            except ProposalNotFoundError:
+                continue
+    return next(iter(matches)) if len(matches) == 1 else None
+
+
 async def try_state(request: Request) -> GatewayState | GatewayUnavailable:
     """For /health: report an unconfigured gateway instead of failing. Tests override it like get_state."""
     try:
@@ -309,6 +366,12 @@ async def get_state(request: Request) -> GatewayState:
     registry = sandbox_registry()
     cookie_session = sandbox_id is not None and request.headers.get("x-demo-sandbox") is None and (
         request.url.path.rstrip("/") != "/mcp")
+    if sandbox_id is None and (customer := _key_customer(request)) is not None:
+        # T116: generic HTTP helpers do not echo X-Demo-Sandbox. A call naming its own offer/proposal continues in
+        # the session that holds it, so offer → proposal works header-less too.
+        ids = await _named_ids(request)
+        if any(ids.values()):
+            sandbox_id = _owning_session(registry, customer, ids)
     if sandbox_id is None:
         sandbox_id = new_agent_session_id()
         request.state.response_sandbox = sandbox_id

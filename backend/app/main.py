@@ -50,7 +50,7 @@ app = FastAPI(
         "identity; production requires scoped secrets and organisation SSO (OAuth 2.0 / OIDC).\n\n"
         "**Sessions:** every API client works in its own private session. A call without a session gets a new one, "
         "returned in the `X-Demo-Sandbox` response header: send it back as `X-Demo-Sandbox` on every later call "
-        "(an offer and its proposal must be in the same session). MCP clients use their `Mcp-Session-Id`; send it "
+        "(a call that names its own offerId/proposalId without the header continues in that offer's session). MCP clients use their `Mcp-Session-Id`; send it "
         "as `X-Demo-Sandbox` to continue the same session over REST. Totals, proposals and suspensions never "
         "cross sessions."
     ),
