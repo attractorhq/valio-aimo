@@ -94,6 +94,11 @@ export function applyAssumptionEdit(requestText: string, oldChip: string, newChi
   return `${base} (${qualifier})`
 }
 
+/** #174: notes on the saved restaurant preferences (applied / not applied / unclear); shown, never editable. */
+export function isRestaurantPreferenceNote(label: string): boolean {
+  return /^restaurant preferences?\b/i.test(label.trim())
+}
+
 export function AssumptionChips({
   request,
   onEditAssumption,
@@ -103,15 +108,25 @@ export function AssumptionChips({
   onEditAssumption?: (nextRequestText: string, oldChip: string, newChip: string) => void
   disabled?: boolean
 }) {
-  const chips = buildAssumptionChips(request)
+  const allChips = buildAssumptionChips(request)
+  const preferenceNotes = allChips.filter(isRestaurantPreferenceNote)
+  const chips = allChips.filter((chip) => !isRestaurantPreferenceNote(chip))
   const fatChipIndex = chips.findIndex((chip) => FAT_ASSUMPTION_RE.test(chip.trim()))
   if (fatChipIndex > 1) chips.unshift(...chips.splice(fatChipIndex, 1))
   const [editingChip, setEditingChip] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [showMore, setShowMore] = useState(false)
 
+  const notes = preferenceNotes.length > 0 && (
+    <ul className="preference-notes muted small" aria-label="Restaurant preferences">
+      {preferenceNotes.map((note) => (
+        <li key={note}>{note}</li>
+      ))}
+    </ul>
+  )
+
   if (!chips.length) {
-    return <span className="muted">None</span>
+    return notes || <span className="muted">None</span>
   }
 
   function startEdit(chip: string) {
@@ -140,85 +155,88 @@ export function AssumptionChips({
   }
 
   return (
-    <ul className="chip-list" aria-label="Assumptions">
-      {(showMore ? chips : chips.slice(0, 2)).map((chip) => {
-        const isEditing = editingChip === chip
-        if (isEditing) {
+    <>
+      <ul className="chip-list" aria-label="Assumptions">
+        {(showMore ? chips : chips.slice(0, 2)).map((chip) => {
+          const isEditing = editingChip === chip
+          if (isEditing) {
+            return (
+              <li key={chip} className="inline-flex items-center">
+                <form onSubmit={submitEdit} className="inline-flex flex-wrap items-center gap-1">
+                  <input
+                    type="text"
+                    className="rounded-[12px] border border-[var(--action)] bg-[var(--surface)] px-2.5 py-0.5 text-xs font-semibold text-[var(--ink)]"
+                    style={{ width: `${Math.max(draft.length + 3, 9)}ch` }}
+                    aria-label={`Edit assumption ${chip}`}
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        e.preventDefault()
+                        cancelEdit()
+                      }
+                    }}
+                    autoFocus
+                  />
+                  <button
+                    type="submit"
+                    className="chip cursor-pointer rounded-full border-[var(--action)] bg-[var(--action)] px-3 text-white hover:bg-[var(--action-hover)]"
+                    aria-label={`Apply assumption ${chip}`}
+                  >
+                    <Check size={11} aria-hidden />
+                    <span>Apply</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="chip cursor-pointer rounded-full border-[var(--action)] bg-[var(--surface)] text-[var(--action)] hover:bg-[var(--tint)]"
+                    onClick={cancelEdit}
+                    aria-label="Cancel editing assumption"
+                  >
+                    <X size={11} aria-hidden />
+                  </button>
+                </form>
+              </li>
+            )
+          }
+
+          if (!onEditAssumption) {
+            return (
+              <li key={chip} className="chip">
+                <span>{chip}</span>
+              </li>
+            )
+          }
+
           return (
-            <li key={chip} className="inline-flex items-center">
-              <form onSubmit={submitEdit} className="inline-flex flex-wrap items-center gap-1">
-                <input
-                  type="text"
-                  className="rounded-[12px] border border-[var(--action)] bg-[var(--surface)] px-2.5 py-0.5 text-xs font-semibold text-[var(--ink)]"
-                  style={{ width: `${Math.max(draft.length + 3, 9)}ch` }}
-                  aria-label={`Edit assumption ${chip}`}
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') {
-                      e.preventDefault()
-                      cancelEdit()
-                    }
-                  }}
-                  autoFocus
-                />
-                <button
-                  type="submit"
-                  className="chip cursor-pointer rounded-full border-[var(--action)] bg-[var(--action)] px-3 text-white hover:bg-[var(--action-hover)]"
-                  aria-label={`Apply assumption ${chip}`}
-                >
-                  <Check size={11} aria-hidden />
-                  <span>Apply</span>
-                </button>
-                <button
-                  type="button"
-                  className="chip cursor-pointer rounded-full border-[var(--action)] bg-[var(--surface)] text-[var(--action)] hover:bg-[var(--tint)]"
-                  onClick={cancelEdit}
-                  aria-label="Cancel editing assumption"
-                >
-                  <X size={11} aria-hidden />
-                </button>
-              </form>
+            <li key={chip}>
+              <button
+                type="button"
+                className="chip cursor-pointer hover:border-[var(--green)] hover:bg-[var(--green-soft)]"
+                disabled={disabled}
+                onClick={() => startEdit(chip)}
+                aria-label={`Edit assumption: ${chip}`}
+                title="Click to edit assumption and re-run the flow"
+              >
+                <span>{chip}</span>
+                <Pencil size={11} aria-hidden />
+              </button>
             </li>
           )
-        }
-
-        if (!onEditAssumption) {
-          return (
-            <li key={chip} className="chip">
-              <span>{chip}</span>
-            </li>
-          )
-        }
-
-        return (
-          <li key={chip}>
+        })}
+        {chips.length > 2 && (
+          <li>
             <button
               type="button"
-              className="chip cursor-pointer hover:border-[var(--green)] hover:bg-[var(--green-soft)]"
-              disabled={disabled}
-              onClick={() => startEdit(chip)}
-              aria-label={`Edit assumption: ${chip}`}
-              title="Click to edit assumption and re-run the flow"
+              className="disclosure-btn"
+              aria-expanded={showMore}
+              onClick={() => setShowMore(!showMore)}
             >
-              <span>{chip}</span>
-              <Pencil size={11} aria-hidden />
+              {showMore ? 'Show fewer assumptions' : `+${chips.length - 2} more`}
             </button>
           </li>
-        )
-      })}
-      {chips.length > 2 && (
-        <li>
-          <button
-            type="button"
-            className="disclosure-btn"
-            aria-expanded={showMore}
-            onClick={() => setShowMore(!showMore)}
-          >
-            {showMore ? 'Show fewer assumptions' : `+${chips.length - 2} more`}
-          </button>
-        </li>
-      )}
-    </ul>
+        )}
+      </ul>
+      {notes}
+    </>
   )
 }

@@ -34,6 +34,7 @@ from app.contracts import (
     format_time,
 )
 from app.contracts.common import Contract
+from app.policy.decision import OVERBUY_FACTOR
 from app.policy.limits import delivery_dates, limit_sentence
 from app.policy.requirements import hard_requirements
 from app.valio.vendor import HELSINKI
@@ -60,10 +61,27 @@ def no_order_item_reason(
     else:
         timing = ""
     codes = list(dict.fromkeys(code for entry in excluded for code in entry.reasons))
+    claim_labels = ", ".join(requirement_display_name(req) for req in requirements if req.kind == "CLAIM")
     if codes:
-        claim_labels = ", ".join(requirement_display_name(req) for req in requirements if req.kind == "CLAIM")
+        missing_label_details = list(
+            dict.fromkeys(
+                f.display
+                for entry in excluded
+                for f in entry.facts
+                if f.fact.startswith("claim.") and f.value is False and f.display.endswith("in product data")
+            )
+        )
+        claim_desc = (
+            f"required claim missing ({claim_labels}: {'; '.join(missing_label_details)})"
+            if claim_labels and missing_label_details
+            else (
+                f"required claim missing ({'; '.join(missing_label_details)})"
+                if missing_label_details
+                else (f"required claim missing ({claim_labels})" if claim_labels else "claim missing")
+            )
+        )
         descriptions = {
-            ReasonCode.CLAIM_MISSING: f"required claim missing ({claim_labels})" if claim_labels else "claim missing",
+            ReasonCode.CLAIM_MISSING: claim_desc,
             ReasonCode.ALLERGEN_CONTAINS: "allergen present",
             ReasonCode.ALLERGEN_MAY_CONTAIN: "possible allergen traces",
         }
@@ -74,6 +92,8 @@ def no_order_item_reason(
         return timing
     if has_candidates:
         return f"The requested quantity could not be offered by {deadline_label}."
+    if claim_labels:
+        return f"No eligible products matched this catalogue search ({claim_labels})."
     return "No eligible products matched this catalogue search."
 
 
@@ -277,6 +297,20 @@ def _requirement_names(evidence: Sequence[dict], *, proven: bool) -> list[str]:
     return list(dict.fromkeys(e["requirement"] for e in evidence if e["proven"] is proven))
 
 
+def overbuy_notes(proposal: Proposal) -> list[str]:
+    """T100: items whose whole packs deliver more than 25 % above the amount asked, in the policy's words."""
+    notes = []
+    for item in proposal.request.items:
+        lines = [ln for ln in proposal.lines if ln.itemId == item.itemId]
+        delivered = sum((ln.deliveredQuantity.value for ln in lines), Decimal(0))
+        if lines and delivered > item.quantity * OVERBUY_FACTOR:
+            packs = {ln.deliveredQuantity.value / ln.quantitySalesUnits for ln in lines}
+            pack = f": whole {format(packs.pop().normalize(), ',f')} {item.unit} packs" if len(packs) == 1 else ""
+            notes.append(f"{format(delivered.normalize(), ',f')} {item.unit} for "
+                         f"{format(item.quantity.normalize(), ',f')} {item.unit} asked{pack}")
+    return notes
+
+
 def template_explanation(
     *,
     proposal: Proposal | None = None,
@@ -299,6 +333,19 @@ def template_explanation(
                     f"Instructions in the request text were ignored. {q}"
                 )
             return clamp_to_two_sentences(q)
+        missing_label_details = list(
+            dict.fromkeys(
+                f.display
+                for entry in excluded
+                for f in entry.facts
+                if f.fact.startswith("claim.") and f.value is False and f.display.endswith("in product data")
+            )
+        )
+        if missing_label_details:
+            return (
+                f"The assortment could not fulfill the full request ({'; '.join(missing_label_details)}). "
+                "Nothing was ordered."
+            )
         return "The assortment could not fulfill the full request. Nothing was ordered."
 
     total_str = format_money(proposal.totals.exclVat)
@@ -417,7 +464,9 @@ def template_explanation(
         ask_parts.append("historical delivery reliability is below the mandate threshold")
 
     if ReasonCode.QUANTITY_BASIS_WEAK in active_reasons:
-        ask_parts.append("pack content was estimated from the product name")
+        over = overbuy_notes(proposal)
+        ask_parts.append(f"whole packs come to well above the amount asked ({'; '.join(over)})" if over
+                         else "pack content was estimated from the product name")
 
     reason_clause = "; ".join(ask_parts) if ask_parts else f"total is {total_str} excl. VAT"
     if unproven:

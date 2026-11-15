@@ -35,13 +35,31 @@ async function verifyChain(customerId?: string): Promise<ChainStatus | null> {
   return res.ok ? ((await res.json()) as ChainStatus) : null
 }
 
+/** The buyer with the newest proposal; the first buyer when there are none (or a list fails). */
+async function newestBuyer(customerIds: string[]): Promise<string> {
+  const lists = await Promise.all(
+    customerIds.map((id) => listBuyerProposals(id).catch(() => [])),
+  )
+  const newest = lists
+    .flat()
+    .map((item) => item.proposal)
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0]
+  return newest?.customerId ?? customerIds[0]
+}
+
 /** T80: `/log` without a proposal lists recent proposals per buyer; each opens its decision log. */
 export function ProposalList() {
   const [buyer, setBuyer] = useState('')
   const mandates = useQuery({ queryKey: ['mandates'], queryFn: () => gateway.listMandates() })
+  // T100: open on the buyer whose proposal is newest in this session, not always the first buyer.
+  const latestBuyer = useQuery({
+    queryKey: ['log-latest-buyer', (mandates.data ?? []).map((m) => m.customerId)],
+    queryFn: () => newestBuyer((mandates.data ?? []).map((m) => m.customerId)),
+    enabled: Boolean(mandates.data?.length),
+  })
   useEffect(() => {
-    if (!buyer && mandates.data?.length) setBuyer(mandates.data[0].customerId)
-  }, [buyer, mandates.data])
+    if (!buyer && latestBuyer.data) setBuyer(latestBuyer.data)
+  }, [buyer, latestBuyer.data])
   const proposals = useQuery({
     queryKey: ['log-proposals', buyer],
     queryFn: () => buyer === 'ALL' ? approverChannel.listAllProposals() : listBuyerProposals(buyer),

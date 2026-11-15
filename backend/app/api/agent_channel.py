@@ -7,7 +7,7 @@ approver channel. The server alone decides AUTO / ASK / BLOCK and confirms after
 from dataclasses import dataclass
 from inspect import isawaitable
 from time import perf_counter
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -33,12 +33,29 @@ from app.gateway.log import (
     AgentOutcome,
     AuditChainVerification,
     agent_client_label,
+    aggregate_audit_trails,
+    aggregate_audit_verification,
 )
 from app.gateway.proposals import NoOrderError, ProposalRequestMismatchError
 
-from .auth import AgentCustomer, agent_customer, audit_scope, bind_customer, require_admin
+from .approver_channel import ApprovalState
+from .auth import (
+    AgentCustomer,
+    agent_customer,
+    audit_scope,
+    bind_customer,
+    proposal_read_scope,
+    require_admin,
+)
 from .errors import ERROR_RESPONSES, error
-from .state import GatewayState, GatewayUnavailable, get_state, utc_now
+from .state import (
+    GatewayState,
+    GatewayUnavailable,
+    find_proposal_state,
+    get_state,
+    iter_audit_sessions,
+    utc_now,
+)
 
 State = Annotated[GatewayState, Depends(get_state)]
 FORBIDDEN_CAPABILITY_KEYS = frozenset({"approvalToken", "approvalUrl", "qrPayload"})
@@ -315,17 +332,47 @@ def create_proposal(body: CreateProposalRequest, state: GatewayState, customer: 
 
 
 @router.get("/proposals/{proposalId}", response_model=Proposal, operation_id="getProposal",
-            summary="The current state of a proposal")
-def get_proposal(proposalId: str, state: State) -> Proposal:
+            summary="The current state of a proposal (the owning buyer's agent key; 404 for another buyer)")
+def get_proposal_route(proposalId: str, request: Request, state: ApprovalState) -> Proposal:
+    proposal_read_scope(request, state, proposalId)
+    return get_proposal(proposalId, state)
+
+
+def get_proposal(proposalId: str, state: GatewayState) -> Proposal:
+    """In-process read for the agent run, which already acts for one authenticated buyer."""
     current = state.gateway.get_proposal(proposalId)
     return state.gateway.get_proposal(proposalId, now=state.now_for(current.mode))
 
 
+AuditScopeParam = Annotated[
+    Literal["session", "all"],
+    Query(
+        description=(
+            "`session` (default) reads only the caller's current demo session. "
+            "`all` aggregates read-only across active browser and API sessions for that customer "
+            "(Valio oversight view); each session's SHA-256 hash chain is verified independently."
+        )
+    ),
+]
+
+
 @router.get("/audit", response_model=AuditTrail, operation_id="getAuditTrail",
-            summary="Decision log for exactly one proposal or one customer")
-def get_audit_trail(request: Request, state: State, proposalId: str | None = None,
-                    customerId: str | None = None) -> AuditTrail:
-    audit_scope(request, state, proposalId, customerId)
+            summary="Decision log for one proposal or one customer (session or cross-session)")
+def get_audit_trail(
+    request: Request,
+    state: State,
+    proposalId: str | None = None,
+    customerId: str | None = None,
+    scope: AuditScopeParam = "session",
+) -> AuditTrail:
+    all_sessions = scope == "all"
+    audit_scope(request, state, proposalId, customerId, all_sessions=all_sessions)
+    if all_sessions:
+        if proposalId is not None:
+            owner = find_proposal_state(state, proposalId, all_sessions=True)
+            return owner.gateway.get_audit_trail(proposal_id=proposalId)
+        logs = [(sid, s.gateway.log) for sid, s in iter_audit_sessions(state)]
+        return aggregate_audit_trails(logs, customer_id=customerId)
     if proposalId is None and customerId is None:
         return AuditTrail(entries=list(state.gateway.log.entries()))
     return state.gateway.get_audit_trail(proposal_id=proposalId, customer_id=customerId)
@@ -338,8 +385,16 @@ def verify_audit_trail(
     state: State,
     proposalId: str | None = None,
     customerId: str | None = None,
+    scope: AuditScopeParam = "session",
 ) -> AuditChainVerification:
-    audit_scope(request, state, proposalId, customerId)
+    all_sessions = scope == "all"
+    audit_scope(request, state, proposalId, customerId, all_sessions=all_sessions)
+    if all_sessions:
+        if proposalId is not None:
+            owner = find_proposal_state(state, proposalId, all_sessions=True)
+            return owner.gateway.log.verify(proposal_id=proposalId)
+        logs = [(sid, s.gateway.log) for sid, s in iter_audit_sessions(state)]
+        return aggregate_audit_verification(logs, customer_id=customerId)
     return state.gateway.log.verify(proposal_id=proposalId, customer_id=customerId)
 
 

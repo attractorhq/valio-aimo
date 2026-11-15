@@ -27,6 +27,17 @@ test('/log after Scenario A lists the proposal per buyer, and it opens its log',
   await expect(page.getByRole('region', { name: 'Recent proposals' })).toHaveCount(0)
 })
 
+test('T100: /log opens on the buyer of the newest proposal, not always the first buyer', async ({
+  page,
+}) => {
+  await runScenario(page, 'B') // the school, the second buyer in the list
+  await page.goto('/log')
+  const list = page.getByRole('region', { name: 'Recent proposals' })
+  await expect(list.getByLabel('Filter proposals by buyer')).toHaveValue('mock-school')
+  await expect(list).toContainText('Waiting')
+  await expect(list).not.toContainText('No proposals yet')
+})
+
 test('an unknown proposal id says not found and still lists the proposals', async ({ page }) => {
   await runScenario(page, 'A')
   await page.goto('/log/PR-DOES-NOT-EXIST')

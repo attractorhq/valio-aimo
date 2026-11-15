@@ -62,7 +62,7 @@ Request item IDs must be unique and describe every offered line. Quantities use 
 
 `StructuredRequest` carries the original `requestText` (data, never instructions), a Helsinki `requestedDate`, `items[]` and visible `assumptions[]`. Each item has a stable `itemId`, `what`, positive `quantity`, unit, optional explicitly named `productId`, hard `requirements[]`, and soft `preferences[]`.
 
-- Requirement: `{kind: "CLAIM", code: "FREE_FROM_GLUTEN"}` or `{kind: "AVOID_ALLERGEN", code: "AM"}`. A free-from claim is not an allergen-avoidance rule. Lactose-free does not imply milk-free.
+- Requirement: `{kind: "CLAIM", code: "FREE_FROM_GLUTEN"}` or `{kind: "AVOID_ALLERGEN", code: "AM"}`. A free-from claim is not an allergen-avoidance rule. Lactose-free does not imply milk-free. Certification and origin wishes (`MARINE_STEWARDSHIP_COUNCIL_LABEL` for MSC, `AQUACULTURE_STEWARDSHIP_COUNCIL` for ASC, `EU_ORGANIC_FARMING` for organic/luomu, `FAIR_TRADE_MARK` for Fairtrade/Reilu kauppa, and `FINNISH_ORIGIN` for Finnish/kotimainen/suomalainen) are also parsed and enforced as `CLAIM` hard requirements against `labels` and `countryOfOrigin`, excluding products without the required label/origin with `CLAIM_MISSING`.
 - Preference: `{kind: "BRAND" | "ORGANIC" | "ORIGIN" | "LABEL" | "FAT_PERCENT" | "PACK_SIZE" | "OTHER", value: string}`. Preferences never weaken hard requirements.
 - A contradiction or unsafe ambiguity must be clarified, not silently assumed; policy/parser tickets implement that behaviour.
 
@@ -115,6 +115,13 @@ Agent-facing pending responses contain only the proposal, `state: PENDING_APPROV
 - `validFrom` / `validTo: date | null`: first and last day (Europe/Helsinki calendar day, both inclusive). Outside the window, every order BLOCKs with `MANDATE_NOT_VALID` (rule O0, the first reason) until a buyer admin renews the mandate. `validTo` must not be before `validFrom`.
 
 The buyer admin sets them with `PATCH /v0.1/admin/mandates/{customerId}` (`allowedCategories`, `validFrom`, `validTo`; an explicit `null` clears a bound). The change is versioned and audited like any other mandate change, and open proposals are re-decided.
+
+**Restaurant preferences (#174).** `restaurantPreferences: string` (≤ 1,000 characters, default `""`) holds soft, free-text kitchen preferences saved by the buyer admin, e.g. "Our head chef prefers cream rather than milk for cooking and baking, when appropriate." They are set with the same `PATCH` (`""` clears them) and are versioned and audited like any other mandate change.
+
+- They go to the request-interpreting LLM only, as delimited data (`restaurantPreferences` next to `requestText`). Instruction-like clauses are cut before the model sees them. They never reach the policy, so AUTO / ASK / BLOCK, limits, requirements, allergens and approvals are unchanged by them.
+- A product the buyer named is never replaced: if the model's reading changes a named product (milk → cream), the named product is kept with the note "Restaurant preference · Not applied: milk was requested explicitly, so it was kept."
+- The model reports what it used as `restaurantPreferenceNotes` ("Applied: …", "Not applied: …", "Unclear: …"). They are added to `StructuredRequest.assumptions` as "Restaurant preference · …", shown in the UI as read-only notes.
+- Without a model reading (no LLM configured, timeout, invalid output), the deterministic parser ignores them and the request says "Restaurant preferences not applied: the request was read without the language model." 
 
 `AuditEntry` records timestamp, actor, event/summary, customer/proposal/offer binding, mandate version, optional old/new state, rule, reason codes, facts, and optional human comment. There is no arbitrary credential-bearing metadata field. Rejection/approval comments and request text remain untrusted data. Hash chaining and audit export are later tickets.
 

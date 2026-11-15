@@ -6,7 +6,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
 from typing import Literal
 
-from app.catalog.categories import proposal_type_match
+from app.catalog.categories import TYPE_QUALIFIER_GROUPS, product_variant, proposal_type_match
 from app.contracts import Mandate, Product, Quantity, RequestItem, TrustLabel, TrustSource, format_money
 from app.trust.labels import EU14_ALLERGEN_CODES, allergen_name
 
@@ -96,6 +96,9 @@ class LineInput:
     product_type_differs: bool = False
     check_requested_type: bool = False  # Offers have no buyer type; proposals and confirmation re-checks do.
     split_top_up: bool = False
+    # T100: the gateway found this top-up to be the primary line's product type, form and variant at a guarded
+    # price: a second supplier of the same thing, not a substitute.
+    same_as_primary: bool = False
     primary_price_per_unit: Decimal | None = None
     facts: tuple[TrustLabel, ...] = field(default_factory=tuple)
 
@@ -150,6 +153,29 @@ def _conflict_codes(line: LineInput) -> frozenset[str]:
     return frozenset(label.conflict.code for label in labels if label.conflict) | claim_conflicts(line.product)
 
 
+def is_exact_top_up(top_up: LineInput, primary: LineInput, item: RequestItem) -> bool:
+    """T100: a top-up of exactly the requested type, form and variant at a guarded price is the same product from
+    a second supplier ("Valio Emmental grated" topping up "Jokilaakson Emmental grated"), not a substitute.
+
+    Never when the buyer named a product id: then any other product is a swap (L10)."""
+    if item.productId is not None:
+        return False
+    names = (top_up.product.name, *top_up.product.names.values())
+    primary_names = (primary.product.name, *primary.product.names.values())
+    match = proposal_type_match(
+        item.what, names, category=top_up.product.category,
+        requirement_codes=tuple(requirement.code for requirement in item.requirements),
+    )
+    if not match.exact:
+        return False
+    if any(product_variant(group.group_id, names) != product_variant(group.group_id, primary_names)
+           for group in TYPE_QUALIFIER_GROUPS):
+        return False
+    guard = split_price_guard_detail(
+        primary.price_per_delivered_unit(), top_up.price_per_delivered_unit(), item.unit)
+    return guard is None
+
+
 def evaluate_line(
     line: LineInput, *, item: RequestItem, mandate: Mandate, requested_date: date, now: datetime
 ) -> LineVerdict:
@@ -173,10 +199,11 @@ def evaluate_line(
     unrelated = type_match is not None and not type_match.related
     type_differs = line.product_type_differs or (type_match is not None and not type_match.exact)
     named = item.productId is not None and item.productId == product.productId
+    exact_top_up = line.split_top_up and line.same_as_primary
     substitution = line.substitution
     if type_differs and not unrelated:
         substitution = "AGENT"  # A type-changing Valio alternative also needs a human.
-    elif substitution is None and (
+    elif substitution is None and not exact_top_up and (
         line.split_top_up or (item.productId is not None and not named)
     ):
         substitution = "AGENT"  # never swap silently (L10/O2/T69)

@@ -61,6 +61,8 @@ class ParseResult(BaseModel):
     ignoredInstructions: list[IgnoredInstruction] = []
     mode: ParseMode
     fallbackReason: str | None = None  # why the LLM result was not used: no_llm, timeout, invalid_output, llm_error
+    # #174: NONE (no saved preferences), CONSIDERED (sent to the LLM as data) or NOT_APPLIED (no LLM reading).
+    restaurantPreferences: Literal["NONE", "CONSIDERED", "NOT_APPLIED"] = "NONE"
 
 
 # --------------------------------------------------------------------------- vocabulary
@@ -179,6 +181,15 @@ _REQUIREMENTS: tuple[tuple[str, tuple[Requirement, ...]], ...] = (
     (r"\b(?:vegetarian|vegetarisk\w*)\b", (Requirement(kind="CLAIM", code="VEGETARIAN"),)),
 )
 _REQUIREMENT_RES = tuple((re.compile(p, re.IGNORECASE), r) for p, r in _REQUIREMENTS)
+# T100: a plant base ("oat-based", "plant-based", "kaurapohjainen") is a hard requirement that excludes dairy. The
+# words stay in the item ("oat-based whipping cream" is still an oat product type); only milk-free is added. "Vegan"
+# already is its own claim (VEGAN), which no dairy product carries.
+_PLANT_BASE_RE = re.compile(
+    r"\b(?:oat|soy|soya|almond|coconut|pea|rice|plant|kaura|soija|manteli|kookos|herne|riisi|kasvi)"
+    r"[\s-]*(?:based|pohjai\w*)\b",
+    re.IGNORECASE,
+)
+_MILK_FREE = Requirement(kind="AVOID_ALLERGEN", code="AM")
 _DIET_RES = (
     (re.compile(r"\b(?:keliaki\w*|keliaak(?:ikko|iko)\w*|keliakist\w*|gluteeni-?allergi\w*|co?eliacs?|celiaki\w*)\b",
                 re.IGNORECASE),
@@ -197,6 +208,11 @@ _REQUIREMENT_LABELS = {
     "AC": "crustacean-free", "UM": "mollusc-free", "AS": "sesame-free", "BC": "celery-free",
     "BM": "mustard-free", "NL": "lupin-free", "AU": "sulphite-free", "UW": "wheat-free",
     "VEGAN": "vegan", "VEGETARIAN": "vegetarian",
+    "MARINE_STEWARDSHIP_COUNCIL_LABEL": "MSC",
+    "AQUACULTURE_STEWARDSHIP_COUNCIL": "ASC",
+    "EU_ORGANIC_FARMING": "organic",
+    "FAIR_TRADE_MARK": "Fairtrade",
+    "FINNISH_ORIGIN": "Finnish origin",
 }
 # A negation the vocabulary does not know is never dropped silently: it becomes one clarifying question.
 _UNKNOWN_NEGATION_RE = re.compile(
@@ -221,22 +237,33 @@ _BRAND_PHRASE_RE = re.compile(
     # Mid-sentence, or first in an item fragment (" Planto No Added Sugar …"), never a sentence's first word.
     r"|(?:(?<=[^\W\d_][ \t])|(?<=^[ \t]))[A-ZÅÄÖ][\w'’®™-]+[ \t]+(?:No|Zero)[ \t]+[A-ZÅÄÖ][\w'’®™-]*"
 )
-# T74: certifications are wishes about the label, not part of the product name. Until they are checked as
-# requirements they are kept as a LABEL preference (labelled products rank first) and said in the assumptions.
+# T74 + T75: certifications and origin wishes (MSC, ASC, organic/luomu, Fairtrade/Reilu kauppa,
+# Finnish/kotimainen/suomalainen) are stripped from the product name and enforced as hard CLAIM requirements.
 _CERTIFICATIONS: tuple[tuple[re.Pattern, str, str], ...] = tuple(
     (
         re.compile(
             r"\b(?:certified\s+)?(?:" + pattern + r")(?:[\s-]+(?:certified|certification|labell?ed|label|"
-            r"sertifioi\w*|merki\w*))?(?!\w)",
+            r"sertifioi\w*|merki\w*|alkuperä\w*))?(?!\w)",
             re.IGNORECASE,
         ),
         code,
         label,
     )
     for pattern, code, label in (
-        (r"MSC", "MARINE_STEWARDSHIP_COUNCIL_LABEL", "MSC"),
-        (r"ASC", "AQUACULTURE_STEWARDSHIP_COUNCIL", "ASC"),
-        (r"fair[\s-]?trade|reilu(?:n|a)?\s+kaup\w*", "FAIR_TRADE_MARK", "Fairtrade"),
+        (r"MSC|Marine\s+Stewardship\s+Council", "MARINE_STEWARDSHIP_COUNCIL_LABEL", "MSC"),
+        (r"ASC|Aquaculture\s+Stewardship\s+Council", "AQUACULTURE_STEWARDSHIP_COUNCIL", "ASC"),
+        (
+            r"EU[\s-]+organic|organic(?:ally\s+(?:grown|produced))?|luomu\w*|luonnonmuka\w*",
+            "EU_ORGANIC_FARMING",
+            "organic",
+        ),
+        (r"fair[\s-]?trade|reilu(?:n|a)?\s+kaup\w*|reilun?\s*kaupan?", "FAIR_TRADE_MARK", "Fairtrade"),
+        (
+            r"finnish(?:\s+origin)?|(?:made\s+in|from)\s+finland|domestic|kotimai\w*|suomalai\w*|"
+            r"(?:valmistettu\s+)?suomessa|suomesta(?:\s+peräisin)?|hyvää\s+suomesta|avainlippu\w*|joutsenlippu\w*",
+            "FINNISH_ORIGIN",
+            "Finnish origin",
+        ),
     )
 )
 _CERTIFICATION_NAMES = {code: label for _pattern, code, label in _CERTIFICATIONS}
@@ -252,12 +279,7 @@ _CREAM_PURPOSE_RES: tuple[tuple[re.Pattern, str], ...] = (
     (re.compile(r"\b(?:cream\s+for\s+whipping|kerma(?:a|n)?\s+vatkaukseen)\b", re.IGNORECASE), "whipping cream"),
 )
 
-_PREFERENCES: tuple[tuple[re.Pattern, Preference], ...] = (
-    (re.compile(r"\b(?:certified\s+)?(?:organic|luomu\w*)(?:[\s-]+(?:certified|sertifioi\w*))?\b", re.IGNORECASE),
-     Preference(kind="ORGANIC", value="organic")),
-    (re.compile(r"\b(?:finnish(?:\s+origin)?|domestic|kotimai\w*)\b", re.IGNORECASE),
-     Preference(kind="ORIGIN", value="FI")),
-)
+_PREFERENCES: tuple[tuple[re.Pattern, Preference], ...] = ()
 
 _WEEKDAYS_EN = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 _WEEKDAYS_FI = ("maanantai", "tiistai", "keskiviik", "torstai", "perjantai", "lauantai", "sunnuntai")
@@ -1110,6 +1132,8 @@ def _extract(fragment: str) -> tuple[str, list[Requirement], list[Preference], s
     requirements.extend(excluded)
     for pattern, _found in _DIET_RES:
         rest = pattern.sub(" ", rest)
+    if _PLANT_BASE_RE.search(rest) and _MILK_FREE not in requirements:
+        requirements.append(_MILK_FREE)
     for pattern, found in _REQUIREMENT_RES:
         if pattern.search(rest):
             requirements.extend(r for r in found if r not in requirements)
@@ -1123,7 +1147,9 @@ def _extract(fragment: str) -> tuple[str, list[Requirement], list[Preference], s
             rest = pattern.sub(" ", rest)
     for pattern, code, _label in _CERTIFICATIONS:
         if pattern.search(rest):
-            preferences.append(Preference(kind="LABEL", value=code))
+            req = Requirement(kind="CLAIM", code=code)
+            if req not in requirements:
+                requirements.append(req)
             rest = pattern.sub(" ", rest)
 
     def take_fat(m: re.Match) -> str:
@@ -1346,6 +1372,8 @@ def _has_order_content(span_text: str) -> bool:
     if any(p.search(span_text) for _k, p in _DATE_RES):
         return True
     if any(p.search(span_text) for p, _r in _REQUIREMENT_RES) or any(p.search(span_text) for p, _r in _DIET_RES):
+        return True
+    if any(p.search(span_text) for p, _c, _l in _CERTIFICATIONS):
         return True
     _, excl, _ = _take_exclusions(span_text)
     return bool(excl)
@@ -1648,6 +1676,12 @@ def _fallback(
                 if pattern.search(rest_sentence):
                     extra_requirements.extend(r for r in found if r not in extra_requirements)
                     rest_sentence = pattern.sub(" ", rest_sentence)
+            for pattern, code, _label in _CERTIFICATIONS:
+                if pattern.search(rest_sentence):
+                    req = Requirement(kind="CLAIM", code=code)
+                    if req not in extra_requirements:
+                        extra_requirements.append(req)
+                    rest_sentence = pattern.sub(" ", rest_sentence)
             rest_sentence, fuzzy_reqs, fuzzy_notes = _take_fuzzy_free_from(rest_sentence)
             extra_requirements.extend(r for r in fuzzy_reqs if r not in extra_requirements)
             extra_fuzzy_notes.extend(n for n in fuzzy_notes if n not in extra_fuzzy_notes)
@@ -1700,7 +1734,10 @@ def _fallback(
 
     for idx, tail_reqs in pending_tails:
         if idx == len(items) - 1 and len(items) > 1:
-            extra_requirements.extend(r for r in tail_reqs if r not in extra_requirements)
+            global_tail = [r for r in tail_reqs if r.code not in _CERTIFICATION_NAMES]
+            local_tail = [r for r in tail_reqs if r.code in _CERTIFICATION_NAMES]
+            extra_requirements.extend(r for r in global_tail if r not in extra_requirements)
+            items[idx].requirements.extend(r for r in local_tail if r not in items[idx].requirements)
         else:
             items[idx].requirements.extend(r for r in tail_reqs if r not in items[idx].requirements)
 
@@ -1902,7 +1939,7 @@ def _number_value(phrase: str) -> int | None:
 
 def _normalise_words(text: str) -> str:
     """Write number words before a unit as digits, and split "luomumaitoa" into "luomu maitoa"."""
-    text = re.sub(r"\b(luomu)(?=[^\W\d_]{3,})", r"\1 ", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(luomu)-?(?=[^\W\d_]{3,})", r"\1 ", text, flags=re.IGNORECASE)
 
     def as_digits(match: re.Match) -> str:
         value = _number_value(match.group(0))
@@ -2094,13 +2131,42 @@ def _from_llm(raw: dict, text: str, today: date, fallback: _Fallback) -> tuple[S
     )
     # Request-wide constraints apply even when the LLM splits/merges items differently from the fallback.
     pair_nut_with_peanut = not _TREE_NUT_MENTION_RE.search(text)
-    request = request.model_copy(update={"items": [
-        item.model_copy(update={"requirements": list(dict.fromkeys([
-            *item.requirements,
-            *([_AP] if pair_nut_with_peanut and _AN in item.requirements else []),
-            *(r for r in fallback.global_requirements if r not in item.requirements),
-        ]))}) for item in request.items
-    ]})
+
+    def _promote_llm_preferences(item: RequestItem) -> RequestItem:
+        promoted_reqs: list[Requirement] = list(item.requirements)
+        kept_prefs: list[Preference] = []
+        for pref in item.preferences:
+            val_upper = pref.value.strip().upper()
+            if pref.kind == "ORGANIC":
+                req = Requirement(kind="CLAIM", code="EU_ORGANIC_FARMING")
+                if req not in promoted_reqs:
+                    promoted_reqs.append(req)
+            elif pref.kind == "ORIGIN" and val_upper in ("FI", "FINLAND", "FINNISH", "FINNISH_ORIGIN"):
+                req = Requirement(kind="CLAIM", code="FINNISH_ORIGIN")
+                if req not in promoted_reqs:
+                    promoted_reqs.append(req)
+            elif pref.kind == "LABEL" and val_upper in _CERTIFICATION_NAMES:
+                req = Requirement(kind="CLAIM", code=val_upper)
+                if req not in promoted_reqs:
+                    promoted_reqs.append(req)
+            else:
+                kept_prefs.append(pref)
+        return item.model_copy(
+            update={
+                "requirements": list(
+                    dict.fromkeys(
+                        [
+                            *promoted_reqs,
+                            *([_AP] if pair_nut_with_peanut and _AN in promoted_reqs else []),
+                            *(r for r in fallback.global_requirements if r not in promoted_reqs),
+                        ]
+                    )
+                ),
+                "preferences": kept_prefs,
+            }
+        )
+
+    request = request.model_copy(update={"items": [_promote_llm_preferences(item) for item in request.items]})
     # A hard requirement, certification label or product form the deterministic reading found is never dropped by the LLM.
     if fallback.request is not None and len(fallback.request.items) != len(request.items) and any(
         extract_requested_base(item.what) for item in fallback.request.items
@@ -2147,6 +2213,66 @@ def _from_llm(raw: dict, text: str, today: date, fallback: _Fallback) -> tuple[S
     return request, None
 
 
+# --------------------------------------------------------------------------- restaurant preferences (#174)
+
+MAX_PREFERENCE_NOTES = 3
+_NOTE_PREFIXES = ("Applied:", "Not applied:", "Unclear:")
+PREFERENCES_NOT_APPLIED = (
+    "Restaurant preferences not applied: the request was read without the language model."
+)
+PREFERENCES_INSTRUCTIONS_IGNORED = "Restaurant preferences: instruction-like text was ignored."
+
+
+def clean_restaurant_preferences(text: str) -> tuple[str, bool]:
+    """Free text saved by the buyer admin, as data for the LLM: instruction-like clauses are cut out.
+
+    Returns `(clean_text, instructions_found)`. The text never reaches the policy; this only keeps the model's
+    input to kitchen preferences."""
+    clean = " ".join((text or "").split())[:1000]
+    if not clean:
+        return "", False
+    ignored = detect_instructions(clean)
+    if not ignored and not detect_instruction(clean):
+        return clean, False
+    cut = _cut_instruction_clauses(clean, ignored) if ignored else ""
+    return (" ".join(cut.split()) if cut and not detect_instruction(cut) else ""), True
+
+
+def _preference_notes(raw: dict) -> list[str]:
+    """The model's notes on which saved preference it used, kept short and only in the agreed shape."""
+    notes = []
+    for note in raw.get("restaurantPreferenceNotes") or []:
+        if not isinstance(note, str):
+            continue
+        note = " ".join(note.split())[:200]
+        if not note.startswith(_NOTE_PREFIXES) or detect_instructions(note) or re.search(r"https?://", note):
+            continue
+        notes.append(f"Restaurant preference · {note}")
+    return notes[:MAX_PREFERENCE_NOTES]
+
+
+def _keep_explicit_products(
+    request: StructuredRequest, fallback_request: StructuredRequest | None
+) -> tuple[StructuredRequest, list[str]]:
+    """A saved preference never replaces a product the buyer named (e.g. milk stays milk, not cream)."""
+    if fallback_request is None or len(fallback_request.items) != len(request.items):
+        return request, []
+    items, notes = [], []
+    for llm_item, det_item in zip(request.items, fallback_request.items, strict=True):
+        stated = resolve_query_concepts(det_item.what)
+        read = resolve_query_concepts(llm_item.what)
+        if stated and (not read or read[0].concept_id != stated[0].concept_id):
+            items.append(llm_item.model_copy(update={"what": det_item.what}))
+            notes.append(
+                f"Restaurant preference · Not applied: {det_item.what} was requested explicitly, so it was kept."
+            )
+        else:
+            items.append(llm_item)
+    if not notes:
+        return request, []
+    return request.model_copy(update={"items": items}), notes
+
+
 # --------------------------------------------------------------------------- entry point
 
 
@@ -2155,8 +2281,13 @@ def parse_request(
     now: datetime,
     interpreter: LlmInterpreter | None = None,
     deadline_s: float = LLM_DEADLINE_S,
+    restaurant_preferences: str = "",
 ) -> ParseResult:
-    """Parse buyer text into a StructuredRequest. `now` must be timezone-aware."""
+    """Parse buyer text into a StructuredRequest. `now` must be timezone-aware.
+
+    `restaurant_preferences` (#174) are the buyer admin's saved soft preferences. They go to the LLM as
+    delimited data only; the deterministic fallback never uses them, and they never reach the policy.
+    """
     if now.tzinfo is None:
         raise ValueError("now must be timezone-aware")
     local = now.astimezone(HELSINKI)
@@ -2187,20 +2318,38 @@ def parse_request(
     request, question = fallback.request, fallback.question
     mode: ParseMode = "FALLBACK"
     fallback_reason: str | None = "no_llm"
+    preferences, preference_instructions = clean_restaurant_preferences(restaurant_preferences)
+    preference_notes: list[str] = [PREFERENCES_INSTRUCTIONS_IGNORED] if preference_instructions else []
     if interpreter is not None:
         try:
             clean_for_llm = _cut_instruction_clauses(text, ignored) if ignored else text
-            raw = call_with_deadline(interpreter, clean_for_llm, today, deadline_s)
+            raw = call_with_deadline(interpreter, clean_for_llm, today, deadline_s, restaurant_preferences=preferences)
             if not isinstance(raw, dict):
                 raise ValueError("LLM result is not an object")
             request, question = _from_llm(raw, text, today, fallback)
             mode, fallback_reason = "LLM", None
+            if preferences and request is not None:
+                request, kept = _keep_explicit_products(request, fallback.request)
+                notes = _preference_notes(raw)
+                if kept:  # the model applied a preference against the request: its "Applied" notes are void
+                    notes = [n for n in notes if "· Applied:" not in n]
+                preference_notes += kept + notes
         except TimeoutError:
             fallback_reason = "timeout"
         except (ValidationError, ValueError, TypeError, KeyError):
             fallback_reason = "invalid_output"
         except Exception:  # network, auth, provider errors: the demo survives an LLM outage
             fallback_reason = "llm_error"
+
+    preference_status: Literal["NONE", "CONSIDERED", "NOT_APPLIED"] = "NONE"
+    if preferences:
+        preference_status = "CONSIDERED" if mode == "LLM" else "NOT_APPLIED"
+        if mode != "LLM":
+            preference_notes.append(PREFERENCES_NOT_APPLIED)
+    if preference_notes and request is not None:
+        request = request.model_copy(update={"assumptions": [
+            *request.assumptions, *(n for n in preference_notes if n not in request.assumptions)
+        ]})
 
     if fallback.safety_question is not None:
         question = fallback.safety_question
@@ -2217,4 +2366,5 @@ def parse_request(
         ignoredInstructions=ignored,
         mode=mode,
         fallbackReason=fallback_reason,
+        restaurantPreferences=preference_status,
     )

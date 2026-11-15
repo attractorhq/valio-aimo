@@ -7,9 +7,69 @@ from collections.abc import Iterable
 from typing import Literal
 
 from app.catalog.categories import get_category_profile
-from app.contracts import Mandate, Product, Requirement
+from app.contracts import Mandate, Product, Requirement, TrustLabel, TrustSource
+from app.trust.labels import (
+    CLAIM_DISPLAY_NAMES,
+    LABEL_DISPLAY_NAMES,
+    SOURCE_CLAIM,
+    claim_label,
+    packaging_label,
+)
 
 from .findings import Finding
+
+ORGANIC_LABELS: tuple[str, ...] = (
+    "EU_ORGANIC_FARMING",
+    "KRAV_MARK",
+    "SOIL_ASSOCIATION_ORGANIC_SYMBOL",
+    "OFFICIAL_ECO_LABEL_SUN",
+)
+
+FINNISH_ORIGIN_LABELS: tuple[str, ...] = (
+    "GOODS_FROM_FINLAND_BLUE_SWAN",
+    "MADE_IN_FINLAND_FLAG_WITH_KEY",
+    "FINNISH_HEART_SYMBOL",
+    "PUHTAASTI_KOTIMAINEN",
+)
+
+CERTIFICATION_ALIASES: dict[str, str] = {
+    "MSC": "MARINE_STEWARDSHIP_COUNCIL_LABEL",
+    "MARINE_STEWARDSHIP_COUNCIL_LABEL": "MARINE_STEWARDSHIP_COUNCIL_LABEL",
+    "ASC": "AQUACULTURE_STEWARDSHIP_COUNCIL",
+    "AQUACULTURE_STEWARDSHIP_COUNCIL": "AQUACULTURE_STEWARDSHIP_COUNCIL",
+    "ORGANIC": "EU_ORGANIC_FARMING",
+    "LUOMU": "EU_ORGANIC_FARMING",
+    "EU_ORGANIC_FARMING": "EU_ORGANIC_FARMING",
+    "FAIRTRADE": "FAIR_TRADE_MARK",
+    "FAIR_TRADE": "FAIR_TRADE_MARK",
+    "FAIR_TRADE_MARK": "FAIR_TRADE_MARK",
+    "FINNISH_ORIGIN": "FINNISH_ORIGIN",
+    "ORIGIN_FI": "FINNISH_ORIGIN",
+    "FINNISH": "FINNISH_ORIGIN",
+    "FI": "FINNISH_ORIGIN",
+    "KOTIMAINEN": "FINNISH_ORIGIN",
+    "SUOMALAINEN": "FINNISH_ORIGIN",
+}
+
+MISSING_LABEL_DETAILS: dict[str, str] = {
+    "MARINE_STEWARDSHIP_COUNCIL_LABEL": "No MSC label in product data",
+    "AQUACULTURE_STEWARDSHIP_COUNCIL": "No ASC label in product data",
+    "EU_ORGANIC_FARMING": "No organic label in product data",
+    "FAIR_TRADE_MARK": "No Fairtrade label in product data",
+    "FINNISH_ORIGIN": "No Finnish-origin label or countryOfOrigin = FI in product data",
+}
+
+SOURCE_PRODUCT_LABELS = TrustSource(
+    system="valio-aimo.product-data",
+    field="labels",
+    retrievedAt=None,
+)
+
+SOURCE_PRODUCT_ORIGIN = TrustSource(
+    system="valio-aimo.product-data",
+    field="countryOfOrigin",
+    retrievedAt=None,
+)
 
 # P4: X99 proves "free from" only for the EU-14 groups of Regulation (EU) No 1169/2011 Annex II
 # and these subcodes. Every other code (e.g. ML lactose, NM corn) stays unproven.
@@ -133,6 +193,125 @@ def conflict_is_decisive(conflict: str, requirements: Iterable[Requirement]) -> 
     return False
 
 
+def is_label_or_origin_requirement(code: str) -> bool:
+    """Return True if `code` is a certification, packaging label or origin requirement (T75)."""
+    norm = code.strip().upper()
+    return norm in CERTIFICATION_ALIASES or (norm in LABEL_DISPLAY_NAMES and norm not in CLAIM_DISPLAY_NAMES)
+
+
+def claim_requirement_fact(product: Product, code: str) -> TrustLabel:
+    """Evaluate a CLAIM requirement (`code`) on `product` and return its decisive TrustLabel (T41, T75)."""
+    norm = code.strip().upper()
+    canonical = CERTIFICATION_ALIASES.get(norm)
+    if canonical == "FINNISH_ORIGIN":
+        matched_label = next((lbl for lbl in FINNISH_ORIGIN_LABELS if lbl in product.labels), None)
+        has_fi_country = (product.countryOfOrigin or "").strip().lower() == "fi"
+        if matched_label is not None:
+            label_name = LABEL_DISPLAY_NAMES.get(matched_label, matched_label)
+            disp = (
+                f"Finnish-origin label: {label_name} ({matched_label}; countryOfOrigin = FI)"
+                if has_fi_country
+                else f"Finnish-origin label: {label_name} ({matched_label})"
+            )
+            existing = next((f for f in product.facts if f.fact == f"label.{matched_label}"), None)
+            return TrustLabel(
+                fact=f"claim.{code}",
+                value=True,
+                display=disp,
+                level="VERIFIED",
+                source=SOURCE_PRODUCT_LABELS,
+                method=f"label:{matched_label}",
+                conflict=existing.conflict if existing else None,
+            )
+        if has_fi_country:
+            return TrustLabel(
+                fact=f"claim.{code}",
+                value=True,
+                display="Finnish origin: countryOfOrigin = FI",
+                level="VERIFIED",
+                source=SOURCE_PRODUCT_ORIGIN,
+                method="countryOfOrigin:FI",
+                conflict=None,
+            )
+        return TrustLabel(
+            fact=f"claim.{code}",
+            value=False,
+            display=MISSING_LABEL_DETAILS["FINNISH_ORIGIN"],
+            level="UNKNOWN",
+            source=SOURCE_PRODUCT_LABELS,
+            method=None,
+            conflict=None,
+        )
+
+    if canonical == "EU_ORGANIC_FARMING":
+        matched_label = next((lbl for lbl in ORGANIC_LABELS if lbl in product.labels), None)
+        if matched_label is not None:
+            label_name = LABEL_DISPLAY_NAMES.get(matched_label, matched_label)
+            existing = next((f for f in product.facts if f.fact == f"label.{matched_label}"), None)
+            return TrustLabel(
+                fact=f"claim.{code}",
+                value=True,
+                display=f"{label_name} ({matched_label})",
+                level="VERIFIED",
+                source=SOURCE_PRODUCT_LABELS,
+                method=f"label:{matched_label}",
+                conflict=existing.conflict if existing else None,
+            )
+        return TrustLabel(
+            fact=f"claim.{code}",
+            value=False,
+            display=MISSING_LABEL_DETAILS["EU_ORGANIC_FARMING"],
+            level="UNKNOWN",
+            source=SOURCE_PRODUCT_LABELS,
+            method=None,
+            conflict=None,
+        )
+
+    if canonical is not None or (norm in LABEL_DISPLAY_NAMES and norm not in CLAIM_DISPLAY_NAMES):
+        target_label = canonical or norm
+        if target_label in product.labels or target_label in product.claims:
+            label_name = LABEL_DISPLAY_NAMES.get(target_label, target_label)
+            disp = f"{label_name} ({target_label})" if label_name != target_label else target_label
+            existing = next((f for f in product.facts if f.fact == f"label.{target_label}"), None)
+            return TrustLabel(
+                fact=f"claim.{code}",
+                value=True,
+                display=disp,
+                level="VERIFIED",
+                source=SOURCE_PRODUCT_LABELS,
+                method=f"label:{target_label}",
+                conflict=existing.conflict if existing else None,
+            )
+        missing_detail = MISSING_LABEL_DETAILS.get(
+            target_label,
+            f"No {LABEL_DISPLAY_NAMES.get(target_label, target_label)} label in product data",
+        )
+        return TrustLabel(
+            fact=f"claim.{code}",
+            value=False,
+            display=missing_detail,
+            level="UNKNOWN",
+            source=SOURCE_PRODUCT_LABELS,
+            method=None,
+            conflict=None,
+        )
+
+    if code in product.claims:
+        return next((f for f in product.facts if f.fact == f"claim.{code}"), None) or claim_label(code)
+    if code in product.labels:  # rule L4 accepts a packaging label for the claim
+        label = next((f for f in product.facts if f.fact == f"label.{code}"), None) or packaging_label(code)
+        return label.model_copy(update={"fact": f"claim.{code}", "value": True, "method": f"label:{code}"})
+    return TrustLabel(
+        fact=f"claim.{code}",
+        value=False,
+        display="Not claimed by the supplier",
+        level="UNKNOWN",
+        source=SOURCE_CLAIM,
+        method=None,
+        conflict=None,
+    )
+
+
 def check_requirements(
     product: Product,
     requirements: Iterable[Requirement],
@@ -154,6 +333,11 @@ def check_requirements(
     for requirement in hard_requirements(requirements, mandate):
         code = requirement.code
         if requirement.kind == "CLAIM":
+            if is_label_or_origin_requirement(code):
+                fact = claim_requirement_fact(product, code)
+                if fact.value is not True:
+                    add("CLAIM_MISSING", fact.display)
+                continue
             # Exact code: LOW_LACTOSE never satisfies FREE_FROM_LACTOSE; X99 never proves a claim.
             if code not in product.claims and code not in product.labels:
                 add("CLAIM_MISSING", code)

@@ -187,8 +187,22 @@ class AuditChainLink(Contract):
     valid: bool
 
 
+class SessionChainVerification(Contract):
+    """Per-session hash-chain verification when aggregating across demo sessions (T93)."""
+
+    sessionId: str
+    verified: bool
+    chainLength: int = Field(ge=0)
+    genesisHash: str = GENESIS_HASH
+    headHash: str = GENESIS_HASH
+    tamperedEntryIds: list[str] = Field(default_factory=list)
+    firstTamperedIndex: int | None = None
+    reason: str | None = None
+    links: list[AuditChainLink] = Field(default_factory=list)
+
+
 class AuditChainVerification(Contract):
-    """Verification result for the SHA-256 hash chain over a decision log (T28)."""
+    """Verification result for the SHA-256 hash chain over a decision log (T28, T93)."""
 
     verified: bool
     chainLength: int = Field(ge=0)
@@ -198,6 +212,14 @@ class AuditChainVerification(Contract):
     firstTamperedIndex: int | None = None
     reason: str | None = None
     links: list[AuditChainLink] = Field(default_factory=list)
+    sessions: list[SessionChainVerification] | None = None
+
+
+def public_session_id(sandbox_id: str) -> str:
+    """Opaque session identifier safe to expose in read-only audit views (never echoes a cookie secret)."""
+    if sandbox_id == "shared":
+        return "shared"
+    return f"ses-{hashlib.sha256(sandbox_id.encode()).hexdigest()[:12]}"
 
 
 def canonical_entry_json(entry: AuditEntry) -> str:
@@ -1003,3 +1025,89 @@ class DecisionLog:
         return verify_hash_chain(current_entries, sealed)
 
     verify_chain = verify
+
+
+def aggregate_audit_trails(
+    logs: Sequence[tuple[str, DecisionLog]],
+    *,
+    proposal_id: str | None = None,
+    customer_id: str | None = None,
+) -> AuditTrail:
+    """Aggregate decision-log entries across active demo sessions in chronological order (T93)."""
+    if proposal_id is not None and customer_id is not None:
+        raise ValueError("Specify at most one of proposal_id or customer_id")
+    indexed: list[tuple[datetime, int, int, AuditEntry]] = []
+    for s_idx, (_sid, log) in enumerate(logs):
+        if proposal_id is not None:
+            entries = log.for_proposal(proposal_id).entries
+        elif customer_id is not None:
+            entries = log.for_customer(customer_id).entries
+        else:
+            entries = list(log.entries())
+        for e_idx, entry in enumerate(entries):
+            indexed.append((entry.timestamp, s_idx, e_idx, entry))
+    indexed.sort(key=lambda item: (item[0], item[1], item[2]))
+    return AuditTrail(entries=[item[3] for item in indexed])
+
+
+def aggregate_audit_verification(
+    logs: Sequence[tuple[str, DecisionLog]],
+    *,
+    proposal_id: str | None = None,
+    customer_id: str | None = None,
+) -> AuditChainVerification:
+    """Verify each session's SHA-256 hash chain independently and return the aggregated result (T93)."""
+    if proposal_id is not None and customer_id is not None:
+        raise ValueError("Specify at most one of proposal_id or customer_id")
+    session_results: list[SessionChainVerification] = []
+    combined_links: list[AuditChainLink] = []
+    tampered_ids: list[str] = []
+    first_tampered: int | None = None
+    first_reason: str | None = None
+
+    for raw_sid, log in logs:
+        ver = log.verify(proposal_id=proposal_id, customer_id=customer_id)
+        if ver.chainLength == 0 and ver.verified:
+            continue
+        pub_sid = public_session_id(raw_sid)
+        offset = len(combined_links)
+        if not ver.verified:
+            if first_tampered is None:
+                first_tampered = offset + (ver.firstTamperedIndex or 0)
+            if first_reason is None and ver.reason:
+                first_reason = f"[{pub_sid}] {ver.reason}"
+            tampered_ids.extend(ver.tamperedEntryIds)
+        for link in ver.links:
+            combined_links.append(link.model_copy(update={"index": len(combined_links)}))
+        session_results.append(
+            SessionChainVerification(
+                sessionId=pub_sid,
+                verified=ver.verified,
+                chainLength=ver.chainLength,
+                genesisHash=ver.genesisHash,
+                headHash=ver.headHash,
+                tamperedEntryIds=list(ver.tamperedEntryIds),
+                firstTamperedIndex=ver.firstTamperedIndex,
+                reason=ver.reason,
+                links=list(ver.links),
+            )
+        )
+
+    if not session_results:
+        head = GENESIS_HASH
+    elif len(session_results) == 1:
+        head = session_results[0].headHash
+    else:
+        head = hashlib.sha256(":".join(s.headHash for s in session_results).encode()).hexdigest()
+
+    return AuditChainVerification(
+        verified=all(s.verified for s in session_results),
+        chainLength=sum(s.chainLength for s in session_results),
+        genesisHash=GENESIS_HASH,
+        headHash=head,
+        tamperedEntryIds=tampered_ids,
+        firstTamperedIndex=first_tampered,
+        reason=first_reason,
+        links=combined_links,
+        sessions=session_results,
+    )

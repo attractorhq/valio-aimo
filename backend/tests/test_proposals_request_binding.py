@@ -55,7 +55,7 @@ def test_ten_litres_cannot_bind_to_five_thousand_litres(api):
 @pytest.mark.parametrize("product_id,what,requested,unit,delivered", [
     ("SYN-MILK", "milk drink", "10", "l", "10"),
     ("SYN-MILK", "milk drink", "10.2", "l", "11"),
-    ("SYN-PASTA", "pasta", "11", "kg", "15"),
+    ("SYN-PASTA", "pasta", "12", "kg", "15"),  # +25 %: still AUTO (T100 asks above that)
 ])
 def test_matching_and_whole_sales_unit_rounding_remain_confirmable(api, product_id, what, requested, unit, delivered):
     client, _, _ = api
@@ -113,8 +113,9 @@ def test_split_lines_are_checked_as_combined_coverage(api, requested, status):
     response = client.post("/v0.1/proposals", json=proposal_body(offered, [item("I1", "pasta", requested, "kg")]))
     assert response.status_code == status, response.text
     if status == 201:
-        assert response.json()["state"] == "PENDING_APPROVAL"
-        assert "SPLIT" in response.json()["reasons"]
+        # T100: the top-up is the same product type at the same price, so the split needs no human.
+        assert response.json()["state"] == "CONFIRMED_SIMULATED"
+        assert response.json()["reasons"] == ["SPLIT"]
     else:
         assert "offer line L1 is 95 kg + offer line L2 is 30 kg" in response.json()["error"]["message"]
 

@@ -46,8 +46,14 @@ from app.contracts import (
     format_date,
 )
 from app.policy import ContentBasis, LineInput, LineVerdict, StockKind, evaluate_line
-from app.policy.requirements import K6_MESSAGE, allergen_status, claim_conflicts, hard_requirements
-from app.trust.labels import SOURCE_CLAIM, allergen_name, claim_label, packaging_label
+from app.policy.requirements import (
+    K6_MESSAGE,
+    allergen_status,
+    claim_conflicts,
+    claim_requirement_fact,
+    hard_requirements,
+)
+from app.trust.labels import allergen_name
 from app.valio import ProductFacts, ValioSnapshot
 
 OFFER_VALIDITY = timedelta(minutes=15)
@@ -291,13 +297,7 @@ def _allergen_requirement_fact(product: Product, code: str, conflicts: frozenset
 
 
 def _claim_requirement_fact(product: Product, code: str) -> TrustLabel:
-    if code in product.claims:
-        return next((f for f in product.facts if f.fact == f"claim.{code}"), None) or claim_label(code)
-    if code in product.labels:  # rule L4 accepts a packaging label for the claim
-        label = next((f for f in product.facts if f.fact == f"label.{code}"), None) or packaging_label(code)
-        return label.model_copy(update={"fact": f"claim.{code}", "value": True, "method": f"label:{code}"})
-    return TrustLabel(fact=f"claim.{code}", value=False, display="Not claimed by the supplier", level="UNKNOWN",
-                      source=SOURCE_CLAIM, method=None, conflict=None)
+    return claim_requirement_fact(product, code)
 
 
 def requirement_facts(product: Product, requirements: Sequence[Requirement], mandate: Mandate) -> list[TrustLabel]:

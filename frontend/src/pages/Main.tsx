@@ -54,14 +54,14 @@ function itemCountFromItems(n: number) {
 const IN_FLIGHT = new Set(['PENDING_APPROVAL', 'APPROVED', 'AUTO_APPROVED', 'RECHECKED'])
 
 /** A superseded proposal points to the version decided from scratch after it; show the newest one. */
-async function latestVersion(proposalId: string): Promise<Proposal> {
-  let proposal = await gateway.getProposal(proposalId)
+async function latestVersion(proposalId: string, customerId?: string): Promise<Proposal> {
+  let proposal = await gateway.getProposal(proposalId, customerId)
   for (
     let hops = 0;
     proposal.state === 'SUPERSEDED' && proposal.supersededBy && hops < 10;
     hops++
   ) {
-    proposal = await gateway.getProposal(proposal.supersededBy)
+    proposal = await gateway.getProposal(proposal.supersededBy, proposal.customerId)
   }
   return proposal
 }
@@ -122,7 +122,7 @@ export function Main() {
   // Follow the proposal's state on the agent channel: the approver decides in a separate window.
   const latest = useQuery({
     queryKey: ['proposal', run.data?.proposal?.proposalId],
-    queryFn: () => latestVersion(run.data!.proposal!.proposalId),
+    queryFn: () => latestVersion(run.data!.proposal!.proposalId, run.data!.proposal!.customerId),
     enabled: Boolean(run.data?.proposal?.proposalId),
     // Keep polling through the short re-check after a sign-off (APPROVED → RECHECKED → CONFIRMED), so the
     // buyer view never stops on a transient state.
@@ -134,7 +134,7 @@ export function Main() {
   const rawProposal = latest.data ?? run.data?.proposal ?? undefined
   const supersededNext = useQuery({
     queryKey: ['proposal', rawProposal?.supersededBy],
-    queryFn: () => gateway.getProposal(rawProposal!.supersededBy!),
+    queryFn: () => gateway.getProposal(rawProposal!.supersededBy!, rawProposal!.customerId),
     enabled: Boolean(rawProposal?.state === 'SUPERSEDED' && rawProposal?.supersededBy),
   })
   const proposal = rawProposal

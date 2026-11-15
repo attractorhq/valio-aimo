@@ -37,7 +37,12 @@ from app.contracts import (
     ReasonCode,
 )
 from app.gateway.approvals import ApprovalError
-from app.gateway.log import AgentAccess, InvalidStateTransitionError, agent_client_label
+from app.gateway.log import (
+    AgentAccess,
+    InvalidStateTransitionError,
+    agent_client_label,
+    aggregate_audit_trails,
+)
 from app.gateway.proposals import (
     NoOrderError,
     OfferNotFoundError,
@@ -52,7 +57,13 @@ from app.valio.record import BRIEF_PRODUCT_IDS
 
 from .agent_channel import FORBIDDEN_CAPABILITY_KEYS, AgentCall, AgentControlError
 from .auth import AgentCustomer, agent_customer, bind_customer
-from .state import GatewayState, GatewayUnavailable, try_state
+from .state import (
+    GatewayState,
+    GatewayUnavailable,
+    find_proposal_state,
+    iter_audit_sessions,
+    try_state,
+)
 
 router = APIRouter(tags=["Operations"])
 TryState = Annotated[GatewayState | GatewayUnavailable, Depends(try_state)]
@@ -564,6 +575,14 @@ AGENT_TOOLS: list[dict[str, Any]] = [
                     "type": "string",
                     "description": "Customer ID to inspect (mutually exclusive with proposalId).",
                 },
+                "scope": {
+                    "type": "string",
+                    "enum": ["session", "all"],
+                    "description": (
+                        "Optional: 'session' (default) reads only this MCP session; "
+                        "'all' aggregates read-only across active sessions for this customer."
+                    ),
+                },
             },
             "additionalProperties": False,
         },
@@ -729,15 +748,27 @@ def _execute_tool(name: str, arguments: dict[str, Any], state: GatewayState,
         return proposal.model_dump(mode="json")
 
     if name == "getAuditTrail":
-        req = GetAuditTrailRequest.model_validate(arguments)
+        args_copy = dict(arguments)
+        raw_scope = args_copy.pop("scope", "session")
+        if raw_scope not in ("session", "all"):
+            raise ValueError("scope must be 'session' or 'all'.")
+        all_sessions = raw_scope == "all"
+        req = GetAuditTrailRequest.model_validate(args_copy)
         if (req.proposalId is None) == (req.customerId is None):
             raise ValueError("Pass exactly one of proposalId or customerId.")
         if req.proposalId is not None:
-            bind_customer(customer, state.gateway.get_proposal(req.proposalId).customerId)
+            owner = find_proposal_state(state, req.proposalId, all_sessions=all_sessions)
+            bind_customer(customer, owner.gateway.get_proposal(req.proposalId).customerId)
+            require_active()
+            trail = owner.gateway.get_audit_trail(proposal_id=req.proposalId)
         else:
             bind_customer(customer, req.customerId)
-        require_active()
-        trail = state.gateway.get_audit_trail(proposal_id=req.proposalId, customer_id=req.customerId)
+            require_active()
+            if all_sessions:
+                logs = [(sid, s.gateway.log) for sid, s in iter_audit_sessions(state)]
+                trail = aggregate_audit_trails(logs, customer_id=req.customerId)
+            else:
+                trail = state.gateway.get_audit_trail(customer_id=req.customerId)
         return trail.model_dump(mode="json")
 
     raise KeyError(name)
@@ -749,16 +780,19 @@ def _format_domain_error(exc: Exception) -> dict[str, Any]:
     if isinstance(exc, HTTPException):
         return {"error": {"code": "FORBIDDEN" if exc.status_code == 403 else "UNAUTHORIZED", "message": exc.detail}}
     if isinstance(exc, ValidationError):
-        return {
-            "error": {
-                "code": "VALIDATION_ERROR",
-                "message": "Tool argument validation failed",
-                "details": [
-                    {"field": ".".join(str(p) for p in err["loc"]), "message": err["msg"]}
-                    for err in exc.errors()
-                ],
-            }
-        }
+        details = []
+        custom_messages: list[str] = []
+        for err in exc.errors():
+            clean_msg = str(err["msg"]).removeprefix("Value error, ")
+            details.append({"field": ".".join(str(p) for p in err["loc"]), "message": clean_msg})
+            if err.get("type") == "value_error":
+                custom_messages.append(clean_msg)
+        msg = (
+            f"Tool argument validation failed: {custom_messages[0]}"
+            if custom_messages
+            else "Tool argument validation failed"
+        )
+        return {"error": {"code": "VALIDATION_ERROR", "message": msg, "details": details}}
     if isinstance(exc, NoOrderError):
         decision = exc.decision
         return {

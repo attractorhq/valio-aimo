@@ -11,6 +11,8 @@ export type MandateChange = {
   /** T68: ISO dates; null clears the bound. */
   validFrom?: string | null
   validTo?: string | null
+  /** #174: soft restaurant preferences for the purchasing LLM; '' clears them. */
+  restaurantPreferences?: string
 }
 
 /** "2240, 211 ;  " → ["211", "2240"]: unique and sorted, like the gateway stores them. */

@@ -327,11 +327,12 @@ def test_price_guard_adds_detail_line_when_second_product_is_over_10_pct_per_kg(
     ).offer
     prop_5 = gw_5.create_proposal(M1.customerId, offer_5.offerId, offer_5.offerVersion, req, now=NOW)
 
-    assert prop_5.decision == "ASK"
+    # T100: B is the same product type within the 10 % price guard: a second supplier, not a substitute.
+    assert prop_5.decision == "AUTO"
+    assert ReasonCode.AGENT_SUBSTITUTE not in prop_5.reasons and ReasonCode.SPLIT in prop_5.reasons
     assert split_detail_lines(prop_5) == []
     assert all(f.fact != "split.priceGuard" for f in prop_5.lines[1].facts)
-    stmt_5 = format_approval_statement(prop_5, mandate=M1, today=NOW.date())
-    assert stmt_5 == "Approving means 70 kg of A + 50 kg of B (€0.50/kg more)."
+    assert format_approval_statement(prop_5, mandate=M1, today=NOW.date()) is None  # nothing to approve
 
 
 def test_fresh_and_frozen_split_adds_variant_detail_line_and_stays_ask():
