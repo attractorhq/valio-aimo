@@ -213,6 +213,9 @@ class AuditChainVerification(Contract):
     reason: str | None = None
     links: list[AuditChainLink] = Field(default_factory=list)
     sessions: list[SessionChainVerification] | None = None
+    # T110: which chain was checked. `customerId` null with no `proposalId` means the full log (admin key).
+    customerId: str | None = None
+    proposalId: str | None = None
 
 
 def public_session_id(sandbox_id: str) -> str:

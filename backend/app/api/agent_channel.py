@@ -378,8 +378,22 @@ def get_audit_trail(
     return state.gateway.get_audit_trail(proposal_id=proposalId, customer_id=customerId)
 
 
-@router.get("/audit/verify", response_model=AuditChainVerification, operation_id="verifyAuditTrail",
-            summary="Verify the SHA-256 hash chain over the decision log")
+@router.get(
+    "/audit/verify", response_model=AuditChainVerification, operation_id="verifyAuditTrail",
+    summary="Verify the SHA-256 hash chain over the decision log (a buyer's own entries, or all with the admin key)",
+    description=(
+        "Recomputes the SHA-256 hash chain and returns `verified`, `chainLength` and `headHash`.\n\n"
+        "Two keys are accepted:\n\n"
+        "- **Buyer's agent key** `Authorization: Bearer demo-agent-<customerId>`: verifies only that buyer's "
+        "entries. Without `customerId` or `proposalId` it defaults to the key's own buyer; `customerId` or "
+        "`proposalId` of another buyer returns 403. The response echoes `customerId` (and `proposalId`) so the "
+        "buyer can see which chain was checked.\n"
+        "- **Admin key** `X-Demo-Admin-Key: demo-admin`: without parameters, verifies the full log of every "
+        "buyer (`customerId` is null); with `customerId` or `proposalId`, verifies that scope.\n\n"
+        "No key returns 401 with a message naming both keys. The head hash is returned so that a buyer can keep "
+        "it and compare it later; the chain is not signed."
+    ),
+)
 def verify_audit_trail(
     request: Request,
     state: State,
@@ -388,14 +402,19 @@ def verify_audit_trail(
     scope: AuditScopeParam = "session",
 ) -> AuditChainVerification:
     all_sessions = scope == "all"
-    audit_scope(request, state, proposalId, customerId, all_sessions=all_sessions)
+    scoped = audit_scope(request, state, proposalId, customerId, all_sessions=all_sessions,
+                         agent_defaults_to_own=True)
+    if proposalId is not None:
+        owner = find_proposal_state(state, proposalId, all_sessions=True) if all_sessions else state
+        result = owner.gateway.log.verify(proposal_id=proposalId)
+        return result.model_copy(update={"customerId": scoped, "proposalId": proposalId})
+    customerId = scoped
     if all_sessions:
-        if proposalId is not None:
-            owner = find_proposal_state(state, proposalId, all_sessions=True)
-            return owner.gateway.log.verify(proposal_id=proposalId)
         logs = [(sid, s.gateway.log) for sid, s in iter_audit_sessions(state)]
-        return aggregate_audit_verification(logs, customer_id=customerId)
-    return state.gateway.log.verify(proposal_id=proposalId, customer_id=customerId)
+        result = aggregate_audit_verification(logs, customer_id=customerId)
+    else:
+        result = state.gateway.log.verify(customer_id=customerId)
+    return result.model_copy(update={"customerId": customerId})
 
 
 @router.get("/proposals", response_model=list[Proposal], operation_id="listCustomerProposals",

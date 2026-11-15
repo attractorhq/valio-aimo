@@ -123,9 +123,12 @@ def test_audit_reads_exports_and_verification_enforce_same_customer_scope(access
 def test_global_audit_is_admin_only_and_customer_list_is_key_scoped(access):
     client, school, hotel, _, _ = access
     for path in ("/v0.1/audit", "/v0.1/audit/verify"):
-        for headers in ({}, SCHOOL, CHEF, {"X-Demo-Admin-Key": "wrong"}):
+        for headers in ({}, CHEF, {"X-Demo-Admin-Key": "wrong"}):
             assert client.get(path, headers=headers).status_code == 401
         assert client.get(path, headers=ADMIN).status_code == 200
+    # T110: an agent key without a scope reads no global trail, but verifies its own buyer's chain.
+    assert client.get("/v0.1/audit", headers=SCHOOL).status_code == 401
+    assert client.get("/v0.1/audit/verify", headers=SCHOOL).status_code == 200
     assert {e["customerId"] for e in client.get("/v0.1/audit", headers=ADMIN).json()["entries"]} == {
         M1.customerId, M2.customerId}
     for headers, expected in ((SCHOOL, school), (HOTEL, hotel)):
@@ -207,3 +210,59 @@ def test_a_used_phone_link_can_still_read_its_own_proposal(access):
     assert client.post(path + "/decision", json=body).status_code == 200
     read = client.get(f"/v0.1/proposals/{school['proposalId']}", headers={"X-Approval-Token": view["approvalToken"]})
     assert read.status_code == 200 and read.json()["state"] == "CONFIRMED_SIMULATED"
+
+
+def _entries(client, customer_id):
+    return client.get("/v0.1/audit", headers=ADMIN, params={"customerId": customer_id}).json()["entries"]
+
+
+def test_t110_agent_key_verifies_only_its_own_buyers_chain(access):
+    client, school, hotel, _, _ = access
+    full = client.get("/v0.1/audit/verify", headers=ADMIN).json()
+    assert full["verified"] is True and full["customerId"] is None and full["proposalId"] is None
+    for headers, customer in ((SCHOOL, M2.customerId), (HOTEL, M1.customerId)):
+        own = client.get("/v0.1/audit/verify", headers=headers)
+        assert own.status_code == 200, own.text
+        body = own.json()
+        assert body["verified"] is True
+        assert body["customerId"] == customer
+        assert body["chainLength"] == len(_entries(client, customer)) > 0
+        assert body["chainLength"] < full["chainLength"]
+        assert body["headHash"] == body["links"][-1]["entryHash"] != full["headHash"]
+        assert {link["entryId"] for link in body["links"]} == {e["entryId"] for e in _entries(client, customer)}
+        # The same as asking for the buyer explicitly, and as the admin's scoped verify.
+        explicit = client.get("/v0.1/audit/verify", headers=headers, params={"customerId": customer}).json()
+        admin_scoped = client.get("/v0.1/audit/verify", headers=ADMIN, params={"customerId": customer}).json()
+        assert explicit["headHash"] == admin_scoped["headHash"] == body["headHash"]
+    by_proposal = client.get("/v0.1/audit/verify", headers=SCHOOL, params={"proposalId": school["proposalId"]})
+    assert by_proposal.status_code == 200
+    assert by_proposal.json()["proposalId"] == school["proposalId"]
+    assert by_proposal.json()["customerId"] == M2.customerId
+
+
+def test_t110_verify_errors_name_the_key_to_send(access):
+    client, school, hotel, _, _ = access
+    missing = client.get("/v0.1/audit/verify")
+    assert missing.status_code == 401
+    message = missing.json()["error"]["message"]
+    assert "Authorization: Bearer demo-agent-<customerId>" in message
+    assert "X-Demo-Admin-Key: demo-admin" in message
+    wrong_admin = client.get("/v0.1/audit/verify", headers={"X-Demo-Admin-Key": "wrong"})
+    assert wrong_admin.status_code == 401
+    assert "X-Demo-Admin-Key: demo-admin" in wrong_admin.json()["error"]["message"]
+    for params in ({"customerId": M1.customerId}, {"proposalId": hotel["proposalId"]}):
+        other = client.get("/v0.1/audit/verify", headers=SCHOOL, params=params)
+        assert other.status_code == 403
+        message = other.json()["error"]["message"]
+        assert "Authorization: Bearer demo-agent-<customerId>" in message
+        assert "X-Demo-Admin-Key: demo-admin" in message
+    global_trail = client.get("/v0.1/audit", headers=SCHOOL)
+    assert "customerId or proposalId" in global_trail.json()["error"]["message"]
+
+
+def test_t110_openapi_documents_both_verify_keys():
+    with TestClient(app) as client:
+        operation = client.get("/openapi.json").json()["paths"]["/v0.1/audit/verify"]["get"]
+    text = operation["description"]
+    assert "Authorization: Bearer demo-agent-<customerId>" in text
+    assert "X-Demo-Admin-Key: demo-admin" in text

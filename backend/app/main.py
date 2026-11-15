@@ -54,10 +54,12 @@ SECURITY_SCHEMES = {
     "agentKey": {
         "type": "http", "scheme": "bearer",
         "description": "Enforced demo key: demo-agent-<customerId>. Binds agent writes, MCP and audit reads "
-                       "to that buyer. Public demo keys are not production secrets.",
+                       "to that buyer; GET /v0.1/audit/verify with only this key verifies that buyer's own "
+                       "chain. Public demo keys are not production secrets.",
     },
     "demoAdmin": {"type": "apiKey", "in": "header", "name": "X-Demo-Admin-Key",
-                  "description": "Public demo key: demo-admin. Required for admin writes and global audit."},
+                  "description": "Public demo key: demo-admin. Required for admin writes and the global audit "
+                                 "(full-log verify)."},
     "demoApprover": {"type": "apiKey", "in": "header", "name": "X-Demo-Approver-Role",
                      "description": "Demo sign-in: Head Chef or Purchasing Manager. No password. "
                                     "A signed single-use phone capability carries its issued role."},
