@@ -406,8 +406,8 @@ export const REASON_REGISTRY = {
     "code": "QUANTITY_BASIS_WEAK",
     "effect": "ASK",
     "approvable": true,
-    "chipText": "Pack size uncertain",
-    "template": "Pack size read from the product name only.",
+    "chipText": "Pack size check",
+    "template": "Pack size read from the product name only, or whole packs well above the amount asked.",
     "allowedEffects": [
       "ASK"
     ]

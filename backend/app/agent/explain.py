@@ -34,6 +34,7 @@ from app.contracts import (
     format_time,
 )
 from app.contracts.common import Contract
+from app.policy.decision import OVERBUY_FACTOR
 from app.policy.limits import delivery_dates, limit_sentence
 from app.policy.requirements import hard_requirements
 from app.valio.vendor import HELSINKI
@@ -296,6 +297,20 @@ def _requirement_names(evidence: Sequence[dict], *, proven: bool) -> list[str]:
     return list(dict.fromkeys(e["requirement"] for e in evidence if e["proven"] is proven))
 
 
+def overbuy_notes(proposal: Proposal) -> list[str]:
+    """T100: items whose whole packs deliver more than 25 % above the amount asked, in the policy's words."""
+    notes = []
+    for item in proposal.request.items:
+        lines = [ln for ln in proposal.lines if ln.itemId == item.itemId]
+        delivered = sum((ln.deliveredQuantity.value for ln in lines), Decimal(0))
+        if lines and delivered > item.quantity * OVERBUY_FACTOR:
+            packs = {ln.deliveredQuantity.value / ln.quantitySalesUnits for ln in lines}
+            pack = f": whole {format(packs.pop().normalize(), ',f')} {item.unit} packs" if len(packs) == 1 else ""
+            notes.append(f"{format(delivered.normalize(), ',f')} {item.unit} for "
+                         f"{format(item.quantity.normalize(), ',f')} {item.unit} asked{pack}")
+    return notes
+
+
 def template_explanation(
     *,
     proposal: Proposal | None = None,
@@ -449,7 +464,9 @@ def template_explanation(
         ask_parts.append("historical delivery reliability is below the mandate threshold")
 
     if ReasonCode.QUANTITY_BASIS_WEAK in active_reasons:
-        ask_parts.append("pack content was estimated from the product name")
+        over = overbuy_notes(proposal)
+        ask_parts.append(f"whole packs come to well above the amount asked ({'; '.join(over)})" if over
+                         else "pack content was estimated from the product name")
 
     reason_clause = "; ".join(ask_parts) if ask_parts else f"total is {total_str} excl. VAT"
     if unproven:

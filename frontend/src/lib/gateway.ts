@@ -120,7 +120,8 @@ export interface Gateway {
   checkHealth(): Promise<GatewayHealth | null>
   listMandates(): Promise<Mandate[]>
   run(input: RunInput): Promise<FlowResult>
-  getProposal(proposalId: string): Promise<Proposal>
+  /** `customerId`, when known, sends that buyer's agent key (T100: proposal reads are buyer-scoped). */
+  getProposal(proposalId: string, customerId?: string): Promise<Proposal>
   getAuditTrail(proposalId: string): Promise<{ trail: AuditTrail; source: DataSource }>
 }
 
@@ -968,17 +969,13 @@ export const gateway: Gateway = {
       source: 'GATEWAY',
     }
   },
-  async getProposal(proposalId) {
+  async getProposal(proposalId, customerId) {
     if (isMockId(proposalId)) {
       return mockGateway.getProposal(proposalId)
     }
     const src = await ensureSource()
     if (src === 'MOCK') return mockGateway.getProposal(proposalId)
-    const res = await fetch(`/v0.1/proposals/${encodeURIComponent(proposalId)}`, {
-      headers: { Accept: 'application/json' },
-    })
-    if (!res.ok) throw await parseErrorResponse(res)
-    return (await res.json()) as Proposal
+    return fetchProposal(proposalId, customerId, () => this.listMandates())
   },
   async getAuditTrail(proposalId) {
     if (isMockId(proposalId)) {
@@ -1007,6 +1004,29 @@ export const gateway: Gateway = {
 }
 
 /** Read-only list for the selected agent key; never a capability-bearing approver view. */
+/**
+ * T100: a proposal read is buyer-scoped. A browser's own session may read without a key; otherwise the owner's
+ * public demo agent key is needed. When the buyer is unknown (a decision-log link), try each demo buyer's key.
+ */
+async function fetchProposal(
+  proposalId: string,
+  customerId: string | undefined,
+  mandates: () => Promise<Mandate[]>,
+): Promise<Proposal> {
+  const path = `/v0.1/proposals/${encodeURIComponent(proposalId)}`
+  const get = (headers: Record<string, string>) =>
+    fetch(path, { headers: { Accept: 'application/json', ...headers } })
+  let res = await get(customerId ? agentHeaders(customerId) : {})
+  if (res.status === 401 && !customerId) {
+    for (const mandate of await mandates()) {
+      res = await get(agentHeaders(mandate.customerId))
+      if (res.ok) break
+    }
+  }
+  if (!res.ok) throw await parseErrorResponse(res)
+  return (await res.json()) as Proposal
+}
+
 export async function listBuyerProposals(customerId: string): Promise<ApproverItem[]> {
   const src = await ensureSource()
   if (src === 'MOCK') return (await mockApproverChannel.listAllProposals()).filter((i) => i.proposal.customerId === customerId)
@@ -1076,7 +1096,7 @@ export const approverChannel: ApproverChannel = {
       // 1a. If the proposal is already decided/superseded on the server, return its current state
       if (vRes.status === 409) {
         const pRes = await fetch(`/v0.1/proposals/${encodeURIComponent(targetProposalId)}`, {
-          headers: { Accept: 'application/json' },
+          headers: { Accept: 'application/json', 'X-Approval-Token': approvalToken },
         })
         if (pRes.ok) {
           const prop = (await pRes.json()) as Proposal

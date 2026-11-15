@@ -77,6 +77,20 @@ def _outcome(findings: Iterable[Finding]) -> Outcome:
     return "AUTO"
 
 
+OVERBUY_FACTOR = Decimal("1.25")
+
+
+def _plain(value: Decimal) -> str:
+    return f"{value.normalize():,f}"
+
+
+def overbuy_detail(covered: Decimal, asked: Decimal, unit: str, lines: Sequence[LineInput]) -> str:
+    """'40 kg for 25 kg asked: whole 20 kg packs'."""
+    packs = {line.delivered_quantity.value / line.quantity_sales_units for line in lines}
+    pack = f": whole {_plain(packs.pop())} {unit} packs" if len(packs) == 1 else ": whole packs"
+    return f"{_plain(covered)} {unit} for {_plain(asked)} {unit} asked{pack}"
+
+
 def decide(
     *,
     mandate: Mandate,
@@ -136,6 +150,11 @@ def decide(
                                         detail="full quantity not available"))
         elif len(item_lines) > 1:
             findings.append(Finding("SPLIT", "INFO", "L8", item_id=item.itemId))
+        # L12 (T100): whole-pack rounding far above the amount asked is a quantity trade-off for a human,
+        # e.g. 25 kg of oat flakes delivered as 2 × 20 kg = 40 kg.
+        if covered > item.quantity * OVERBUY_FACTOR:
+            findings.append(Finding("QUANTITY_BASIS_WEAK", "ASK", "L12", item_id=item.itemId,
+                                    detail=overbuy_detail(covered, item.quantity, item.unit, item_lines)))
 
     # O1 / O3: limits on the total excl. VAT of the lines that remain, plus what is already committed for
     # delivery on the same day (T62: split-order guard).

@@ -74,8 +74,8 @@ def test_two_empty_offers_over_http_have_distinct_offer_hashes(api):
 def test_same_product_without_extra_requirement_remains_confirmable(api):
     client, _, _ = api
     _, created = offer_and_propose(
-        client, M1.customerId, [("I1", "SYN-PASTA", "1", "kg")],
-        "One kilogram of synthetic pasta by Monday.", [item("I1", "pasta", "1", "kg")],
+        client, M1.customerId, [("I1", "SYN-PASTA", "5", "kg")],
+        "Five kilograms of synthetic pasta by Monday.", [item("I1", "pasta", "5", "kg")],  # one whole 5 kg bag
     )
     assert created.status_code == 201, created.text
     assert created.json()["state"] == "CONFIRMED_SIMULATED"
