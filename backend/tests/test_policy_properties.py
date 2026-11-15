@@ -31,6 +31,8 @@ APPROVABLE = frozenset({
     "AGENT_SUBSTITUTE", "LOW_RELIABILITY", "QUANTITY_BASIS_WEAK",
     # T107 (team decision, beyond P2.2): an attempt to bypass controls asks a person; it waives no evidence.
     "INSTRUCTION_IGNORED",
+    # T71 (team decision, beyond P2.2): data from the stale-fallback cache asks a person; the approval re-checks live.
+    "STALE_DATA",
 })
 
 PRODUCTS = [

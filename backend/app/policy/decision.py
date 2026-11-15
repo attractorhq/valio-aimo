@@ -185,6 +185,12 @@ def decide(
     if (expired := window_violation(mandate, now)) is not None:
         findings.append(Finding("MANDATE_NOT_VALID", "BLOCK", "O0", detail=expired))
 
+    # O7 (T71): facts read from the stale-fallback cache are estimates. They never decide AUTO; a person may approve,
+    # and confirmation re-checks live.
+    stale = sorted({f.method for v in kept for f in v.line.facts if f.method and f.method.startswith("stale fallback")})
+    if stale:
+        findings.append(Finding("STALE_DATA", "ASK", "O7", detail=stale[0].split(" · ", 1)[-1]))
+
     # O4: the request text is data. O6: unclear or contradictory requests are asked about, not assumed.
     # T107: an order whose request tried to bypass controls is never ordered automatically. The attempt is an
     # approvable ASK reason when the order would otherwise be AUTO or ASK; under BLOCK / NO_ORDER it is context only.

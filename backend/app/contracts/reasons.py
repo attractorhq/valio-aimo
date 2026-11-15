@@ -39,6 +39,7 @@ class ReasonCode(StrEnum):
     VARIABLE_WEIGHT_UNVERIFIED = "VARIABLE_WEIGHT_UNVERIFIED"
     CATEGORY_NOT_ALLOWED = "CATEGORY_NOT_ALLOWED"
     MANDATE_NOT_VALID = "MANDATE_NOT_VALID"
+    STALE_DATA = "STALE_DATA"
 
 
 ReasonEffect = Literal["ASK", "EXCLUDE", "BLOCK", "INFO", "NO_ORDER"]
@@ -113,6 +114,11 @@ REASON_REGISTRY = MappingProxyType({r.code: r for r in (
             "Category {category} is outside this mandate's allowed categories."),
     _reason("MANDATE_NOT_VALID", "BLOCK", "Mandate not valid",
             "The mandate is not valid on {date}. A buyer admin must renew it before the agent can order."),
+    # T71: Valio's API did not answer; price and stock come from a copy cached ≤ 15 minutes ago. Never AUTO. A person
+    # may approve, and the approval still re-checks live before ordering: no confirmation is ever made from the cache.
+    _reason("STALE_DATA", "ASK", "Cached data",
+            "Live price and stock were unavailable; this uses Valio data cached in the last 15 minutes. "
+            "Approving re-checks live before ordering."),
     # Retained for migration from 0e74e98, but no longer a rejection or an approval request.
     _reason("VARIABLE_WEIGHT_UNVERIFIED", "INFO", "Variable weight",
             "Variable-weight product: 1 kg per sales unit under the challenge quantity rule."),

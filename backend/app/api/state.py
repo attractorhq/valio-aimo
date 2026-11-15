@@ -82,7 +82,7 @@ def build_state() -> GatewayState:
     force_recorded = os.environ.get("VALIO_MODE", "").strip().lower() == "recorded"
     mode: Mode
     if settings.valio_api_key and not force_recorded:
-        provider = LiveValioProvider()
+        provider = LiveValioProvider(stale_fallback=True)  # T71: labelled, never AUTO, re-checked live
         mode = "LIVE"
     elif capture is not None:
         provider = RecordedValioProvider(capture)
