@@ -175,14 +175,14 @@ def _origin(request: Request) -> str:
     return f"{proto}://{host}".rstrip("/")
 
 
-@app.get("/.well-known/verified-or-ask-keys.json", tags=["Operations"], operation_id="getSigningKeys")
+@app.get("/.well-known/aimo-connect-keys.json", tags=["Operations"], operation_id="getSigningKeys")
 def get_signing_keys(state: Annotated[GatewayState | GatewayUnavailable, Depends(try_state)]) -> dict:
     """RFC 8037 JWK Set publishing the Ed25519 public key used to sign offers, decisions and confirmations."""
     signer = GatewaySigner() if isinstance(state, GatewayUnavailable) else state.gateway.signer
     return signer.jwks()
 
 
-@app.get("/.well-known/verified-or-ask.json", tags=["Operations"], operation_id="getDiscovery")
+@app.get("/.well-known/aimo-connect.json", tags=["Operations"], operation_id="getDiscovery")
 def get_discovery(
     request: Request,
     state: Annotated[GatewayState | GatewayUnavailable, Depends(try_state)],
@@ -197,7 +197,7 @@ def get_discovery(
         "docs": f"{base}/docs",
         "mcp": f"{base}/mcp",
         "spec": f"{base}/spec",
-        "jwks": f"{base}/.well-known/verified-or-ask-keys.json",
+        "jwks": f"{base}/.well-known/aimo-connect-keys.json",
         "kid": signer.kid,
         "signingAlgorithm": "EdDSA",
     }

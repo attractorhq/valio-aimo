@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Standalone second purchasing-agent client (stdlib + urllib only, zero repo imports).
 
-Reads `/.well-known/verified-or-ask.json`, `/.well-known/verified-or-ask-keys.json` and `/openapi.json`
+Reads `/.well-known/aimo-connect.json`, `/.well-known/aimo-connect-keys.json` and `/openapi.json`
 to discover the public Agent channel operations, runs Scenario B
 ("We need 90 kg of gluten-free macaroni and 80 litres of gluten-free oat drink by Monday.")
 against a local or deployed Aimo Connect gateway URL, and verifies the Ed25519 signatures on
@@ -209,9 +209,9 @@ def http_json(
 
 
 def discover_jwks(base_url: str) -> dict:
-    discovery = http_json("GET", f"{base_url}/.well-known/verified-or-ask.json")
+    discovery = http_json("GET", f"{base_url}/.well-known/aimo-connect.json")
     if not isinstance(discovery, dict) or "jwks" not in discovery:
-        raise RuntimeError("Invalid discovery document at /.well-known/verified-or-ask.json")
+        raise RuntimeError("Invalid discovery document at /.well-known/aimo-connect.json")
     jwks_url = str(discovery["jwks"])
     if jwks_url.startswith("/"):
         jwks_url = f"{base_url}{jwks_url}"

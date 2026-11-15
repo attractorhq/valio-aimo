@@ -4,11 +4,11 @@
 Verifies:
 1. Offline SHA-256 hash-chain integrity (`prevHash` and `hash`) of an exported `AuditTrail` JSON file.
 2. Detached Ed25519 (`EdDSA`) signatures on `AuditEntry`, `Offer`, or `Proposal` JSON files when given
-   a JWK Set URL or file (`/.well-known/verified-or-ask-keys.json`).
+   a JWK Set URL or file (`/.well-known/aimo-connect-keys.json`).
 
 Usage:
   scripts/verify-audit decision-log-proposal-PR-1.json
-  scripts/verify-audit decision-log-proposal-PR-1.json --keys http://localhost:8000/.well-known/verified-or-ask-keys.json
+  scripts/verify-audit decision-log-proposal-PR-1.json --keys http://localhost:8000/.well-known/aimo-connect-keys.json
   scripts/verify-audit offer.json --keys keys.json
 """
 

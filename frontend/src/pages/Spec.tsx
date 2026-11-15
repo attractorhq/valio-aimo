@@ -399,12 +399,12 @@ export function Spec() {
           </li>
           <li>
             Published keys &amp; discovery:{' '}
-            <a href="/.well-known/verified-or-ask-keys.json" className="underline">
-              <code>/.well-known/verified-or-ask-keys.json</code>
+            <a href="/.well-known/aimo-connect-keys.json" className="underline">
+              <code>/.well-known/aimo-connect-keys.json</code>
             </a>{' '}
             (RFC 8037 OKP JWK Set) and{' '}
-            <a href="/.well-known/verified-or-ask.json" className="underline">
-              <code>/.well-known/verified-or-ask.json</code>
+            <a href="/.well-known/aimo-connect.json" className="underline">
+              <code>/.well-known/aimo-connect.json</code>
             </a>
             .
           </li>

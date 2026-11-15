@@ -126,7 +126,7 @@ The buyer admin sets them with `PATCH /v0.1/admin/mandates/{customerId}` (`allow
 `AuditEntry` records timestamp, actor, event/summary, customer/proposal/offer binding, mandate version, optional old/new state, rule, reason codes, facts, optional human comment, the SHA-256 chain links (`prevHash`, `hash`, starting from `0`×64 genesis), and detached Ed25519 receipt fields (`kid`, `signature`) on offer, decision, and confirmation transitions. There is no arbitrary credential-bearing metadata field. Rejection/approval comments and request text remain untrusted data.
 
 - **Chain verification & export (T28, T30, T67):** `GET /v0.1/audit/verify` verifies the SHA-256 hash chain on the server, and `GET /v0.1/audit/export?proposalId=…|customerId=…&format=json|csv` exports the full trail including each entry's `prevHash`, `hash`, `kid`, and `signature` (with spreadsheet formula cells neutralised in CSV).
-- **Published keys, discovery & offline verification (T67):** `GET /.well-known/verified-or-ask-keys.json` publishes the gateway's Ed25519 public key as an RFC 8037 OKP JWK Set (`kty: "OKP"`, `crv: "Ed25519"`, `alg: "EdDSA"`, `kid`, `x`), and `GET /.well-known/verified-or-ask.json` points to OpenAPI, MCP, `/spec`, and the JWK Set. Detached base64url signatures cover canonical UTF-8 JSON (`sort_keys=True`, `(",", ":")` separators) for `aimo-connect.offer.v0.1`, `aimo-connect.decision.v0.1`, `aimo-connect.confirmation.v0.1`, and `aimo-connect.audit-entry.v0.1`. `scripts/verify-audit <export.json> [--keys <jwks>]` verifies both the SHA-256 chain and Ed25519 signatures offline using the Python standard library alone.
+- **Published keys, discovery & offline verification (T67):** `GET /.well-known/aimo-connect-keys.json` publishes the gateway's Ed25519 public key as an RFC 8037 OKP JWK Set (`kty: "OKP"`, `crv: "Ed25519"`, `alg: "EdDSA"`, `kid`, `x`), and `GET /.well-known/aimo-connect.json` points to OpenAPI, MCP, `/spec`, and the JWK Set. Detached base64url signatures cover canonical UTF-8 JSON (`sort_keys=True`, `(",", ":")` separators) for `aimo-connect.offer.v0.1`, `aimo-connect.decision.v0.1`, `aimo-connect.confirmation.v0.1`, and `aimo-connect.audit-entry.v0.1`. `scripts/verify-audit <export.json> [--keys <jwks>]` verifies both the SHA-256 chain and Ed25519 signatures offline using the Python standard library alone.
 
 ## Reason-code registry
 
@@ -239,7 +239,7 @@ Decision:     ASK
 Reasons:      ["OVER_AUTO_LIMIT"]
 Totals:       €506.16 excl. VAT · VAT €68.33 · €574.49 incl. VAT (EUR)
 offerHash:    <64-char sha256 hex digest>
-Signature:    signature verified (voa-ed25519-...)
+Signature:    signature verified (ac-ed25519-...)
 ```
 
 ### Equivalent `curl` + `jq` walkthrough (agent channel only)

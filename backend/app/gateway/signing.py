@@ -160,7 +160,7 @@ class GatewaySigner:
     @property
     def kid(self) -> str:
         digest = hashlib.sha256(self.public_bytes).hexdigest()[:16]
-        return f"voa-ed25519-{digest}"
+        return f"ac-ed25519-{digest}"
 
     def jwk(self) -> dict[str, str]:
         return {

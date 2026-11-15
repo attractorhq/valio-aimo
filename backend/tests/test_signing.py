@@ -90,16 +90,16 @@ def test_discovery_and_jwks_endpoints_publish_ed25519_key_without_leaking_secret
     state.gateway.signer = GatewaySigner(secret)
     caplog.set_level(logging.DEBUG)
 
-    disc_res = client.client.get("/.well-known/verified-or-ask.json")
+    disc_res = client.client.get("/.well-known/aimo-connect.json")
     assert disc_res.status_code == 200, disc_res.text
     disc = disc_res.json()
     assert disc["openapi"].endswith("/openapi.json")
     assert disc["mcp"].endswith("/mcp")
     assert disc["spec"].endswith("/spec")
-    assert disc["jwks"].endswith("/.well-known/verified-or-ask-keys.json")
+    assert disc["jwks"].endswith("/.well-known/aimo-connect-keys.json")
     assert disc["signingAlgorithm"] == "EdDSA"
 
-    jwks_res = client.client.get("/.well-known/verified-or-ask-keys.json")
+    jwks_res = client.client.get("/.well-known/aimo-connect-keys.json")
     assert jwks_res.status_code == 200, jwks_res.text
     jwks = jwks_res.json()
     (jwk,) = jwks["keys"]
@@ -115,7 +115,7 @@ def test_discovery_and_jwks_endpoints_publish_ed25519_key_without_leaking_secret
 
 def test_offer_decision_and_confirmation_signatures_verify_and_reject_tampering_or_wrong_key(api):  # noqa: F811
     client, _, _ = api
-    jwks = client.client.get("/.well-known/verified-or-ask-keys.json").json()
+    jwks = client.client.get("/.well-known/aimo-connect-keys.json").json()
     other_jwks = GatewaySigner("different-signing-key-material").jwks()
 
     # 1. Scenario B: Offer signature + pending ASK decision signature
@@ -163,7 +163,7 @@ def test_audit_exports_include_hashes_and_offline_verify_audit_detects_tampering
     client, _, _ = api
     _, created_a = scenario_a(client)
     proposal_id = created_a.json()["proposalId"]
-    jwks = client.client.get("/.well-known/verified-or-ask-keys.json").json()
+    jwks = client.client.get("/.well-known/aimo-connect-keys.json").json()
 
     # JSON export includes prevHash, hash, and signed milestone receipts
     json_res = client.client.get("/v0.1/audit/export", params={"proposalId": proposal_id, "format": "json"})
