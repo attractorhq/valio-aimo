@@ -992,6 +992,13 @@ class ProposalGateway:
                 request=structured_request,
             )
 
+        # T119: requirements written in the request text are never dropped by the structured request.
+        from app.agent.parse import with_text_requirements  # lazy: the parser imports gateway-side policy
+
+        checked_request, _added = with_text_requirements(create_req.request)
+        if _added:
+            create_req = create_req.model_copy(update={"request": checked_request})
+
         if offer is not None:
             self.register_offer(offer)
 
