@@ -161,7 +161,9 @@ def _no_candidate_text(no_order: CompactNoOrder) -> str:
     for item in no_order.items:
         sentence = f"{item.searched}: {item.why}".strip()
         if item.closestMatches:
-            names = ", ".join(f"{m.name} ({m.productId})" for m in item.closestMatches)
+            names = ", ".join(
+                f"{m.name} ({m.productId}{': ' + m.lacks if m.lacks else ''})" for m in item.closestMatches
+            )
             sentence = sentence.rstrip(".") + f". Closest matches (not ordered): {names}."
         parts.append(sentence)
     if no_order.earliestDeliverableDate is not None:

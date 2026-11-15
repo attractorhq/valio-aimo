@@ -33,7 +33,10 @@ def _check(no_order):
     assert item["itemId"] == "I1"
     assert item["searched"] == "milk drink · gluten-free"
     assert item["why"]
-    assert isinstance(item["closestMatches"], list)
+    # T113: the same-type candidate that was excluded is listed with its reason, never ordered.
+    assert [(m["productId"], m["lacks"]) for m in item["closestMatches"]] == [
+        ("SYN-MILK", "not declared gluten-free"),
+    ]
     assert "earliestDeliverableDate" in no_order and "retryHint" in no_order
     assert no_order["earliestDeliverableDate"] is None and no_order["retryHint"] is None
 

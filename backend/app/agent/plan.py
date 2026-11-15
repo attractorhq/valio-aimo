@@ -220,6 +220,8 @@ class AgentPlan(Contract):
 class ClosestMatch(Contract):
     productId: str
     name: str
+    # T113: what keeps this product from the order ("skin-on not stated", "order cut-off passed for Mon 16 Nov").
+    lacks: str | None = None
 
 
 class NoOrderItem(Contract):

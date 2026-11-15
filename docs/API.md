@@ -272,7 +272,10 @@ For NO_CANDIDATE, `noOrder` carries the same data the UI's no-order banner shows
 ```
 
 `closestMatches` (at most 3 per item) pass the requested product-type check and every hard requirement
-(T105); they are suggestions, never ordered. `earliestDeliverableDate` is set only when a quote confirms
+(T105); they are suggestions, never ordered. Each may carry `lacks`, a plain phrase saying what keeps it out
+(T113): requested words the name does not state (`"fresh, skin-on not stated"`, when such a modifier zeroed
+the search) or, when same-type candidates exist but all were excluded, the exclusion reason
+(`"order cut-off passed for Mon 16 Nov"`, `"not declared gluten-free"`, `"earliest delivery Mon 16 Nov"`). `earliestDeliverableDate` is set only when a quote confirms
 the full request on that day; `retry` is then a ready request body. The NO_CANDIDATE reason text names
 the searches, the closest matches and the earliest date, so it is readable on its own.
 

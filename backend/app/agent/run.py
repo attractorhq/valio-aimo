@@ -11,6 +11,7 @@ Flow:
 The agent never approves, confirms, or computes the AUTO / ASK / BLOCK decision.
 """
 
+import re
 from collections import OrderedDict
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import nullcontext
@@ -63,6 +64,7 @@ from app.catalog.vocab import (
     split_query_alternatives,
 )
 from app.contracts import (
+    REASON_REGISTRY,
     CreateProposalRequest,
     Decision,
     ExcludedProduct,
@@ -572,6 +574,27 @@ def _token_group_satisfied_by_product(
     return False
 
 
+# T113: form and state words that narrow a search but are often missing from product names. When they zero
+# the search, the closest matches are searched without them and say what they lack; they are never ordered.
+MODIFIER_WORDS = frozenset({
+    "fresh", "chilled", "skin-on", "skinless", "boneless", "sliced", "diced", "cubed", "whole", "peeled",
+    "grated", "shredded", "portioned", "trimmed", "pre-cut", "ready-cut",
+})
+_QUERY_WORD_RE = re.compile(r"[\wåäöÅÄÖ%-]+", re.UNICODE)
+
+
+def _query_words(query: str) -> list[str]:
+    cleaned, _ = extract_inline_requirements(query)
+    return _QUERY_WORD_RE.findall(cleaned)
+
+
+def _lacks_words(words: Sequence[str], product: Product) -> str | None:
+    """'skin-on, fresh not stated' for requested words the product names do not state."""
+    names = " ".join((product.name, *product.names.values())).lower()
+    missing = [word for word in dict.fromkeys(w.lower() for w in words) if word not in names]
+    return f"{', '.join(missing)} not stated" if missing else None
+
+
 def _closest_matches(
     channel: AgentChannel,
     customer_id: str,
@@ -581,8 +604,13 @@ def _closest_matches(
     _, inline_requirements = extract_inline_requirements(search.query)
     requirements = list(dict.fromkeys([*search.requirements, *inline_requirements]))
     req_codes = tuple(r.code for r in hard_requirements(requirements, mandate))
+    original_words = _query_words(search.query)
+    core_words = [word for word in original_words if word.lower() not in MODIFIER_WORDS]
+    queries = relaxed_name_queries(search.query)
+    if core_words and len(core_words) < len(original_words):
+        queries.append(" ".join(core_words))
     matches: dict[str, ClosestMatch] = {}
-    for query in relaxed_name_queries(search.query):
+    for query in dict.fromkeys(queries):
         tokens, _ = expand_query_tokens(query)
         if not tokens:
             continue
@@ -592,6 +620,8 @@ def _closest_matches(
             customer_id=customer_id,
         )
         for product in result.candidates:
+            if product.productId in matches:
+                continue
             reasons, _ = evaluate_product_static_requirements(product, requirements, mandate)
             if reasons:
                 continue
@@ -602,12 +632,74 @@ def _closest_matches(
             if not all(
                 _token_group_satisfied_by_product(group, names, words, product.category, query_concepts)
                 for group in tokens
+                if group[0] not in MODIFIER_WORDS
             ):
                 continue
-            matches[product.productId] = ClosestMatch(productId=product.productId, name=product.name)
+            matches[product.productId] = ClosestMatch(
+                productId=product.productId, name=product.name, lacks=_lacks_words(original_words, product),
+            )
             if len(matches) == 3:
                 return list(matches.values())
     return list(matches.values())
+
+
+def _exclusion_phrase(entries: Sequence[ExcludedProduct], requirement_labels: Sequence[str]) -> str:
+    """One plain phrase for why a same-type candidate was excluded (T113)."""
+    phrases: list[str] = []
+    for entry in entries:
+        for code in entry.reasons:
+            if code == ReasonCode.CUTOFF_PASSED:
+                days = sorted(
+                    date.fromisoformat(f.value) for f in entry.facts
+                    if f.fact == "delivery.date" and isinstance(f.value, str)
+                )
+                phrase = f"order cut-off passed for {format_date(days[0])}" if days else "order cut-off passed"
+            elif code == ReasonCode.CLAIM_MISSING:
+                labels = ", ".join(label.lower() for label in requirement_labels)
+                phrase = f"not declared {labels}" if labels else "required claim not declared"
+            elif code == ReasonCode.ALLERGEN_UNKNOWN:
+                phrase = "no allergen declaration"
+            elif code == ReasonCode.ALLERGEN_CONTAINS:
+                phrase = "contains an excluded allergen"
+            elif code == ReasonCode.ALLERGEN_MAY_CONTAIN:
+                phrase = "may contain an excluded allergen"
+            elif code == ReasonCode.NOT_AVAILABLE:
+                phrase = "no stock available"
+            else:
+                phrase = REASON_REGISTRY[code].chipText.split("{")[0].strip().lower() or code.value.lower()
+            phrases.append(phrase)
+    return "; ".join(dict.fromkeys(phrases))
+
+
+def excluded_closest_matches(
+    item_id: str,
+    product_ids: Sequence[str],
+    excluded: Sequence[ExcludedProduct],
+    late_lines: Sequence[OfferLine],
+    names: Mapping[str, str],
+    requirement_labels: Sequence[str],
+    deadline: date,
+    limit: int = 3,
+) -> list[ClosestMatch]:
+    """T113: the best same-type candidates that were all excluded, each with its exclusion reason.
+
+    Requirements are never relaxed: these are explanations, never ordered.
+    """
+    out: dict[str, ClosestMatch] = {}
+    for product_id in dict.fromkeys(product_ids):
+        entries = [e for e in excluded if e.itemId == item_id and e.productId == product_id]
+        late = sorted(ln.deliveryDate for ln in late_lines if ln.itemId == item_id and ln.productId == product_id)
+        if late and late[0] > deadline:
+            lacks = f"earliest delivery {format_date(late[0])}"
+        elif entries:
+            lacks = _exclusion_phrase(entries, requirement_labels)
+        else:
+            continue
+        name = names.get(product_id) or (entries[0].name if entries else product_id)
+        out[product_id] = ClosestMatch(productId=product_id, name=name, lacks=lacks or None)
+        if len(out) == limit:
+            break
+    return list(out.values())
 
 
 def _coverage_date(lines: Sequence[OfferLine], item: RequestItem) -> date | None:
@@ -808,6 +900,25 @@ def _no_order_step(
         labels = [requirement_display_name(req) for req in requirements]
         searched = search.query + (f" · {', '.join(labels)}" if labels else "")
         item_excluded = [entry for entry in excluded if entry.itemId == item.itemId]
+        if not candidates[item.itemId]:
+            matches = _closest_matches(channel, customer_id, search, mandate)
+        elif covered_on_time:
+            matches = []
+        else:
+            # T113: same-type candidates exist but none can be ordered; show the best few and why.
+            matches = excluded_closest_matches(
+                item.itemId,
+                [
+                    *(c.productId for c in plan.rankedCandidates),
+                    *(p.productId for p in candidates[item.itemId]),
+                    *(e.productId for e in item_excluded),
+                ],
+                item_excluded,
+                offer.lines if offer else [],
+                {p.productId: p.name for p in candidates[item.itemId]},
+                labels,
+                deadline,
+            )
         items.append(NoOrderItem(
             itemId=item.itemId,
             searched=searched,
@@ -818,11 +929,9 @@ def _no_order_step(
                 delivered=covered_on_time,
                 excluded=item_excluded,
                 requirements=requirements,
+                deadline_is_today=deadline <= now.astimezone(HELSINKI).date(),
             ),
-            closestMatches=(
-                _closest_matches(channel, customer_id, search, mandate)
-                if not candidates[item.itemId] else []
-            ),
+            closestMatches=matches,
         ))
     retry_date = offer_request.lookupDate if offer_request else None
     next_date = earliest if earliest and earliest > deadline and earliest != retry_date else None

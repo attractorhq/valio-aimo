@@ -66,10 +66,14 @@ def test_no_candidate_compact_lists_type_checked_closest_matches(synthetic_api):
     body = compact(client, M1, "I need 5 kg of imaginary gluten-free flounder today.").json()
     assert body["proposalId"] is None
     (item,) = body["noOrder"]["items"]
-    assert item["closestMatches"] == [{"productId": safe.productId, "name": safe.name}]
+    assert item["closestMatches"] == [
+        {"productId": safe.productId, "name": safe.name, "lacks": "imaginary not stated"},
+    ]
     assert body["noOrder"]["earliestDeliverableDate"] is None and body["noOrder"]["retry"] is None
     (reason,) = [r for r in body["reasonTexts"] if r["code"] == "NO_CANDIDATE"]
-    assert f"Closest matches (not ordered): {safe.name} ({safe.productId})" in reason["text"]
+    assert (
+        f"Closest matches (not ordered): {safe.name} ({safe.productId}: imaginary not stated)" in reason["text"]
+    )
     assert body["summary"].startswith("No order:") and "\n" not in body["summary"]
 
 
