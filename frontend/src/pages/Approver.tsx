@@ -66,7 +66,7 @@ export function Approver() {
           <p>Human sign-off channel · not the agent</p>
           <p>Sign-in: role, or a passkey on this phone</p>
           {/* Reserve the control's height so it does not shift the page when the mandate arrives (T84). */}
-          <div className="mt-1.5" style={{ minHeight: 32 }}>
+          <div className="mt-1.5" style={{ minHeight: 44 }}>
             {mandate && <ApproverPasskeyControl role={mandate.approver.role} />}
           </div>
         </div>
