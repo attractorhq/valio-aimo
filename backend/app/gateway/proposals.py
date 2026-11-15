@@ -83,6 +83,7 @@ from app.gateway.offers import (
     size,
     with_requirement_facts,
 )
+from app.gateway.signing import GatewaySigner
 from app.policy import (
     DEMO_MANDATES,
     LineInput,
@@ -620,7 +621,13 @@ class ProposalGateway:
             self.mandates = MandateBook(DEMO_MANDATES)
         self.provider = provider
         self._session = session
-        self.log = log if log is not None else DecisionLog(session=session)
+        self.signer = GatewaySigner(signing_key)
+        if log is not None:
+            if log._signer is None:
+                log._signer = self.signer
+            self.log = log
+        else:
+            self.log = DecisionLog(session=session, signer=self.signer)
         self.approvals = (
             approvals if approvals is not None else ApprovalStore(signing_key=signing_key, session=session)
         )
@@ -718,6 +725,10 @@ class ProposalGateway:
             offer = offer_or_result
             verdicts = ()
             partial = _inferred_offer_partial_items(offer)
+        if offer.signature is None:
+            offer = offer.model_copy(
+                update={"kid": self.signer.kid, "signature": self.signer.sign_offer(offer)}
+            )
         key = (offer.offerId, offer.offerVersion)
         if key not in self._offers:
             mandate = self.mandates.get(offer.customerId)
@@ -772,6 +783,7 @@ class ProposalGateway:
             force_refresh=force_refresh,
             committed_units=self.committed_units(request.customerId),
             committed_orders=self.committed_stock_orders(request.customerId),
+            signer=self.signer,
         )
         self.register_offer(result, offer_request=request)
         return result
@@ -1133,6 +1145,12 @@ class ProposalGateway:
                 excluded=excluded,
                 totals=totals,
             )
+            expired_proposal = expired_proposal.model_copy(
+                update={
+                    "kid": self.signer.kid,
+                    "signature": self.signer.sign_decision(expired_proposal),
+                }
+            )
             self._save_proposal(expired_proposal)
             return expired_proposal
 
@@ -1180,6 +1198,12 @@ class ProposalGateway:
             excluded=excluded,
             totals=totals,
             reasonDetails=reason_details,
+        )
+        preview_proposal = preview_proposal.model_copy(
+            update={
+                "kid": self.signer.kid,
+                "signature": self.signer.sign_decision(preview_proposal),
+            }
         )
         base_summary = decision_summary(
             outcome, reasons, total_excl_vat=totals.exclVat, mandate=mandate,
@@ -1691,6 +1715,9 @@ class ProposalGateway:
                 lines=refreshed_line_inputs,
                 now=check_now,
                 partial_items=partial,
+                # T107: an O4 attempt stays on the order at the re-check, so an approved ASK confirms instead of
+                # being superseded as AUTO.
+                instruction_ignored=ReasonCode.INSTRUCTION_IGNORED in proposal.reasons,
             )
             if rechecked_decision.outcome != proposal.decision:
                 diffs.append(f"policy outcome changed {proposal.decision} → {rechecked_decision.outcome}")
@@ -1835,7 +1862,16 @@ class ProposalGateway:
                     f"{format_money(proposal.totals.exclVat)} excl. VAT."
                 ),
             )
-            confirmed = rechecked.model_copy(update={"state": "CONFIRMED_SIMULATED"})
+            confirmed_draft = rechecked.model_copy(
+                update={
+                    "state": "CONFIRMED_SIMULATED",
+                    "kid": self.signer.kid,
+                    "signature": rechecked.signature or self.signer.sign_decision(rechecked),
+                }
+            )
+            confirmed = confirmed_draft.model_copy(
+                update={"confirmationSignature": self.signer.sign_confirmation(confirmed_draft)}
+            )
             self._save_proposal(confirmed)
             return confirmed
 
@@ -1890,6 +1926,7 @@ class ProposalGateway:
             offer_version=next_version,
             committed_units=self.committed_units(proposal.customerId, exclude=(proposal.proposalId,)),
             committed_orders=self.committed_stock_orders(proposal.customerId, exclude=(proposal.proposalId,)),
+            signer=self.signer,
         )
         self.register_offer(new_offer_result, offer_request=offer_req)
 
@@ -1903,6 +1940,7 @@ class ProposalGateway:
             ),
             now=check_now,
             partial_items=partial,
+            instruction_ignored=ReasonCode.INSTRUCTION_IGNORED in proposal.reasons,
             auto_confirm=False,
             allow_no_order_block=True,
             replaces=proposal.proposalId,

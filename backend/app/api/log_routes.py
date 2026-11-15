@@ -27,6 +27,7 @@ State = Annotated[GatewayState, Depends(get_state)]
 CSV_COLUMNS = (
     "timestamp", "entryId", "customerId", "proposalId", "offerId", "offerVersion", "offerHash",
     "mandateVersion", "actor", "event", "fromState", "toState", "rule", "reasons", "summary", "comment", "facts",
+    "prevHash", "hash", "kid", "signature",
 )
 _FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
@@ -52,7 +53,7 @@ def audit_csv(trail: AuditTrail) -> str:
         writer.writerow([_cell(v) for v in (
             e.timestamp.isoformat(), e.entryId, e.customerId, e.proposalId, e.offerId, e.offerVersion, e.offerHash,
             e.mandateVersion, e.actor, e.event, e.fromState, e.toState, e.rule, ";".join(e.reasons), e.summary,
-            e.comment, _facts(e),
+            e.comment, _facts(e), e.prevHash, e.hash, e.kid, e.signature,
         )])
     return out.getvalue()
 

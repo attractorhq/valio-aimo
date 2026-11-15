@@ -29,6 +29,8 @@ NOT_APPROVABLE = frozenset({
 APPROVABLE = frozenset({
     "OVER_AUTO_LIMIT", "DATE_LATER", "PARTIAL_AVAILABILITY", "SUPPLIER_STOCK_UNKNOWN", "VALIO_SUBSTITUTE",
     "AGENT_SUBSTITUTE", "LOW_RELIABILITY", "QUANTITY_BASIS_WEAK",
+    # T107 (team decision, beyond P2.2): an attempt to bypass controls asks a person; it waives no evidence.
+    "INSTRUCTION_IGNORED",
 })
 
 PRODUCTS = [
@@ -100,9 +102,18 @@ def test_ac16_ask_never_carries_a_non_approvable_reason():
     assert len(asks) > 100
     for d in asks:
         assert not set(d.reasons) & NOT_APPROVABLE, d.reasons
-        assert set(d.reasons) <= APPROVABLE | {"SPLIT", "INSTRUCTION_IGNORED", "VALIO_SUBSTITUTE"}
+        assert set(d.reasons) <= APPROVABLE | {"SPLIT", "VALIO_SUBSTITUTE"}
         assert d.approvable_reasons and set(d.approvable_reasons) <= APPROVABLE
         assert d.approver_role is not None
+
+
+def test_t107_an_instruction_attempt_is_never_auto():
+    flagged = [d for d in DECISIONS if "INSTRUCTION_IGNORED" in d.reasons]
+    assert {d.outcome for d in flagged} >= {"ASK", "BLOCK"}
+    for d in flagged:
+        assert d.outcome != "AUTO"
+        effect = next(f.effect for f in d.findings if f.code == "INSTRUCTION_IGNORED")
+        assert effect == ("ASK" if d.outcome == "ASK" else "INFO")
 
 
 def test_no_order_level_reason_is_an_exclusion():

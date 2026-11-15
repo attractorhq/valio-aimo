@@ -99,8 +99,9 @@ REASON_REGISTRY = MappingProxyType({r.code: r for r in (
     _reason("NOT_AVAILABLE", "EXCLUDE", "Not deliverable", "Valio Aimo can't deliver this product on any date."),
     _reason("SALES_BLOCKED", "EXCLUDE", "Sales blocked", "This product can't be ordered right now."),
     _reason("PRICE_UNAVAILABLE", "EXCLUDE", "No price", "No valid price for this date."),
-    _reason("INSTRUCTION_IGNORED", "INFO", "Instruction ignored",
-            "The request tried to change rules or claim approval. Sign-off only comes from the approver."),
+    # T107: an otherwise AUTO or ASK order asks a person; under BLOCK or NO_ORDER it is context only (INFO).
+    _reason("INSTRUCTION_IGNORED", "ASK", "Instruction ignored",
+            "The request contained an instruction to bypass approval; a person checks this order.", "INFO"),
     _reason("NO_CANDIDATE", "NO_ORDER", "No match",
             "Nothing in the assortment meets all requirements. Closest options: …"),
     _reason("CLARIFICATION_NEEDED", "NO_ORDER", "Needs detail", "{oneQuestion}"),

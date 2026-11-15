@@ -177,10 +177,13 @@ def decide(
         findings.append(Finding("MANDATE_NOT_VALID", "BLOCK", "O0", detail=expired))
 
     # O4: the request text is data. O6: unclear or contradictory requests are asked about, not assumed.
-    if instruction_ignored or detect_instruction(request.requestText):
-        findings.append(Finding("INSTRUCTION_IGNORED", "INFO", "O4"))
+    # T107: an order whose request tried to bypass controls is never ordered automatically. The attempt is an
+    # approvable ASK reason when the order would otherwise be AUTO or ASK; under BLOCK / NO_ORDER it is context only.
     if clarification_needed:
         findings.append(Finding("CLARIFICATION_NEEDED", "NO_ORDER", "O6"))
+    if instruction_ignored or detect_instruction(request.requestText):
+        effect = "INFO" if _outcome(findings) in ("BLOCK", "NO_ORDER") else "ASK"
+        findings.append(Finding("INSTRUCTION_IGNORED", effect, "O4"))
 
     # P2: Finding refuses any effect the registry does not allow, so an ASK can only stem from a
     # P2.2 trade-off; test_policy_properties checks this exhaustively.

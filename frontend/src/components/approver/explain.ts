@@ -517,6 +517,10 @@ export function explainWhyNotAuto(
       )
       continue
     }
+    if (code === 'INSTRUCTION_IGNORED') {
+      clauses.push('the request contained an instruction to bypass approval, so a person checks this order')
+      continue
+    }
     if (code === 'LOW_RELIABILITY') {
       const pct = extractReliabilityPercent(proposal)
       clauses.push(

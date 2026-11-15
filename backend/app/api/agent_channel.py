@@ -284,8 +284,20 @@ def get_offer(
     return state.gateway.get_offer(body).offer
 
 
+COMPACT_HINT = (
+    "Shortcut for agents: `POST /v0.1/agent/run?view=compact` runs search, offer and proposal in one call and "
+    "returns a few-KB summary (one-line `summary`, reason codes with their human text, totals, lines, links)."
+)
+
+
 @router.post("/proposals", response_model=Proposal, status_code=201, operation_id="createProposal",
-             summary="Bind the request to an offer version; the gateway decides AUTO / ASK / BLOCK")
+             summary="Bind the request to an offer version; the gateway decides AUTO / ASK / BLOCK",
+             description=(
+                 "Returns the full Proposal. If nothing can be ordered the gateway answers 422 `NO_ORDER`; for "
+                 "NO_CANDIDATE, `error.details.noOrder` lists each unmatched item with why, `closestMatches` "
+                 "(never ordered) and `earliestDeliverableDate` with a `retryHint` (repeat getOffer with "
+                 "`lookupDate`). " + COMPACT_HINT
+             ))
 def create_proposal_route(
     body: Annotated[CreateProposalRequest, Body(openapi_examples={
         "school_gluten_free": {
@@ -313,7 +325,14 @@ def create_proposal_route(
     state: State,
     customer: AgentCustomer,
 ) -> Proposal:
-    proposal = create_proposal(body, state, customer)
+    try:
+        proposal = create_proposal(body, state, customer)
+    except NoOrderError as exc:
+        from .no_order_help import attach_no_candidate_details
+
+        offer = state.gateway.get_registered_offer(body.offerId, body.offerVersion)
+        attach_no_candidate_details(state, body, offer, exc)  # T108: same help as the buyer UI
+        raise
     call: AgentCall | None = getattr(request.state, "agent_call", None)
     if call is not None:
         call.instruction_refused = ReasonCode.INSTRUCTION_IGNORED in proposal.reasons
@@ -332,7 +351,8 @@ def create_proposal(body: CreateProposalRequest, state: GatewayState, customer: 
 
 
 @router.get("/proposals/{proposalId}", response_model=Proposal, operation_id="getProposal",
-            summary="The current state of a proposal (the owning buyer's agent key; 404 for another buyer)")
+            summary="The current state of a proposal (the owning buyer's agent key; 404 for another buyer)",
+            description="Returns the full Proposal with facts. " + COMPACT_HINT)
 def get_proposal_route(proposalId: str, request: Request, state: ApprovalState) -> Proposal:
     proposal_read_scope(request, state, proposalId)
     return get_proposal(proposalId, state)
@@ -374,12 +394,26 @@ def get_audit_trail(
         logs = [(sid, s.gateway.log) for sid, s in iter_audit_sessions(state)]
         return aggregate_audit_trails(logs, customer_id=customerId)
     if proposalId is None and customerId is None:
-        return AuditTrail(entries=list(state.gateway.log.entries()))
+        return state.gateway.log.global_trail()
     return state.gateway.get_audit_trail(proposal_id=proposalId, customer_id=customerId)
 
 
-@router.get("/audit/verify", response_model=AuditChainVerification, operation_id="verifyAuditTrail",
-            summary="Verify the SHA-256 hash chain over the decision log")
+@router.get(
+    "/audit/verify", response_model=AuditChainVerification, operation_id="verifyAuditTrail",
+    summary="Verify the SHA-256 hash chain over the decision log (a buyer's own entries, or all with the admin key)",
+    description=(
+        "Recomputes the SHA-256 hash chain and returns `verified`, `chainLength` and `headHash`.\n\n"
+        "Two keys are accepted:\n\n"
+        "- **Buyer's agent key** `Authorization: Bearer demo-agent-<customerId>`: verifies only that buyer's "
+        "entries. Without `customerId` or `proposalId` it defaults to the key's own buyer; `customerId` or "
+        "`proposalId` of another buyer returns 403. The response echoes `customerId` (and `proposalId`) so the "
+        "buyer can see which chain was checked.\n"
+        "- **Admin key** `X-Demo-Admin-Key: demo-admin`: without parameters, verifies the full log of every "
+        "buyer (`customerId` is null); with `customerId` or `proposalId`, verifies that scope.\n\n"
+        "No key returns 401 with a message naming both keys. The head hash is returned so that a buyer can keep "
+        "it and compare it later; the chain is not signed."
+    ),
+)
 def verify_audit_trail(
     request: Request,
     state: State,
@@ -388,14 +422,19 @@ def verify_audit_trail(
     scope: AuditScopeParam = "session",
 ) -> AuditChainVerification:
     all_sessions = scope == "all"
-    audit_scope(request, state, proposalId, customerId, all_sessions=all_sessions)
+    scoped = audit_scope(request, state, proposalId, customerId, all_sessions=all_sessions,
+                         agent_defaults_to_own=True)
+    if proposalId is not None:
+        owner = find_proposal_state(state, proposalId, all_sessions=True) if all_sessions else state
+        result = owner.gateway.log.verify(proposal_id=proposalId)
+        return result.model_copy(update={"customerId": scoped, "proposalId": proposalId})
+    customerId = scoped
     if all_sessions:
-        if proposalId is not None:
-            owner = find_proposal_state(state, proposalId, all_sessions=True)
-            return owner.gateway.log.verify(proposal_id=proposalId)
         logs = [(sid, s.gateway.log) for sid, s in iter_audit_sessions(state)]
-        return aggregate_audit_verification(logs, customer_id=customerId)
-    return state.gateway.log.verify(proposal_id=proposalId, customer_id=customerId)
+        result = aggregate_audit_verification(logs, customer_id=customerId)
+    else:
+        result = state.gateway.log.verify(customer_id=customerId)
+    return result.model_copy(update={"customerId": customerId})
 
 
 @router.get("/proposals", response_model=list[Proposal], operation_id="listCustomerProposals",

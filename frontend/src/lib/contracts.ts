@@ -42,6 +42,10 @@ export type AuditEntry = {
   facts?: Array<TrustLabel>;
   summary: string;
   comment?: string | null;
+  prevHash?: string | null;
+  hash?: string | null;
+  kid?: string | null;
+  signature?: string | null;
 };
 
 export type AuditTrail = {
@@ -146,6 +150,8 @@ export type Offer = {
   lines: Array<OfferLine>;
   excluded?: Array<ExcludedProduct>;
   totals: Totals;
+  kid?: string | null;
+  signature?: string | null;
 };
 
 export type OfferItem = {
@@ -227,6 +233,9 @@ export type Proposal = {
   totals: Totals;
   reasonDetails?: { [key: string]: string };
   supersededBy?: string | null;
+  kid?: string | null;
+  signature?: string | null;
+  confirmationSignature?: string | null;
   simulationNotice?: "Simulated order \u2014 mock environment";
 };
 
@@ -545,11 +554,12 @@ export const REASON_REGISTRY = {
   },
   "INSTRUCTION_IGNORED": {
     "code": "INSTRUCTION_IGNORED",
-    "effect": "INFO",
-    "approvable": false,
+    "effect": "ASK",
+    "approvable": true,
     "chipText": "Instruction ignored",
-    "template": "The request tried to change rules or claim approval. Sign-off only comes from the approver.",
+    "template": "The request contained an instruction to bypass approval; a person checks this order.",
     "allowedEffects": [
+      "ASK",
       "INFO"
     ]
   },

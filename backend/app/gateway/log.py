@@ -41,6 +41,7 @@ from app.contracts import (
 )
 from app.contracts.common import Contract
 from app.db.models import DecisionLogRow
+from app.gateway.signing import SIGNED_AUDIT_EVENTS, GatewaySigner
 from app.policy import Finding
 from app.policy.limits import format_days
 
@@ -213,6 +214,9 @@ class AuditChainVerification(Contract):
     reason: str | None = None
     links: list[AuditChainLink] = Field(default_factory=list)
     sessions: list[SessionChainVerification] | None = None
+    # T110: which chain was checked. `customerId` null with no `proposalId` means the full log (admin key).
+    customerId: str | None = None
+    proposalId: str | None = None
 
 
 def public_session_id(sandbox_id: str) -> str:
@@ -222,6 +226,9 @@ def public_session_id(sandbox_id: str) -> str:
     return f"ses-{hashlib.sha256(sandbox_id.encode()).hexdigest()[:12]}"
 
 
+_UNHASHED_ENTRY_FIELDS: frozenset[str] = frozenset({"prevHash", "hash", "kid", "signature"})
+
+
 def canonical_entry_json(entry: AuditEntry) -> str:
     """Canonical JSON serialization of an `AuditEntry` for SHA-256 hashing.
 
@@ -229,7 +236,7 @@ def canonical_entry_json(entry: AuditEntry) -> str:
     under a `proposalId` by `bind_offer_entries`; normalising `proposalId=None` on `OFFER_CREATED`
     keeps the entry's hash invariant when bound so earlier links never need to be rewritten.
     """
-    payload = entry.model_dump(mode="json")
+    payload = {k: v for k, v in entry.model_dump(mode="json").items() if k not in _UNHASHED_ENTRY_FIELDS}
     if payload.get("event") == "OFFER_CREATED":
         payload["proposalId"] = None
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
@@ -629,11 +636,27 @@ def _strip_chain_meta(raw: dict) -> dict:
     return {k: v for k, v in raw.items() if k != "_chain"}
 
 
+def _attach_chain_links(
+    entries: Sequence[AuditEntry],
+    links: Sequence[AuditChainLink],
+) -> list[AuditEntry]:
+    by_id = {lnk.entryId: lnk for lnk in links}
+    out: list[AuditEntry] = []
+    for idx, entry in enumerate(entries):
+        lnk = links[idx] if idx < len(links) and links[idx].entryId == entry.entryId else by_id.get(entry.entryId)
+        if lnk is not None:
+            out.append(entry.model_copy(update={"prevHash": lnk.prevHash, "hash": lnk.entryHash}))
+        else:
+            out.append(entry)
+    return out
+
+
 class DecisionLog:
     """Append-only decision log for offers, proposals and mandate events (in-memory + optional SQLite)."""
 
-    def __init__(self, session: Session | None = None):
+    def __init__(self, session: Session | None = None, *, signer: GatewaySigner | None = None):
         self._session = session
+        self._signer = signer
         self.agent_activity = AgentActivity()
         self._entries: list[AuditEntry] = []
         self._forbidden_tokens: set[str] = set()
@@ -763,6 +786,13 @@ class DecisionLog:
     def append(self, entry: AuditEntry) -> AuditEntry:
         """Validate and append an immutable `AuditEntry`, sealing only the new link incrementally."""
         _check_no_credentials(entry, self._forbidden_tokens)
+        if self._signer is not None and entry.event in SIGNED_AUDIT_EVENTS and entry.signature is None:
+            entry = entry.model_copy(
+                update={
+                    "kid": self._signer.kid,
+                    "signature": self._signer.sign_audit_entry(entry),
+                }
+            )
         self._entries.append(entry)
         g_link = self._seal_entry_global(entry)
         c_link = self._seal_entry_customer(entry)
@@ -909,13 +939,49 @@ class DecisionLog:
             if rows:
                 self._session.commit()
 
+    def _db_links(self, scope: str, *, proposal_id: str | None = None, customer_id: str | None = None) -> list[AuditChainLink] | None:
+        if self._session is None:
+            return None
+        stmt = select(DecisionLogRow).order_by(DecisionLogRow.seq)
+        if scope == "proposal" and proposal_id is not None:
+            stmt = stmt.where(DecisionLogRow.proposal_id == proposal_id)
+        elif scope == "customer" and customer_id is not None:
+            stmt = stmt.where(DecisionLogRow.customer_id == customer_id)
+        rows = self._session.scalars(stmt).all()
+        db_sealed: list[AuditChainLink] = []
+        for idx, row in enumerate(rows):
+            meta = (row.data or {}).get("_chain", {}).get(scope)
+            if meta and "prevHash" in meta and "entryHash" in meta:
+                db_sealed.append(
+                    AuditChainLink(
+                        index=idx,
+                        entryId=row.entry_id,
+                        prevHash=meta["prevHash"],
+                        entryHash=meta["entryHash"],
+                        expectedPrevHash=meta["prevHash"],
+                        expectedEntryHash=meta["entryHash"],
+                        valid=True,
+                    )
+                )
+        return db_sealed if db_sealed and len(db_sealed) == len(rows) else None
+
+    def global_trail(self) -> AuditTrail:
+        """Return the global ordered decision log with each entry's global `prevHash` and `hash`."""
+        current = list(self.entries())
+        links = self._db_links("global") or list(self._sealed_global)
+        return AuditTrail(entries=_attach_chain_links(current, links))
+
     def for_proposal(self, proposal_id: str) -> AuditTrail:
-        """Return the ordered decision log for `proposal_id`."""
-        return AuditTrail(entries=[e for e in self.entries() if e.proposalId == proposal_id])
+        """Return the ordered decision log for `proposal_id` with per-proposal `prevHash` and `hash`."""
+        scoped = [e for e in self.entries() if e.proposalId == proposal_id]
+        links = self._db_links("proposal", proposal_id=proposal_id) or list(self._sealed_by_proposal.get(proposal_id, ()))
+        return AuditTrail(entries=_attach_chain_links(scoped, links))
 
     def for_customer(self, customer_id: str) -> AuditTrail:
-        """Return the ordered decision log for `customer_id`."""
-        return AuditTrail(entries=[e for e in self.entries() if e.customerId == customer_id])
+        """Return the ordered decision log for `customer_id` with per-customer `prevHash` and `hash`."""
+        scoped = [e for e in self.entries() if e.customerId == customer_id]
+        links = self._db_links("customer", customer_id=customer_id) or list(self._sealed_by_customer.get(customer_id, ()))
+        return AuditTrail(entries=_attach_chain_links(scoped, links))
 
     def get_audit_trail(
         self,
@@ -1043,7 +1109,7 @@ def aggregate_audit_trails(
         elif customer_id is not None:
             entries = log.for_customer(customer_id).entries
         else:
-            entries = list(log.entries())
+            entries = list(log.global_trail().entries)
         for e_idx, entry in enumerate(entries):
             indexed.append((entry.timestamp, s_idx, e_idx, entry))
     indexed.sort(key=lambda item: (item[0], item[1], item[2]))

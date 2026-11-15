@@ -604,6 +604,30 @@
     },
     "totals": {
       "$ref": "#/$defs/Totals"
+    },
+    "kid": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Kid"
+    },
+    "signature": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Signature"
     }
   },
   "required": [

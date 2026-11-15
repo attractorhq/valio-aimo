@@ -21,7 +21,8 @@ This is the shared **contract**, not a claim that the routes are implemented. T0
 - `GET /v0.1/proposals` lists only the authenticated agent key's buyer proposals, newest first, without capabilities.
 - The approver queue and capability issuance require `X-Demo-Approver-Role: Head Chef` (school) or `Purchasing Manager` (hotel). The server checks the proposal's buyer and named role; the wrong role returns 403. A signed phone capability can supply only its issued role; an explicitly supplied wrong role still fails. The UI labels sign-in as role only, no password.
 - Buyer-admin writes (including session reset) require `X-Demo-Admin-Key: demo-admin` (401 otherwise). Global reset additionally retains its architect-only reset secret. This admin key does not grant approval capability issuance or decisions.
-- Audit reads, JSON/CSV exports, and `/v0.1/audit/verify` require the owning buyer's agent key for `customerId` or `proposalId`. Cross-buyer access returns 403. Global audit/verification is admin-only with `X-Demo-Admin-Key`; scoped admin reads are also allowed. Global approver proposal listing (without issuing capabilities) is admin-only.
+- Audit reads, JSON/CSV exports, and `/v0.1/audit/verify` require the owning buyer's agent key for `customerId` or `proposalId`. Cross-buyer access returns 403. Global audit reads are admin-only with `X-Demo-Admin-Key`; scoped admin reads are also allowed. Global approver proposal listing (without issuing capabilities) is admin-only.
+- **Buyer-verifiable chain (T110).** `GET /v0.1/audit/verify` with only the buyer's agent key (`Authorization: Bearer demo-agent-<customerId>`, no `customerId`/`proposalId`) verifies **that buyer's entries only** and returns `verified`, `chainLength` and `headHash` of the buyer's own chain. The admin key without parameters keeps the full verify over every buyer. `AuditChainVerification` echoes the checked scope in two optional fields: `customerId` (null for the admin's full verify) and `proposalId` (set for a per-proposal verify). The head hash is not signed; a buyer can store it and compare it on a later verify. 401 and 403 messages name the header to send (`Authorization: Bearer demo-agent-<customerId>` or `X-Demo-Admin-Key: demo-admin`).
 
 All of these values are published demo credentials, not production identity. Production requires scoped secrets and SSO/OIDC. Approval tokens remain separate, version-bound, expiring, and single-use.
 
@@ -72,13 +73,13 @@ X99 proves free-from **only for EU-14 groups and their subcodes** (P4), not lact
 
 ### Offer and proposal binding
 
-`Offer` includes `offerId`, positive `offerVersion`, `offerHash` (64 lowercase hex characters, SHA-256), customer, requested date, creation/expiry, mode/capture time, lines, excluded products and totals.
+`Offer` includes `offerId`, positive `offerVersion`, `offerHash` (64 lowercase hex characters, SHA-256), customer, requested date, creation/expiry, mode/capture time, lines, excluded products, totals, and detached Ed25519 receipt fields `kid` and `signature` (T67).
 
 Each `OfferLine` fixes product/name, item link, sales-unit count, delivered physical quantity, content basis, unit price, line total, API VAT rate, delivery date, cut-off, facts, reasons and optional substitution relation. `facts[]` includes price, VAT, stock, date/cut-off and every decisive requirement with its evidence. Empty/unknown data must not be interpreted as proof.
 
 `offerHash` commits to the ordered line snapshots: product IDs, quantities, units, unit prices, VAT, dates, cut-offs and trust labels. T06 supplies canonical hashing; the schema only requires the digest shape. Offer expiry is `min(createdAt + 15 minutes, price validTo across lines)`.
 
-`Proposal` repeats the frozen lines/totals and binds them to `customerId + mandateVersion + request + offerId + offerVersion + offerHash`. It adds a stable `proposalId`, state, server `decision`, order-level `reasons[]` and optional `approverRole`. `Decision` is the standalone shape `{decision: AUTO|ASK|BLOCK, reasons: ReasonCode[], approverRole?: string|null}`. In a Proposal those fields are **flat**, not a nested object. Excluded candidates and their reasons stay in `excluded[]`; they do not pollute an otherwise valid proposal's ASK reasons.
+`Proposal` repeats the frozen lines/totals and binds them to `customerId + mandateVersion + request + offerId + offerVersion + offerHash`. It adds a stable `proposalId`, state, server `decision`, order-level `reasons[]`, optional `approverRole`, detached Ed25519 decision receipt (`kid`, `signature`), and — once `state == "CONFIRMED_SIMULATED"` — `confirmationSignature`. `Decision` is the standalone shape `{decision: AUTO|ASK|BLOCK, reasons: ReasonCode[], approverRole?: string|null}`. In a Proposal those fields are **flat**, not a nested object. Excluded candidates and their reasons stay in `excluded[]`; they do not pollute an otherwise valid proposal's ASK reasons.
 
 `reasonDetails` (optional, T97) maps a reason code to the server's own wording where the code alone is not enough. Example: an `OVER_AUTO_LIMIT` caused by the same-day total reads `"€297.96 already committed for delivery on Mon 16 Nov; with this order €595.92 > €500.00 auto-approve limit"`. It is informational; `decision` and `reasons[]` stay authoritative.
 
@@ -123,7 +124,33 @@ The buyer admin sets them with `PATCH /v0.1/admin/mandates/{customerId}` (`allow
 - The model reports what it used as `restaurantPreferenceNotes` ("Applied: …", "Not applied: …", "Unclear: …"). They are added to `StructuredRequest.assumptions` as "Restaurant preference · …", shown in the UI as read-only notes.
 - Without a model reading (no LLM configured, timeout, invalid output), the deterministic parser ignores them and the request says "Restaurant preferences not applied: the request was read without the language model." 
 
-`AuditEntry` records timestamp, actor, event/summary, customer/proposal/offer binding, mandate version, optional old/new state, rule, reason codes, facts, and optional human comment. There is no arbitrary credential-bearing metadata field. Rejection/approval comments and request text remain untrusted data. Hash chaining and audit export are later tickets.
+`AuditEntry` records timestamp, actor, event/summary, customer/proposal/offer binding, mandate version, optional old/new state, rule, reason codes, facts, optional human comment, the SHA-256 chain links (`prevHash`, `hash`, starting from `0`×64 genesis), and detached Ed25519 receipt fields (`kid`, `signature`) on offer, decision, and confirmation transitions. There is no arbitrary credential-bearing metadata field. Rejection/approval comments and request text remain untrusted data.
+
+- **Chain verification & export (T28, T30, T67):** `GET /v0.1/audit/verify` verifies the SHA-256 hash chain on the server, and `GET /v0.1/audit/export?proposalId=…|customerId=…&format=json|csv` exports the full trail including each entry's `prevHash`, `hash`, `kid`, and `signature` (with spreadsheet formula cells neutralised in CSV).
+- **Published keys, discovery & offline verification (T67):** `GET /.well-known/aimo-connect-keys.json` publishes the gateway's Ed25519 public key as an RFC 8037 OKP JWK Set (`kty: "OKP"`, `crv: "Ed25519"`, `alg: "EdDSA"`, `kid`, `x`), and `GET /.well-known/aimo-connect.json` points to OpenAPI, MCP, `/spec`, and the JWK Set. Detached base64url signatures cover canonical UTF-8 JSON (`sort_keys=True`, `(",", ":")` separators) for `aimo-connect.offer.v0.1`, `aimo-connect.decision.v0.1`, `aimo-connect.confirmation.v0.1`, and `aimo-connect.audit-entry.v0.1`. `scripts/verify-audit <export.json> [--keys <jwks>]` verifies both the SHA-256 chain and Ed25519 signatures offline using the Python standard library alone.
+
+## Trust labels and existing standards (T110)
+
+Agent Trust Labels map to concepts in GS1 product data and W3C Verifiable Credentials (VC). They are not GS1 messages and not Verifiable Credentials, and labels are not signed. The same tables are on `/spec#standards`.
+
+| Trust level | GS1 | W3C VC |
+|---|---|---|
+| `VERIFIED` | No GS1 trust level. Price and availability are trading-partner transaction data, not GDSN master data. | `issuer` = Valio Aimo's live price or availability system. |
+| `DECLARED` | Supplier master data published through GDSN (GS1 Synkka in Finland); the brand owner is the information provider. | `issuer` = the supplier, read through `valio-aimo.product-data`. |
+| `ESTIMATE` | No GS1 equivalent. | `issuer` = `derived` (the gateway) or a statistics source; `evidence` = `method`, always stated. |
+| `UNKNOWN` | No GS1 equivalent. A missing allergen declaration is never read as `FREE_FROM`. | No credential exists for the fact. |
+
+| Label field | GS1 | W3C VC |
+|---|---|---|
+| `fact` + `value` | Attribute and value, e.g. `allergen.AM` = allergen type code AM (milk) with a level of containment; `claim.FREE_FROM_GLUTEN` = nutritional claim type `FREE_FROM` for `GLUTEN`. | A claim in `credentialSubject` (property and value). |
+| allergen status | `CONTAINS`, `MAY_CONTAIN` and `FREE_FROM` map to the GS1 `levelOfContainmentCode` values of the same name. `NOT_LISTED`, `UNDECLARED` and `UNKNOWN` describe missing or partial declarations and never prove absence. | The claim value. |
+| `productId` | Valio Aimo's own product number. The GS1 identifier is the GTIN, which v0.1 does not carry. | `credentialSubject.id` (what the claim is about). |
+| `source.system` | For `DECLARED` facts, the GDSN data source. | `issuer` |
+| `source.field` | The attribute name in the source record. | The property name inside `credentialSubject`. |
+| `source.retrievedAt` | No GS1 equivalent. | `issuanceDate` (`validFrom` in VC Data Model 2.0). It is when the gateway read the fact, not when the source first stated it; `null` for static data. |
+| `method` | No GS1 equivalent. | `evidence`: how the value was derived or checked. |
+| `level` | No GS1 equivalent. | No VC field: our classification of the issuer and method. |
+| `conflict` | No GS1 equivalent. | No VC field: two sources whose claims disagree. |
 
 ## Reason-code registry
 
@@ -131,13 +158,13 @@ The canonical registry is `app.contracts.REASON_REGISTRY`; generated TypeScript 
 
 | Default effect | Codes | Approvable |
 |---|---|---|
-| ASK | `OVER_AUTO_LIMIT`, `DATE_LATER`, `PARTIAL_AVAILABILITY`, `SUPPLIER_STOCK_UNKNOWN`, `VALIO_SUBSTITUTE`, `AGENT_SUBSTITUTE`, `LOW_RELIABILITY`, `QUANTITY_BASIS_WEAK` | yes |
+| ASK | `OVER_AUTO_LIMIT`, `DATE_LATER`, `PARTIAL_AVAILABILITY`, `SUPPLIER_STOCK_UNKNOWN`, `VALIO_SUBSTITUTE`, `AGENT_SUBSTITUTE`, `LOW_RELIABILITY`, `QUANTITY_BASIS_WEAK`, `INSTRUCTION_IGNORED` | yes |
 | EXCLUDE | `CLAIM_MISSING`, `ALLERGEN_CONTAINS`, `ALLERGEN_MAY_CONTAIN`, `ALLERGEN_UNKNOWN`, `ALLERGEN_IMPLICIT`, `DATA_CONFLICT`, `CUTOFF_PASSED`, `UNIT_MISMATCH`, `NOT_AVAILABLE`, `SALES_BLOCKED`, `PRICE_UNAVAILABLE`, `SUBSTITUTE_REJECTED`, `DEPOSIT_COST_UNVERIFIED`, `QUANTITY_BASIS_UNKNOWN`, `CATEGORY_NOT_ALLOWED` | no |
 | BLOCK | `OVER_HARD_LIMIT`, `MANDATE_NOT_VALID` | no |
-| INFO | `SPLIT`, `INSTRUCTION_IGNORED`, `REQUOTED`, `VARIABLE_WEIGHT_UNVERIFIED` | no |
+| INFO | `SPLIT`, `REQUOTED`, `VARIABLE_WEIGHT_UNVERIFIED` | no |
 | NO_ORDER | `NO_CANDIDATE`, `CLARIFICATION_NEEDED` | no |
 
-Contextual effects are explicit: `VALIO_SUBSTITUTE` may be INFO when the mandate auto-accepts a compliant Valio substitute. `ALLERGEN_CONTAINS` may BLOCK a specifically named product forbidden by the mandate. Neither exception lets a human waive a hard requirement. Partial availability is ASK **only for a separately versioned, explicitly partial proposal**; supplier stock only with an open cut-off; every substitute must prove every hard requirement.
+Contextual effects are explicit: `VALIO_SUBSTITUTE` may be INFO when the mandate auto-accepts a compliant Valio substitute. `INSTRUCTION_IGNORED` (O4, T107) is ASK when the order would otherwise be AUTO or ASK: a request that tried to bypass approval, raise a limit or claim a prior sign-off is never ordered automatically, and the approver signs off with the chip "Instruction ignored" and the text "The request contained an instruction to bypass approval; a person checks this order." Under BLOCK or NO_ORDER it is INFO (context only), so Scenario C stays BLOCK `[OVER_HARD_LIMIT, INSTRUCTION_IGNORED]`. The attempt itself is never executed and the re-check keeps the reason, so an approved proposal confirms instead of being superseded. `ALLERGEN_CONTAINS` may BLOCK a specifically named product forbidden by the mandate. None of these exceptions lets a human waive a hard requirement. Partial availability is ASK **only for a separately versioned, explicitly partial proposal**; supplier stock only with an open cut-off; every substitute must prove every hard requirement.
 
 The P2.6 cut-off template is exactly:
 
@@ -167,13 +194,16 @@ scripts/check
 
 `POST /v0.1/agent/run` accepts `{customerId, requestText, stream?: boolean, lookupDate?: date}`.
 The default `?view=full` returns the existing `AgentRunResult`, including steps, request, plan,
-offer, proposal, explanation and reasons. Existing SSE/NDJSON streams are unchanged.
+offer, proposal, explanation and reasons (often tens of KB). Existing SSE/NDJSON streams are unchanged.
 
-For external clients, `?view=compact` runs the same agent and deterministic gateway, then returns
-only a decision summary (`CompactAgentRunResult`, also described in OpenAPI):
+**External agents should use `?view=compact`.** It runs the same agent and deterministic gateway, then
+returns only a decision summary (`CompactAgentRunResult`, a few KB; Scenario B is under 2 KB). OpenAPI
+documents the `view` parameter, the schema and two response examples (`compact_ask`,
+`compact_no_candidate`), and the `createProposal`/`getProposal` descriptions point here.
 
 ```json
 {
+  "summary": "ASK: €506.16 excl. VAT, 2 lines, waits for Head Chef approval. €506.16 excl. VAT is above your €500.00 auto-approve limit.",
   "customerId": "northbay-school-kitchen",
   "mode": "RECORDED",
   "recordedAt": "2026-11-13T21:52:02+02:00",
@@ -181,6 +211,9 @@ only a decision summary (`CompactAgentRunResult`, also described in OpenAPI):
   "decision": "ASK",
   "state": "PENDING_APPROVAL",
   "reasons": ["OVER_AUTO_LIMIT"],
+  "reasonTexts": [
+    {"code": "OVER_AUTO_LIMIT", "effect": "ASK", "text": "€506.16 excl. VAT is above your €500.00 auto-approve limit."}
+  ],
   "totals": {"exclVat": "506.16", "vat": "68.33", "inclVat": "574.49", "currency": "EUR"},
   "lines": [
     {"productId": "MOCK-PASTA", "name": "Synthetic gluten-free macaroni", "quantitySalesUnits": "18", "salesUnit": "ST", "unitPriceExclVat": "22.92", "lineTotalExclVat": "412.56"},
@@ -188,6 +221,7 @@ only a decision summary (`CompactAgentRunResult`, also described in OpenAPI):
   ],
   "approverRole": "Head Chef",
   "clarificationQuestion": null,
+  "noOrder": null,
   "links": {"proposal": "/v0.1/proposals/PR-EXAMPLE-v1", "audit": "/v0.1/audit?proposalId=PR-EXAMPLE-v1"}
 }
 ```
@@ -199,9 +233,36 @@ from a model-generated summary. `mode` and the snapshot's `recordedAt` preserve 
 agent-channel reads; follow them in the same session to retrieve the full proposal and audit.
 No facts, candidate lists, approval tokens, approval links or QR payloads are included.
 
+- `summary` is one deterministic line (never model-written): the outcome, the total, who must approve
+  and the decisive reason sentence(s); for no order, what is missing and whether a later date works.
+- `reasonTexts` lists every code in `reasons`, in the same order, as `{code, effect, text}`. `text` is the
+  sentence the buyer UI shows for that code with the real values (limit, total, dates, the same-day
+  committed total when that is what crossed the limit, the clarification question). `reasons` stays a
+  plain code list for existing clients.
+
 If no proposal is created (clarification or no candidate), `proposalId`, `decision`, `state`,
-`totals`, `approverRole` and `links` are null, and `lines` is empty. `reasons` and any
+`totals`, `approverRole` and `links` are null, and `lines` is empty. `reasons`, `reasonTexts` and any
 `clarificationQuestion` explain what is missing; no policy outcome or zero-priced order is invented.
+For NO_CANDIDATE, `noOrder` carries the same data the UI's no-order banner shows:
+
+```json
+"noOrder": {
+  "items": [{"itemId": "I1", "searched": "milk · lactose-free",
+             "why": "Available Mon 16 Nov, after your Fri 13 Nov deadline. Exclusions include cut-off passed.",
+             "closestMatches": []}],
+  "earliestDeliverableDate": "2026-11-16",
+  "retry": {
+    "hint": "The full request can be delivered on Mon 16 Nov. Send the same requestText with lookupDate 2026-11-16 to get a proposal for that day; the later date needs approval.",
+    "method": "POST", "path": "/v0.1/agent/run?view=compact",
+    "body": {"customerId": "nordic-harbour-hotels", "requestText": "I need 10 litres of lactose-free milk today.", "lookupDate": "2026-11-16"}
+  }
+}
+```
+
+`closestMatches` (at most 3 per item) pass the requested product-type check and every hard requirement
+(T105); they are suggestions, never ordered. `earliestDeliverableDate` is set only when a quote confirms
+the full request on that day; `retry` is then a ready request body. The NO_CANDIDATE reason text names
+the searches, the closest matches and the earliest date, so it is readable on its own.
 
 Compact view is non-streaming JSON only. Combining it with `stream=true` (query or body),
 `Accept: text/event-stream` or `Accept: application/x-ndjson` returns HTTP 422 before any agent
@@ -210,7 +271,9 @@ the existing status codes and error shape.
 
 ## Retrying a delivery date
 
-`POST /v0.1/agent/run` can return `steps[].noOrder` with the search, outcome, and optional catalogue matches for each item. If availability supports the full request on a later day, `earliestDelivery` is an ISO date. The buyer can rerun with the original `requestText` and that date as `lookupDate`.
+`POST /v0.1/agent/run` can return `steps[].noOrder` with the search, outcome, and optional catalogue matches for each item (in the compact view: `noOrder`, see above). If availability supports the full request on a later day, `earliestDelivery` (compact: `earliestDeliverableDate`) is an ISO date. The buyer can rerun with the original `requestText` and that date as `lookupDate`.
+
+Agents that call `createProposal` directly (REST `POST /v0.1/proposals` or the MCP tool) get the same help on a NO_CANDIDATE refusal: the `NO_ORDER` error's `details.noOrder` has `items` (`itemId`, `searched`, `why`, `closestMatches`), `earliestDeliverableDate` and `retryHint` (call `getOffer` again with that `lookupDate`, then `createProposal`). `details.reasons` and `details.excluded` are unchanged.
 
 `POST /v0.1/offers` accepts an optional `lookupDate` later than `requestedDate`. It queries availability and pricing for that later day. The offer and associated request retain `requestedDate` as the original deadline, so the gateway applies `DATE_LATER` and rechecks the later lookup when the approver signs off.
 
@@ -236,6 +299,7 @@ Decision:     ASK
 Reasons:      ["OVER_AUTO_LIMIT"]
 Totals:       €506.16 excl. VAT · VAT €68.33 · €574.49 incl. VAT (EUR)
 offerHash:    <64-char sha256 hex digest>
+Signature:    signature verified (ac-ed25519-...)
 ```
 
 ### Equivalent `curl` + `jq` walkthrough (agent channel only)

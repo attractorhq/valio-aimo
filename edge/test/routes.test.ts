@@ -12,6 +12,7 @@ import {
 
 test('gateway paths go to the container, everything else is the UI', () => {
   for (const path of ['/health', '/openapi.json', '/docs', '/docs/oauth2-redirect', '/mcp', '/mcp/sse',
+    '/.well-known/aimo-connect.json', '/.well-known/aimo-connect-keys.json',
     '/v0.1/offers', '/v0.1/agent/run', '/v0.1/approver/proposals/P1']) {
     assert.equal(isGatewayPath(path), true, path)
   }

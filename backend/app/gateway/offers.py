@@ -45,6 +45,7 @@ from app.contracts import (
     TrustSource,
     format_date,
 )
+from app.gateway.signing import GatewaySigner
 from app.policy import ContentBasis, LineInput, LineVerdict, StockKind, evaluate_line
 from app.policy.requirements import (
     K6_MESSAGE,
@@ -455,6 +456,7 @@ def build_offer(
     offer_version: int = 1,
     committed_units: Mapping[tuple[str, date], Decimal] | None = None,
     committed_orders: Mapping[tuple[str, date], Sequence[tuple[str, Decimal]]] | None = None,
+    signer: GatewaySigner | None = None,
 ) -> OfferResult:
     """Size, allocate and price the shortlist from one snapshot. Deterministic for the same inputs.
 
@@ -663,7 +665,8 @@ def build_offer(
         # final hash. This avoids a circular offerId/hash definition and preserves offline replay.
         fields["offerId"] = f"OF-{created.date().isoformat()}-{_hash_payload(fields)[:12]}"
     offer_hash = _hash_payload(fields)
-    offer = Offer(
+    active_signer = signer if signer is not None else GatewaySigner()
+    unsigned_offer = Offer(
         offerId=fields["offerId"],
         offerVersion=offer_version,
         offerHash=offer_hash,
@@ -676,6 +679,12 @@ def build_offer(
         lines=lines,
         excluded=excluded,
         totals=totals,
+    )
+    offer = unsigned_offer.model_copy(
+        update={
+            "kid": active_signer.kid,
+            "signature": active_signer.sign_offer(unsigned_offer),
+        }
     )
     return OfferResult(offer=offer, verdicts=tuple(verdicts), partial_items=frozenset(partial_item_ids))
 
@@ -700,6 +709,7 @@ def get_offer(
     force_refresh: bool = False,
     committed_units: Mapping[tuple[str, date], Decimal] | None = None,
     committed_orders: Mapping[tuple[str, date], Sequence[tuple[str, Decimal]]] | None = None,
+    signer: GatewaySigner | None = None,
 ) -> OfferResult:
     """One batched price + one batched availability read for the whole shortlist, then `build_offer`."""
     lists = shortlists(request)
@@ -718,4 +728,5 @@ def get_offer(
         offer_version=offer_version,
         committed_units=committed_units,
         committed_orders=committed_orders,
+        signer=signer,
     )

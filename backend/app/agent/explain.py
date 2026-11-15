@@ -416,13 +416,7 @@ def template_explanation(
                 f"All hard requirements{named}, stock and {date_clause} are verified or declared for "
                 f"{line_summary} at {total_str} excl. VAT{within_str}."
             )
-        if ReasonCode.INSTRUCTION_IGNORED in active_reasons:
-            s2 = (
-                "Instructions inside the request text were ignored, and the gateway re-checked and confirmed "
-                "the order automatically."
-            )
-        else:
-            s2 = "The gateway re-checked live price and availability and confirmed the order automatically."
+        s2 = "The gateway re-checked live price and availability and confirmed the order automatically."
         return clamp_to_two_sentences(f"{s1} {s2}")
 
     # 3. BLOCK
@@ -511,6 +505,9 @@ def template_explanation(
         over = overbuy_notes(proposal)
         ask_parts.append(f"whole packs come to well above the amount asked ({'; '.join(over)})" if over
                          else "pack content was estimated from the product name")
+
+    if ReasonCode.INSTRUCTION_IGNORED in active_reasons:
+        ask_parts.append("the request contained an instruction to bypass approval, so a person checks this order")
 
     reason_clause = "; ".join(ask_parts) if ask_parts else f"total is {total_str} excl. VAT"
     if unproven:
