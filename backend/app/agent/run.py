@@ -881,8 +881,10 @@ def _no_order_step(
     )
 
     items = []
+    request_deadline = deadline
     for plan, delivery in zip(item_plans, dates, strict=True):
         item = plan.item
+        deadline = request.deadline_for(item.itemId)  # T120: each item's own date in its no-order explanation
         covered_on_time = delivery is not None and delivery <= deadline and len(request.items) > 1
         if delivery is None:
             delivery = min(
@@ -946,7 +948,7 @@ def _no_order_step(
             closestMatches=matches,
         ))
     retry_date = offer_request.lookupDate if offer_request else None
-    next_date = earliest if earliest and earliest > deadline and earliest != retry_date else None
+    next_date = earliest if earliest and earliest > request_deadline and earliest != retry_date else None
     no_order_reasons = list(dict.fromkeys([ReasonCode.NO_CANDIDATE, *reasons]))
     return AgentStepEvent(
         step=4, name="APPROVAL", title="Approval", status="blocked",
@@ -1367,15 +1369,17 @@ def _iter_agent_steps_inner(
     # not declared) is dropped too while another line still has a valid offer line. The remaining lines get one
     # fresh offer (at most one re-offer) and the gateway decides that proposal from scratch.
     def offerable(item_id: str) -> bool:
+        item_deadline = planned_request.deadline_for(item_id)  # T120: each item keeps its own date
         return any(
-            line.itemId == item_id and (lookup_date is not None or line.deliveryDate <= deadline)
+            line.itemId == item_id and (lookup_date is not None or line.deliveryDate <= item_deadline)
             for line in compliant_lines
         )
 
     late_ids = [item.itemId for item in planned_request.items if not offerable(item.itemId)]
     if late_ids and len(late_ids) < len(planned_request.items):
         late_reasons = {
-            item.itemId: _offer_drop_reason(item, offer, compliant_lines, mandate, deadline)
+            item.itemId: _offer_drop_reason(item, offer, compliant_lines, mandate,
+                                            planned_request.deadline_for(item.itemId))
             for item in planned_request.items if item.itemId in late_ids
         }
         late_step = no_order(offer)  # no offer_request: no extra probe for a later date
@@ -1417,7 +1421,8 @@ def _iter_agent_steps_inner(
     # Keep the existing partial-availability approval flow. When the whole request can
     # be fulfilled but an item has no on-time delivery, let the buyer choose to retry.
     misses_deadline = any(
-        not any(line.itemId == item.itemId and line.deliveryDate <= deadline for line in compliant_lines)
+        not any(line.itemId == item.itemId and line.deliveryDate <= planned_request.deadline_for(item.itemId)
+                for line in compliant_lines)
         for item in planned_request.items
     )
     if lookup_date is None and all(coverage) and misses_deadline:

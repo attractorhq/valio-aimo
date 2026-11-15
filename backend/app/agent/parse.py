@@ -537,7 +537,8 @@ _HEADCOUNT_RE = re.compile(
 )
 # Occasion words kept for a clarifying question ("Which product do you need for dessert for 200 guests …?").
 _OCCASION_EN_RE = re.compile(
-    r"\bfor\s+(?:the\s+|our\s+|a\s+|an\s+)?(?:desserts?|lunch|dinner|breakfast|brunch|supper|snacks?|baking|"
+    r"\bfor\s+(?:the\s+|our\s+|a\s+|an\s+)?(?:(?:breakfast|lunch|dinner|brunch|salad|dessert)\s+buffet|"
+    r"desserts?|lunch|dinner|breakfast|brunch|supper|snacks?|baking|"
     r"party|event|buffet|banquet|coffee\s+break)\b",
     re.IGNORECASE,
 )
@@ -673,6 +674,14 @@ _EXCLUSION_RES = (
     re.compile(rf"\b(?:(?:ei(?:vät)?\s+saa\s+sisältää|ilman|utan|får\s+inte\s+innehålla)\s+|{_NEGATION_EN})"
                rf"(?P<terms>{_EXCLUSION_TERMS})", re.IGNORECASE),
     re.compile(rf"\b(?P<terms>{_EXCLUSION_TERMS})\s+ei\s+saa\s+olla\b", re.IGNORECASE),
+)
+# T120: an allergy list ("strict egg, milk and peanut allergies", "allergic to egg and milk") is a list of hard
+# requirements, never product words. A severity word in front is dropped with it.
+_ALLERGY_SEVERITY = r"(?:(?:strict|severe|serious|known|multiple|several|food|bad)\s+)*"
+_ALLERGY_LIST_RES = (
+    re.compile(rf"\b{_ALLERGY_SEVERITY}(?P<terms>{_EXCLUSION_TERMS})[\s-]+allerg(?:y|ies|ic)\b", re.IGNORECASE),
+    re.compile(rf"\b(?:(?:the\s+|our\s+|some\s+|one\s+|two\s+|\d+\s+)?[^\W\d_]+\s+(?:is|are)\s+)?"
+               rf"(?:allergic|allergies|allergy)\s+(?:to|of)\s+(?P<terms>{_EXCLUSION_TERMS})", re.IGNORECASE),
 )
 _EXCLUSION_TERM_RE = re.compile(r"tree[\s-]+nuts?|[^\W\d_][\w-]*", re.IGNORECASE)
 _EXCLUSION_CONJUNCTIONS = {"tai", "eikä", "ja", "sekä", "och", "samt", "eller", "or", "and", "nor"}
@@ -1130,6 +1139,7 @@ class _ItemDraft:
     requirements: list[Requirement] = field(default_factory=list)
     preferences: list[Preference] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    day: date | None = None  # T120: a date stated inside this item's own phrase
 
 
 def _extract(fragment: str) -> tuple[str, list[Requirement], list[Preference], str | None, list[str], list[str]]:
@@ -1264,10 +1274,46 @@ def _take_exclusions(text: str) -> tuple[str, list[Requirement], str | None]:
                 requirements.extend(r for r in found if r not in requirements)
         return " "
 
+    text, allergies = _take_allergy_lists(text)
+    requirements.extend(r for r in allergies if r not in requirements)
     for pattern in _EXCLUSION_RES:
         brands = [m.span() for m in _BRAND_PHRASE_RE.finditer(text)]
         text = pattern.sub(take, text)
     return text, requirements, unknown
+
+
+def _take_allergy_lists(text: str, *, min_terms: int = 1) -> tuple[str, list[Requirement]]:
+    """T120: cut allergy lists out of the text and return their requirements ("egg, milk and peanut allergies")."""
+    requirements: list[Requirement] = []
+
+    def take(match: re.Match) -> str:
+        found_all: list[Requirement] = []
+        words = [t.group(0) for t in _EXCLUSION_TERM_RE.finditer(match["terms"])
+                 if t.group(0).lower() not in _EXCLUSION_CONJUNCTIONS]
+        if len(words) < min_terms:
+            return match.group(0)
+        for term in _EXCLUSION_TERM_RE.finditer(match["terms"]):
+            word = term.group(0)
+            if word.lower() in _EXCLUSION_CONJUNCTIONS:
+                continue
+            found = _vocab_requirements(word)
+            if found is None:
+                return match.group(0)  # not a plain allergen list: leave it to the other readers
+            found_all.extend(r for r in found if r not in found_all)
+        requirements.extend(r for r in found_all if r not in requirements)
+        return " "
+
+    for pattern in _ALLERGY_LIST_RES:
+        text = pattern.sub(take, text)
+    return text, requirements
+
+
+def _vocab_requirements(word: str) -> tuple[Requirement, ...] | None:
+    """The requirements one allergen word names ("egg", "maito", "jordnöt"), or None."""
+    return next((reqs for reqs, en, fi, sv in _ALLERGEN_VOCAB
+                 if (en and re.fullmatch(en, word, re.IGNORECASE))
+                 or (fi and re.fullmatch(rf"(?:{fi})\w*", word, re.IGNORECASE))
+                 or (sv and re.fullmatch(rf"(?:{sv})\w*", word, re.IGNORECASE))), None)
 
 
 def _unknown_negation(text: str) -> str | None:
@@ -1666,8 +1712,21 @@ def _how_much_multi_question(named_items: list[tuple[str, list[str]]], finnish: 
     return f"How much of each item do you need: {joined}?"
 
 
+# T120: vague time spans and placeholder nouns never become a product name in a question ("How much stuff week…").
+_VAGUE_TIME_RE = re.compile(
+    r"\b(?:next|this|coming|following)\s+(?:week|weekend|month)\b|\bin\s+a\s+(?:week|few\s+days)\b|"
+    r"\b(?:ensi|tällä|tulevalla)\s+viiko\w*|\bnästa\s+vecka\b",
+    re.IGNORECASE,
+)
+_PLACEHOLDER_WORDS = frozenset({
+    "stuff", "things", "thing", "something", "anything", "items", "products", "food", "supplies", "goods",
+    "groceries", "ingredients", "tavaraa", "tavarat", "jotain", "ruokaa", "tarvikkeita", "grejer", "saker",
+})
+
+
 def _missing_quantity_items(clean: str, finnish: bool) -> list[tuple[str, list[str]]]:
     """Extract distinct product items from a quantity-less request, splitting on conjunctions ('ja', 'and', ',')."""
+    clean = _VAGUE_TIME_RE.sub(" ", clean)
     _full_rest, found_requirements, *_ = _extract(clean)
     stripped_clean = _strip_lead(clean)
     has_lead = stripped_clean != clean
@@ -1676,7 +1735,7 @@ def _missing_quantity_items(clean: str, finnish: bool) -> list[tuple[str, list[s
     for chunk in _split_chunks(stripped_clean):
         rest_chunk, chunk_reqs, *_ = _extract(chunk)
         what, originals = _words(_strip_lead(rest_chunk), finnish)
-        if not what or _form_only(what):
+        if not what or _form_only(what) or all(word.lower() in _PLACEHOLDER_WORDS for word in what.split()):
             continue
         all_known = bool(originals) and all(_translate(orig)[1] for orig in originals)
         if has_lead or found_requirements or chunk_reqs or all_known:
@@ -1795,6 +1854,11 @@ def _fallback(
             extra_fuzzy_notes.extend(n for n in fuzzy_notes if n not in extra_fuzzy_notes)
             continue
         _unused_rest, _unused_reqs, sentence_fuzzy = _take_fuzzy_free_from(sentence)
+        # T120: a kitchen's allergy list ("strict egg, milk and peanut allergies") applies to every item and must
+        # be read before the sentence is split at its commas, so no allergen word stays in a product name. A single
+        # allergy ("one pupil has a nut allergy") is left to the whole-clause readers below.
+        sentence, allergy_reqs = _take_allergy_lists(sentence, min_terms=2)
+        extra_requirements.extend(r for r in allergy_reqs if r not in extra_requirements)
         sentence, leading_global = _take_leading_global_clauses(sentence, finnish)
         extra_requirements.extend(r for r in leading_global if r not in extra_requirements)
         sentence, trailing_reqs, trailing_explicit = _take_trailing_constraint_clause(sentence, finnish)
@@ -1836,7 +1900,9 @@ def _fallback(
             ]))
             if similar:
                 notes.append(f"Similar products accepted for {what or 'this item'}")
-            items.append(_ItemDraft(value, unit, first.group(0), what, id_a or id_b, requirements, preferences, notes))
+            frag_dates = _find_dates(fragment, today)
+            items.append(_ItemDraft(value, unit, first.group(0), what, id_a or id_b, requirements, preferences, notes,
+                                    day=frag_dates[0].value if frag_dates else None))
         if trailing_reqs and items:
             pending_tails.append((len(items) - 1, trailing_reqs))
 
@@ -1918,6 +1984,12 @@ def _fallback(
 
     notes: list[str] = []
     requested = deadline_day or (explicit.value if explicit else today + timedelta(days=1))
+    # T120: items with their own, different dates ("butter today and emmental tomorrow") each keep their date; the
+    # request's date is the earliest, so an item is never asked for later than its buyer said.
+    item_days: list[date | None] = [None] * len(items)
+    if deadline is None and len({item.day for item in items if item.day}) >= 2:
+        item_days = [item.day or requested for item in items]
+        requested = min(item_days)
     if deadline is not None:
         notes.append(_deadline_note(deadline, requested, today))
     if extra_requirements:
@@ -1936,6 +2008,10 @@ def _fallback(
             assumptions.append(
                 f"No delivery date given: “{deadline.phrase}” read as {format_date(requested)} ({day})"
             )
+        elif any(item_days):
+            assumptions.append("Each item has its own delivery date: " + ", ".join(
+                f"{item.what or 'item'} {format_date(day)}" for item, day in zip(items, item_days, strict=True)
+            ))
         elif explicit.kind in ("weekday", "weekday_fi", "weekday_sv"):
             assumptions.append(f"Delivered on or before {format_date(requested)}")
         assumptions.extend(notes)
@@ -1954,8 +2030,9 @@ def _fallback(
                     productId=item.product_id,
                     requirements=item.requirements,
                     preferences=item.preferences,
+                    requestedDate=day if day != requested else None,
                 )
-                for n, item in enumerate(items, start=1)
+                for n, (item, day) in enumerate(zip(items, item_days, strict=True), start=1)
             ],
             assumptions=list(dict.fromkeys(assumptions)),
         )
@@ -2356,6 +2433,14 @@ def _from_llm(raw: dict, text: str, today: date, fallback: _Fallback) -> tuple[S
                 llm_concepts = resolve_query_concepts(llm_item.what)
                 if det_concepts and (not llm_concepts or det_concepts[0].concept_id != llm_concepts[0].concept_id):
                     raise ValueError("LLM changed the product noun modified by a stated form")
+    # T120: per-item dates are deterministic, like every other date: they come from the fallback reading.
+    if (fallback.request is not None and len(fallback.request.items) == len(request.items)
+            and any(item.requestedDate for item in fallback.request.items)):
+        request = request.model_copy(update={
+            "requestedDate": fallback.request.requestedDate,
+            "items": [llm_item.model_copy(update={"requestedDate": det_item.requestedDate})
+                      for llm_item, det_item in zip(request.items, fallback.request.items, strict=True)],
+        })
     if any(_form_only(item.what) or _BARE_CONTAINER_RE.fullmatch(item.what) for item in request.items):
         raise ValueError("LLM returned a form or pack container as a product")
     if (fallback.request is not None and _PACK_PHRASE_RE.search(_normalise_words(text))
