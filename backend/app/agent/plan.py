@@ -18,6 +18,7 @@ from typing import Literal
 
 from pydantic import Field
 
+from app.agent.parse import LARGE_PACKS
 from app.catalog.categories import (
     DAIRY_CONCEPTS,
     VARIANT_CHOICE_LABELS,
@@ -1028,6 +1029,21 @@ def _item_matches_primary_concept(product: Product, item: RequestItem) -> tuple[
     return False, any(r[1] for r in results)
 
 
+_SPECIAL_VARIANT_CLAIMS = frozenset({
+    "FREE_FROM_LACTOSE", "LOW_LACTOSE", "FREE_FROM_GLUTEN", "FREE_FROM_MILK", "FREE_FROM_EGG", "FREE_FROM_WHEAT",
+    "FREE_FROM_SOY", "LOW_FAT", "LOW_SODIUM_SALT", "FREE_FROM_SODIUM_SALT", "HIGH_PROTEIN", "VEGAN",
+})
+_SPECIAL_VARIANT_PRICE_FACTOR = Decimal("1.05")
+
+
+def _unrequested_special_variant(product: Product, item: RequestItem) -> bool:
+    """True when the product is a special variant (lactose-free, organic, ...) the buyer did not ask for."""
+    if item.requirements or any(p.kind in ("ORGANIC", "LABEL", "BRAND") for p in item.preferences):
+        # Any stated requirement or label wish: keep the plain §7.6 order (Scenario A asks lactose-free).
+        return False
+    return bool(set(product.claims) & _SPECIAL_VARIANT_CLAIMS) or is_organic(product)
+
+
 def rank_candidates(
     candidates: Sequence[Product],
     *,
@@ -1054,6 +1070,7 @@ def rank_candidates(
         frozenset(named_product.substitutions) if named_product is not None else frozenset()
     )
     target_fat = requested_fat_percent(item.preferences, item.what)
+    wants_large_packs = any(p.kind == "OTHER" and p.value == LARGE_PACKS for p in item.preferences)
     requested_form = extract_requested_form(item.what, item.preferences)
 
     scored: list[
@@ -1168,9 +1185,21 @@ def rank_candidates(
         else:
             crit2_deliverable = 0 if not obs_map else 4
 
+        # T114: a stated pack-size wish ("large packs") prefers the largest pack among compliant, deliverable
+        # candidates; it never admits a candidate the requirements excluded.
+        pack_rank = (
+            -sizing.content.value
+            if wants_large_packs and sizing.content is not None and sizing.content.unit == item.unit
+            else Decimal(0)
+        )
+
         # 3. Lowest comparison price (€/l, €/kg) (§7.6 #3)
         comp_price, _ = _comparison_price(prod, obs, item.unit)
         crit3_price = comp_price if comp_price is not None else Decimal("999999999")
+        # T114: a special variant nobody asked for (lactose-free, organic, ...) ranks after the plain one at a
+        # similar price (within 5 %). Ranking only: the requirements were already checked above.
+        if comp_price is not None and _unrequested_special_variant(prod, item):
+            crit3_price = comp_price * _SPECIAL_VARIANT_PRICE_FACTOR
 
         # 4. Higher reliability (§7.6 #4)
         rel = _product_reliability(prod)
@@ -1199,6 +1228,7 @@ def rank_candidates(
             fat_unknown_rank,
             crit1_declared,
             crit2_deliverable,
+            pack_rank,
             crit3_price,
             crit4_reliability,
             crit5_prefs,
