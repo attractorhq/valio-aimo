@@ -1891,11 +1891,13 @@ button.chip {
 }
 .result-summary-text {
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 1 1 0;
 }
 /* T112: product and pack stay on one line; on a narrow screen they end in an ellipsis, never a mid-word wrap. */
 .result-what {
   display: block;
+  /* Its long one-line text must not widen the banner; the box takes the available width only. */
+  contain: inline-size;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

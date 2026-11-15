@@ -97,7 +97,10 @@ test('reject is shown in both views and nothing is ordered', async ({ page, cont
 test('a used approval link cannot be replayed', async ({ page }) => {
   await runScenarioB(page)
   await page.goto('/approver')
-  await page.getByLabel('Signed in as').selectOption('mock-school')
+  // T112: the role is chosen with a tap button, not a native select.
+  const role = page.getByRole('group', { name: 'Choose your role' }).getByRole('button', { name: /^Head Chef/ })
+  await role.click()
+  await expect(role).toHaveAttribute('aria-pressed', 'true')
   await page.getByRole('button', { name: 'Approve €506.16' }).click()
   await expect(page.getByRole('article')).toContainText('Confirmed')
   // Replay: the same token is presented again for a proposal that looks pending.
