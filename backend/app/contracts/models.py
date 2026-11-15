@@ -70,6 +70,8 @@ class Product(Contract):
     substitutions: list[Identifier] = Field(default_factory=list)
     deposits: list[Deposit] = Field(default_factory=list)
     facts: list[TrustLabel] = Field(default_factory=list)
+    # T72: the sales unit's GTIN from the product data (salesUnitGtin, else synkkaData.gtin), for a Peppol order.
+    gtin: str | None = None
 
 
 class Requirement(Contract):

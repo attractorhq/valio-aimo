@@ -15,8 +15,9 @@ from fastapi.responses import Response
 
 from app.contracts import AuditEntry, AuditTrail
 from app.gateway.log import aggregate_audit_trails
+from app.gateway.peppol import peppol_order_xml
 
-from .auth import audit_scope
+from .auth import audit_scope, proposal_read_scope
 from .errors import ERROR_RESPONSES
 from .state import GatewayState, find_proposal_state, get_state, iter_audit_sessions
 
@@ -96,3 +97,23 @@ def export_audit_trail(
         # UTF-8 with BOM so spreadsheet apps read €, ä and ö correctly.
         return Response("﻿" + audit_csv(trail), media_type="text/csv; charset=utf-8", headers=headers)
     return Response(trail.model_dump_json(indent=2), media_type="application/json", headers=headers)
+
+
+@router.get(
+    "/proposals/{proposalId}/peppol-order",
+    operation_id="exportPeppolOrder",
+    summary="Download a confirmed proposal as a Peppol BIS Order (UBL 2.1 XML); nothing is sent anywhere",
+    response_class=Response,
+    responses={200: {"content": {"application/xml": {}}, "description": "The Peppol BIS Order as an attachment."}},
+)
+def export_peppol_order(proposalId: str, request: Request, state: State) -> Response:
+    """T72: same read scope as `GET /v0.1/proposals/{proposalId}`. Only a confirmed order has an order document."""
+    proposal = proposal_read_scope(request, state, proposalId)
+    if proposal.state != "CONFIRMED_SIMULATED":
+        raise HTTPException(status_code=409, detail=f"Proposal {proposalId} is {proposal.state}, not confirmed: "
+                                                    "there is no order to export.")
+    mandate = state.gateway.mandates.get_version(proposal.customerId, proposal.mandateVersion)
+    xml = peppol_order_xml(proposal, mandate=mandate, products=state.gateway.products)
+    filename = f"peppol-order-{_SAFE_NAME.sub('_', proposalId)}.xml"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"}
+    return Response(xml, media_type="application/xml", headers=headers)

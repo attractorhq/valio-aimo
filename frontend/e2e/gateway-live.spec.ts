@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { readFileSync } from 'node:fs'
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { createServer, type AddressInfo } from 'node:net'
 import path, { delimiter } from 'node:path'
@@ -458,6 +459,13 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     )
     await expect(logEntries.filter({ hasText: 'Approved by a human' })).toContainText('Human')
     await expect(logEntries.last()).toContainText('Confirmed')
+    // T72: the confirmed order downloads as a Peppol BIS Order (UBL 2.1); nothing is sent.
+    const peppol = page.waitForEvent('download')
+    await page.getByRole('link', { name: 'Download Peppol order (XML)' }).click()
+    const xml = readFileSync((await (await peppol).path())!, 'utf8')
+    expect(xml).toContain('urn:fdc:peppol.eu:poacc:bis:ordering:3')
+    expect(xml).toContain('<cbc:Note>Simulated order — mock environment</cbc:Note>')
+    expect(xml).toContain('<cbc:ID>474235</cbc:ID>')
     await page.getByRole('link', { name: 'Back to the purchasing flow' }).click()
 
     // 3. Scenario C -> BLOCK + INSTRUCTION_IGNORED

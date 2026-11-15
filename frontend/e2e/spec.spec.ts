@@ -28,6 +28,14 @@ test('the open spec is linked from the main view and explains labels, reasons an
     'OVER_HARD_LIMIT',
   )
 
+  // T72: proposal states map to the Peppol Order Response codes.
+  const peppol = page.getByRole('table', {
+    name: 'Proposal states and Peppol Order Response codes',
+  })
+  await expect(peppol.getByRole('row', { name: /^Confirmed/ })).toContainText('AP accepted')
+  await expect(peppol).toContainText('CA conditionally accepted')
+  await expect(peppol).toContainText('RE rejected')
+
   const operations = page.getByRole('region', { name: 'Operations' })
   await expect(operations).toContainText('decideApproval')
   await expect(operations).toContainText('POST /v0.1/proposals')
