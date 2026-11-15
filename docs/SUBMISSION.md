@@ -35,7 +35,7 @@ A trusted trade gateway for Valio Aimo plus a demo purchasing agent. It separate
   - Unknown allergens and passed cut-offs cannot be waived.
   - When nothing qualifies, the result says what was searched, offers the earliest deliverable date as a one-click retry, and lists the closest compliant products (nothing is ordered from them).
   - Partial stock becomes its own proposal version with its own approval.
-  - When another compliant product has the missing stock, it tops up the rest as a split order. The split always goes to a human, and a price rise of more than 10 % per kg or litre is stated.
+  - When another compliant product has the missing stock, it tops up the rest as a split order. A top-up of the same product type can complete automatically within the limits; any other top-up goes to a person, and a price rise of more than 10 % per kg or litre is stated.
 - **Alternatives and editable assumptions:**
   - Each line shows Good / Better / Best alternatives with a one-line trade-off (price per litre or kilo, pack, brand, stock certainty, labels and CO₂ estimate). Only compliant products are listed.
   - The agent's assumptions are editable chips, for example "Any fat %" → "1.5 %". Editing one re-runs the flow, and the gateway's shortlist changes.
@@ -65,10 +65,14 @@ A trusted trade gateway for Valio Aimo plus a demo purchasing agent. It separate
 4. On the official example, change the "Any fat %" assumption chip to "1.5 %". The flow re-runs and the shortlist changes.
 5. With Scenario B pending, change the school's auto-approve limit in `/admin`. The open proposal is re-decided, and the change appears in its decision log. "Reset" restores the defaults.
 6. Open the decision log of any proposal: actors, rules, evidence, the final re-check, and JSON/CSV download. Then open `/spec` and `/valio`.
+7. Exceptions: ask for "200 kg of grated emmental by Monday" (no single product has enough stock, so the order is covered by two compliant products, rounded up to whole packs), and "40 kg of butter for today" (the cut-off has passed; the result offers the earliest deliverable date as a one-click retry).
+8. On `/valio`, start the rogue-agent run and watch its refused calls lead to a suspension; then pause all agents.
 
 ## Limits and production path
 
-**Simulated order — mock environment.** No real order or payment is sent.
+No real order or payment is sent: a confirmed order ends in a simulated confirmation, because the challenge has no order API.
+
+The challenge's availability API currently offers every product for delivery on Mon 16 Nov, whatever date is requested. A delivery earlier than requested is therefore shown as information, and every order delivers on that date.
 
 The keys and role sign-in are public demonstration gates that show the separation of duties; they are not production authentication. State is held in memory and resets when the service restarts.
 

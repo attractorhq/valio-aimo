@@ -158,6 +158,8 @@ class Offer(Contract):
     lines: list[OfferLine]
     excluded: list[ExcludedProduct] = Field(default_factory=list)
     totals: Totals
+    kid: str | None = None
+    signature: str | None = None
 
 
 class Decision(Contract):
@@ -200,6 +202,9 @@ class Proposal(Decision):
     # T106: requested lines this proposal does not order (decided as PARTIAL_AVAILABILITY, never AUTO).
     notOrdered: list[NotOrderedItem] = Field(default_factory=list)
     supersededBy: Identifier | None = None
+    kid: str | None = None
+    signature: str | None = None
+    confirmationSignature: str | None = None
     simulationNotice: Literal["Simulated order — mock environment"] = "Simulated order — mock environment"
 
 
@@ -262,6 +267,10 @@ class AuditEntry(Contract):
     facts: list[TrustLabel] = Field(default_factory=list)
     summary: str
     comment: str | None = None
+    prevHash: OfferHash | None = None
+    hash: OfferHash | None = None
+    kid: str | None = None
+    signature: str | None = None
 
 
 class ApproverView(Contract):

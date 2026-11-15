@@ -10,17 +10,22 @@ from app.policy import DEMO_MANDATES
 DEMO_AGENT_KEYS = {f"demo-agent-{m.customerId}": m.customerId for m in DEMO_MANDATES}
 
 
-def require_admin(request: Request) -> None:
+AGENT_KEY_HINT = "'Authorization: Bearer demo-agent-<customerId>'"
+ADMIN_KEY_HINT = "'X-Demo-Admin-Key: demo-admin'"
+AUDIT_ADMIN_HINT = f" A buyer admin can read any buyer with {ADMIN_KEY_HINT}."
+
+
+def require_admin(request: Request, message: str | None = None) -> None:
     if not hmac.compare_digest(request.headers.get("x-demo-admin-key", "").encode(), b"demo-admin"):
-        raise HTTPException(401, "Buyer-admin changes need the public demo header 'X-Demo-Admin-Key: demo-admin'.")
+        raise HTTPException(401, message or f"Buyer-admin changes need the public demo header {ADMIN_KEY_HINT}.")
 
 
-def agent_customer(request: Request) -> str:
+def agent_customer(request: Request, extra_hint: str = "") -> str:
     scheme, _, token = request.headers.get("authorization", "").partition(" ")
     customer = DEMO_AGENT_KEYS.get(token) if scheme.lower() == "bearer" else None
     if customer is None:
-        raise HTTPException(401, "Send the buyer's public agent key: 'Authorization: Bearer demo-agent-<customerId>' "
-                                 f"(one of: {', '.join(sorted(DEMO_AGENT_KEYS))}). See /docs.",
+        raise HTTPException(401, f"Send the buyer's public agent key: {AGENT_KEY_HINT} "
+                                 f"(one of: {', '.join(sorted(DEMO_AGENT_KEYS))}).{extra_hint} See /docs.",
                             headers={"WWW-Authenticate": "Bearer"})
     return customer
 
@@ -28,9 +33,10 @@ def agent_customer(request: Request) -> str:
 AgentCustomer = Annotated[str, Depends(agent_customer)]
 
 
-def bind_customer(authenticated: str, supplied: str | None) -> str:
+def bind_customer(authenticated: str, supplied: str | None, hint: str = "") -> str:
     if supplied is not None and supplied != authenticated:
-        raise HTTPException(403, "This credential belongs to another buyer.")
+        raise HTTPException(403, f"This agent key belongs to buyer {authenticated} and works only for that buyer. "
+                                 f"Send the owning buyer's agent key {AGENT_KEY_HINT}.{hint}")
     return authenticated
 
 
@@ -41,26 +47,41 @@ def audit_scope(
     customer_id: str | None,
     *,
     all_sessions: bool = False,
+    agent_defaults_to_own: bool = False,
 ) -> str | None:
-    """Resolve proposal ownership before reading any trail, export, or chain."""
+    """Resolve proposal ownership before reading any trail, export, or chain.
+
+    Returns the customer the read is limited to, or None for the admin's global read.
+    With `agent_defaults_to_own` (audit verify, T110), an agent key without proposalId/customerId
+    is scoped to its own buyer instead of being refused.
+    """
     from .state import find_proposal_state
 
     if proposal_id is not None and customer_id is not None:
         raise HTTPException(400, "Pass at most one of proposalId or customerId.")
     if request.headers.get("x-demo-admin-key") is not None:
-        require_admin(request)
+        require_admin(request, f"The admin header must be exactly {ADMIN_KEY_HINT}. "
+                               f"A buyer can instead send its agent key {AGENT_KEY_HINT} for its own entries.")
         if proposal_id is not None and all_sessions:
             find_proposal_state(state, proposal_id, all_sessions=True)
         return customer_id
-    authenticated = agent_customer(request)
+    is_global = proposal_id is None and customer_id is None
+    if is_global and not agent_defaults_to_own:
+        if request.headers.get("authorization") is None:
+            raise HTTPException(401, f"The global audit needs the admin header {ADMIN_KEY_HINT}. "
+                                     f"A buyer sends its agent key {AGENT_KEY_HINT} with customerId or proposalId.",
+                                headers={"WWW-Authenticate": "Bearer"})
+        agent_customer(request)
+        raise HTTPException(401, f"The global audit needs the admin header {ADMIN_KEY_HINT}. "
+                                 "An agent key reads only its own buyer: add customerId or proposalId.")
+    authenticated = agent_customer(
+        request, f" Or send {ADMIN_KEY_HINT} for the full audit." if is_global else "")
     if proposal_id is not None:
         owner_state = find_proposal_state(state, proposal_id, all_sessions=all_sessions)
         proposal = owner_state.gateway.get_proposal(proposal_id)
-        bind_customer(authenticated, proposal.customerId)
+        bind_customer(authenticated, proposal.customerId, AUDIT_ADMIN_HINT)
     else:
-        if customer_id is None:
-            raise HTTPException(401, "The global audit requires the demo admin key.")
-        bind_customer(authenticated, customer_id)
+        bind_customer(authenticated, customer_id, AUDIT_ADMIN_HINT)
     return authenticated
 
 

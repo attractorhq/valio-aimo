@@ -42,6 +42,7 @@ def test_change_creates_a_new_version_and_an_audit_entry():
         "proposalId": None, "offerId": None, "offerVersion": None, "offerHash": None, "mandateVersion": 2,
         "timestamp": None, "actor": ADMIN, "event": "MANDATE_CHANGED", "fromState": None, "toState": None,
         "reasons": [], "rule": "§6.1", "facts": [], "comment": None,
+        "prevHash": None, "hash": None, "kid": None, "signature": None,
         "summary": "Policy changed by buyer admin: autoApproveLimitEur €500.00 → €750.00",
     }
 

@@ -22,6 +22,7 @@ from app.catalog.build import ROOT_DIR, get_cached_catalog
 from app.config import get_settings
 from app.contracts import Product
 from app.gateway.proposals import ProposalGateway, ProposalNotFoundError
+from app.gateway.signing import default_signing_key
 from app.policy import DEMO_MANDATES, MandateBook
 from app.valio import LiveValioProvider, RecordedValioProvider
 
@@ -94,15 +95,14 @@ def build_state() -> GatewayState:
         products=artifact.by_id(),
         mandates=MandateBook(DEMO_MANDATES),
         provider=provider,
-        signing_key=os.environ.get("APPROVAL_SIGNING_KEY") or None,
+        signing_key=sandbox_signing_key(),
     )
     return GatewayState(gateway=gateway, catalog=list(artifact.products), mode=mode)
 
 
 def sandbox_signing_key() -> bytes:
-    """Domain-separated capabilities/reset keys use the configured secret or a process-local key."""
-    configured = os.environ.get("APPROVAL_SIGNING_KEY")
-    return configured.encode() if configured else _EPHEMERAL_SIGNING_KEY
+    """Domain-separated capabilities/reset/receipt keys use the configured secret or a process-local key."""
+    return default_signing_key()
 
 
 def fresh_sandbox(resources: GatewayState, sandbox_id: str) -> GatewayState:

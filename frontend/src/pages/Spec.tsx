@@ -82,6 +82,58 @@ const LABEL_FIELDS = [
   ['conflict', 'Optional K1–K5 flag with a one-line explanation.'],
 ] as const
 
+// T110: how trust levels and label fields map to existing standards. Text only: "maps to", not "compliant with".
+const STANDARD_LEVELS: [TrustLevel, string, string][] = [
+  [
+    'VERIFIED',
+    'No GS1 trust level. Price and availability are trading-partner transaction data, not GDSN master data.',
+    "issuer = Valio Aimo's live price or availability system.",
+  ],
+  [
+    'DECLARED',
+    'Supplier master data published through GDSN (GS1 Synkka in Finland); the brand owner is the information provider.',
+    'issuer = the supplier, read through valio-aimo.product-data.',
+  ],
+  [
+    'ESTIMATE',
+    'No GS1 equivalent.',
+    'issuer = derived (the gateway) or a statistics source; evidence = method, always stated.',
+  ],
+  [
+    'UNKNOWN',
+    'No GS1 equivalent. A missing allergen declaration is never read as FREE_FROM.',
+    'No credential exists for the fact.',
+  ],
+]
+
+const STANDARD_FIELDS: [string, string, string][] = [
+  [
+    'fact + value',
+    'Attribute and value, e.g. allergen.AM = allergen type code AM (milk) with a level of containment; claim.FREE_FROM_GLUTEN = nutritional claim type FREE_FROM for GLUTEN.',
+    'A claim in credentialSubject (property and value).',
+  ],
+  [
+    'allergen status',
+    'CONTAINS, MAY_CONTAIN and FREE_FROM map to the GS1 levelOfContainmentCode values of the same name. NOT_LISTED, UNDECLARED and UNKNOWN describe missing or partial declarations and never prove absence.',
+    'The claim value.',
+  ],
+  [
+    'productId',
+    "Valio Aimo's own product number. The GS1 identifier is the GTIN, which v0.1 does not carry.",
+    'credentialSubject.id (what the claim is about).',
+  ],
+  ['source.system', 'For DECLARED facts, the GDSN data source.', 'issuer'],
+  ['source.field', 'The attribute name in the source record.', 'The property name inside credentialSubject.'],
+  [
+    'source.retrievedAt',
+    'No GS1 equivalent.',
+    'issuanceDate (validFrom in VC Data Model 2.0). It is when the gateway read the fact, not when the source first stated it; null for static data.',
+  ],
+  ['method', 'No GS1 equivalent.', 'evidence: how the value was derived or checked.'],
+  ['level', 'No GS1 equivalent.', 'No VC field: our classification of the issuer and method.'],
+  ['conflict', 'No GS1 equivalent.', 'No VC field: two sources whose claims disagree.'],
+]
+
 const OPERATIONS: { channel: string; rows: [string, string, string][] }[] = [
   {
     channel: 'Agent channel',
@@ -103,6 +155,11 @@ const OPERATIONS: { channel: string; rows: [string, string, string][] }[] = [
       ],
       ['getProposal', 'GET /v0.1/proposals/{proposalId}', 'The current state of a proposal.'],
       ['getAuditTrail', 'GET /v0.1/audit', 'The decision log for one proposal or one customer.'],
+      [
+        'verifyAuditTrail',
+        'GET /v0.1/audit/verify',
+        "With the buyer's agent key: verifies that buyer's own hash chain and returns its head hash.",
+      ],
       ['getMandate', 'GET /v0.1/mandates/{customerId}', "The buyer's mandate, read-only."],
     ],
   },
@@ -204,8 +261,10 @@ export function Spec() {
             {[
               ['#levels', 'Trust levels'],
               ['#facts', 'Facts'],
+              ['#standards', 'Standards'],
               ['#reasons', 'Reason codes'],
               ['#operations', 'Operations'],
+              ['#signatures', 'Signatures'],
               ['#machine-readable', 'OpenAPI & Schemas'],
             ].map(([href, label]) => (
               <li key={href}>
@@ -307,6 +366,42 @@ export function Spec() {
         </div>
       </Section>
 
+      <Section id="standards" title="Mapping to existing standards">
+        <p className="muted small">
+          Trust labels map to concepts in GS1 product data and W3C Verifiable Credentials. They are
+          not GS1 messages and not Verifiable Credentials, and labels are not signed.
+        </p>
+        {(
+          [
+            ['Trust level', STANDARD_LEVELS],
+            ['Label field', STANDARD_FIELDS],
+          ] as const
+        ).map(([first, rows]) => (
+          <div key={first} className="table-scroll mt-3">
+            <table className="data-table" aria-label={`${first}: GS1 and W3C Verifiable Credentials`}>
+              <thead>
+                <tr>
+                  <th scope="col">{first}</th>
+                  <th scope="col">GS1</th>
+                  <th scope="col">W3C Verifiable Credentials</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(([name, gs1, vc]) => (
+                  <tr key={name}>
+                    <td>
+                      <code>{name}</code>
+                    </td>
+                    <td className="small">{gs1}</td>
+                    <td className="small">{vc}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </Section>
+
       <Section id="reasons" title="Reason codes">
         <p className="muted small">Humans approve trade-offs, never missing evidence.</p>
         {EFFECT_ORDER.map((effect) => {
@@ -387,6 +482,40 @@ export function Spec() {
             </div>
           </div>
         ))}
+      </Section>
+
+      <Section id="signatures" title="Detached signatures and offline verification">
+        <ul className="ml-5 list-disc text-sm">
+          <li>
+            Algorithm: detached <strong>Ed25519</strong> (<code>alg: EdDSA</code>, base64url without padding) over
+            UTF-8 canonical JSON (<code>sort_keys=true</code>, <code>,&nbsp;:</code> separators), keyed by{' '}
+            <code>kid</code>.
+          </li>
+          <li>
+            Published keys &amp; discovery:{' '}
+            <a href="/.well-known/aimo-connect-keys.json" className="underline">
+              <code>/.well-known/aimo-connect-keys.json</code>
+            </a>{' '}
+            (RFC 8037 OKP JWK Set) and{' '}
+            <a href="/.well-known/aimo-connect.json" className="underline">
+              <code>/.well-known/aimo-connect.json</code>
+            </a>
+            .
+          </li>
+          <li>
+            Signed receipts: every <code>Offer</code> (<code>offerId</code>, <code>offerVersion</code>,{' '}
+            <code>offerHash</code>, <code>totals</code>, validity), every <code>Proposal</code> decision (
+            <code>signature</code>), and every simulated confirmation (<code>confirmationSignature</code>).
+          </li>
+          <li>
+            Hash-chained audit exports: JSON and CSV exports carry each entry’s SHA-256 <code>prevHash</code> and{' '}
+            <code>hash</code> plus milestone Ed25519 <code>signature</code>s.
+          </li>
+          <li>
+            Offline verification: <code>scripts/verify-audit &lt;export.json&gt; [--keys &lt;jwks&gt;]</code> verifies
+            the SHA-256 chain and Ed25519 signatures using the Python standard library alone.
+          </li>
+        </ul>
       </Section>
 
       <Section id="machine-readable" title="OpenAPI and JSON Schemas">
