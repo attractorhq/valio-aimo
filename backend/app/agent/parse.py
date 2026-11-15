@@ -14,6 +14,7 @@ optional LLM call: `now` is passed in.
 
 import logging
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -73,10 +74,11 @@ _UNIT_GROUPS: tuple[tuple[str, str], ...] = (
     ("g", r"grams?|grammes?|gramm\w*|g"),
     ("pcs", r"pcs|pc|pieces?|packs?|packets?|packages?|bags?|bottles?|cans?|cartons?|tins?|jars?|units?|"
             r"kpl|kappale\w*|pussi\w*|pullo\w*|paketti\w*|pakkau\w*|purkki\w*|purkk\w*|tölk\w*|tlk|"
-            r"säkki\w*|säki\w*|säkk\w*|rasia\w*|rasio\w*|pötkö\w*"),
+            r"säkki\w*|säki\w*|säkk\w*|rasia\w*|rasio\w*|pötkö\w*|"
+            r"st|styck(?:en)?|förpackning\w*|frp|påsar|påse|flaskor|flaska|burkar|burk"),
     ("cases", r"cases?|boxes|box|crates?|trays?|laatikko\w*|laatiko\w*|ltk|kotelo\w*|kartonki\w*|kartongi\w*|"
-              r"tarjotin\w*|tarjottim\w*"),
-    ("portions", r"portions?|servings?|meals?|annos\w*|annok\w*|ateri\w*"),
+              r"tarjotin\w*|tarjottim\w*|lådor|låda|kartonger|kartong"),
+    ("portions", r"portion(?:s|er)?|servings?|meals?|annos\w*|annok\w*|ateri\w*"),
 )
 _UNIT = "(?:" + "|".join(f"(?P<u_{name}>{pattern})" for name, pattern in _UNIT_GROUPS) + r")(?!\w)"
 _QUANTITY_RE = re.compile(_NUMBER + r"\s*" + _UNIT, re.IGNORECASE)
@@ -108,41 +110,45 @@ _BARE_CONTAINER_RE = re.compile(r"^(?:(?:\bin\s+)?(?:" + _PACK_CONTAINER_WORDS +
 _PRODUCT_ID_RE = re.compile(r"\((\d{6})\)|\b(?:product|tuote|id|no\.?|nr\.?|#)\s*:?\s*#?(\d{6})\b", re.IGNORECASE)
 _FAT_RE = re.compile(r"(?<![\w.,])(\d+(?:[.,]\d+)?)\s*%(?:\s*(?:fat|rasva\w*))?", re.IGNORECASE)
 
-# Hard requirements: (requirements, English words, Finnish stems). Every phrasing below maps to the same
+# Hard requirements: (requirements, English words, Finnish stems, Swedish stems). Every phrasing below maps to the same
 # requirements: "X-free", "no X", "without X", "free of X", "X allergy", Finnish "X-ton/-tön",
-# "ilman X", "ei X", "X-allergia". Order matters: peanut and tree nut before nut, kananmuna before muna.
+# "ilman X", "ei X", "X-allergia", Swedish "X-fri/-fritt", "utan X", "X-allergi".
+# Order matters: peanut and tree nut before nut, kananmuna before muna.
 _AN = Requirement(kind="AVOID_ALLERGEN", code="AN")
 _AP = Requirement(kind="AVOID_ALLERGEN", code="AP")
 _TREE_NUT_EN = r"tree(?:[\s-]+)?nuts?"
 _TREE_NUT_FI = r"puupähkinä|puupähkinö"
+_TREE_NUT_SV = r"trädnöt(?:ter)?"
 _GENERAL_NUT_EN = r"(?<!tree\s)(?<!tree-)(?<!tree)nuts?"
 _GENERAL_NUT_FI = r"pähkinä|pähkinö"
-_ALLERGEN_VOCAB: tuple[tuple[tuple[Requirement, ...], str | None, str | None], ...] = (
-    ((Requirement(kind="CLAIM", code="FREE_FROM_LACTOSE"),), r"lactose", r"laktoosi"),
-    ((Requirement(kind="CLAIM", code="FREE_FROM_GLUTEN"),), r"gluten", r"gluteeni"),
-    ((Requirement(kind="AVOID_ALLERGEN", code="AM"),), r"milk|dairy", r"maido|maito|maitotuottee"),
-    ((_AP,), r"peanuts?", r"maapähkinä|maapähkinö"),
-    ((_AN,), _TREE_NUT_EN, _TREE_NUT_FI),
-    # General "nut" / Finnish "pähkinä" covers both tree nuts (AN) and peanuts (AP) (T40, T99).
-    ((_AN, _AP), _GENERAL_NUT_EN, _GENERAL_NUT_FI),
-    ((Requirement(kind="AVOID_ALLERGEN", code="AE"),), r"eggs?", r"kananmuna|kananmuni|muna|muni"),
-    ((Requirement(kind="AVOID_ALLERGEN", code="AF"),), r"fish", r"kala"),
-    ((Requirement(kind="AVOID_ALLERGEN", code="AC"),), r"crustaceans?|shellfish", r"äyriäise|äyriäi"),
-    ((Requirement(kind="AVOID_ALLERGEN", code="UM"),), r"molluscs?|mollusks?", r"nilviäise|nilviäi"),
-    ((Requirement(kind="AVOID_ALLERGEN", code="AY"),), r"soy|soya", r"soija"),
-    ((Requirement(kind="AVOID_ALLERGEN", code="AS"),), r"sesame", r"seesami"),
-    ((Requirement(kind="AVOID_ALLERGEN", code="BC"),), r"celery", r"selleri"),
-    ((Requirement(kind="AVOID_ALLERGEN", code="BM"),), r"mustard", r"sinappi|sinapi"),
-    ((Requirement(kind="AVOID_ALLERGEN", code="NL"),), r"lupin", r"lupiini|lupiin"),
-    ((Requirement(kind="AVOID_ALLERGEN", code="AU"),), r"sulphites?|sulfites?", r"sulfiiti|sulfiit"),
-    ((Requirement(kind="AVOID_ALLERGEN", code="UW"),), r"wheat", r"vehnä"),
+_GENERAL_NUT_SV = r"(?<!jord)(?<!träd)nöt(?:ter)?"
+_ALLERGEN_VOCAB: tuple[tuple[tuple[Requirement, ...], str | None, str | None, str | None], ...] = (
+    ((Requirement(kind="CLAIM", code="FREE_FROM_LACTOSE"),), r"lactose", r"laktoosi", r"laktos"),
+    ((Requirement(kind="CLAIM", code="FREE_FROM_GLUTEN"),), r"gluten", r"gluteeni", r"gluten"),
+    ((Requirement(kind="AVOID_ALLERGEN", code="AM"),), r"milk|dairy", r"maido|maito|maitotuottee", r"mjölk|mejeriprodukt\w*|mejeri"),
+    ((_AP,), r"peanuts?", r"maapähkinä|maapähkinö", r"jordnöt(?:ter)?"),
+    ((_AN,), _TREE_NUT_EN, _TREE_NUT_FI, _TREE_NUT_SV),
+    # General "nut" / Finnish "pähkinä" / Swedish "nöt" covers both tree nuts (AN) and peanuts (AP) (T40, T99, T101).
+    ((_AN, _AP), _GENERAL_NUT_EN, _GENERAL_NUT_FI, _GENERAL_NUT_SV),
+    ((Requirement(kind="AVOID_ALLERGEN", code="AE"),), r"eggs?", r"kananmuna|kananmuni|muna|muni", r"ägg"),
+    ((Requirement(kind="AVOID_ALLERGEN", code="AF"),), r"fish", r"kala", r"fisk"),
+    ((Requirement(kind="AVOID_ALLERGEN", code="AC"),), r"crustaceans?|shellfish", r"äyriäise|äyriäi", r"kräftdjur|skaldjur"),
+    ((Requirement(kind="AVOID_ALLERGEN", code="UM"),), r"molluscs?|mollusks?", r"nilviäise|nilviäi", r"blötdjur"),
+    ((Requirement(kind="AVOID_ALLERGEN", code="AY"),), r"soy|soya", r"soija", r"soja"),
+    ((Requirement(kind="AVOID_ALLERGEN", code="AS"),), r"sesame", r"seesami", r"sesam"),
+    ((Requirement(kind="AVOID_ALLERGEN", code="BC"),), r"celery", r"selleri", r"selleri"),
+    ((Requirement(kind="AVOID_ALLERGEN", code="BM"),), r"mustard", r"sinappi|sinapi", r"senap"),
+    ((Requirement(kind="AVOID_ALLERGEN", code="NL"),), r"lupin", r"lupiini|lupiin", r"lupin"),
+    ((Requirement(kind="AVOID_ALLERGEN", code="AU"),), r"sulphites?|sulfites?", r"sulfiiti|sulfiit", r"sulfit\w*"),
+    ((Requirement(kind="AVOID_ALLERGEN", code="UW"),), r"wheat", r"vehnä", r"vete"),
 )
 _NEGATION_EN = (r"(?:no|without|free\s+(?:of|from)|not\s+containing|contains?\s+no|zero|avoid(?:ing)?|"
                 r"excluding|exclude)\s+(?:any\s+)?(?:added\s+|traces\s+of\s+)?")
 _NEGATION_FI = r"(?:ilman|ei)\s+"
+_NEGATION_SV = r"(?:utan|fri(?:tt|a)?\s+från|inte\s+innehåll\w*)\s+"
 
 
-def _requirement_pattern(en: str | None, fi: str | None) -> str:
+def _requirement_pattern(en: str | None, fi: str | None, sv: str | None = None) -> str:
     parts: list[str] = []
     if en:
         parts += [
@@ -152,31 +158,37 @@ def _requirement_pattern(en: str | None, fi: str | None) -> str:
         ]
     if fi:
         parts += [
-            rf"\b(?:{fi})(?:ton|tön|tto|ttö)\w*",
+            rf"\b(?:{fi})(?:ton|tön|tonta|töntä|ttom\w*|ttöm\w*)\b",
             rf"\b{_NEGATION_FI}(?:{fi})\w*",
             rf"\b(?:{fi})-?\w*allergi\w*",
+        ]
+    if sv:
+        parts += [
+            rf"\b(?:{sv})s?[\s-]?fri(?:tt|a)?\b",
+            rf"\b{_NEGATION_SV}(?:{sv})\w*",
+            rf"\b(?:{sv})s?-?\w*allergi\w*",
         ]
     return "|".join(parts)
 
 
-_TREE_NUT_MENTION_RE = re.compile(rf"\b(?:{_TREE_NUT_EN}|(?:{_TREE_NUT_FI})\w*)\b", re.IGNORECASE)
+_TREE_NUT_MENTION_RE = re.compile(rf"\b(?:{_TREE_NUT_EN}|(?:{_TREE_NUT_FI})\w*|{_TREE_NUT_SV}\w*)\b", re.IGNORECASE)
 _REQUIREMENTS: tuple[tuple[str, tuple[Requirement, ...]], ...] = (
-    *((_requirement_pattern(en, fi), requirements) for requirements, en, fi in _ALLERGEN_VOCAB),
+    *((_requirement_pattern(en, fi, sv), requirements) for requirements, en, fi, sv in _ALLERGEN_VOCAB),
     (r"\bnon[\s-]?dairy\b", (Requirement(kind="AVOID_ALLERGEN", code="AM"),)),
-    (r"\b(?:vegan|vegaani\w*)\b", (Requirement(kind="CLAIM", code="VEGAN"),)),
-    (r"\bvegetarian\b", (Requirement(kind="CLAIM", code="VEGETARIAN"),)),
+    (r"\b(?:vegan|vegaani\w*|vegansk\w*)\b", (Requirement(kind="CLAIM", code="VEGAN"),)),
+    (r"\b(?:vegetarian|vegetarisk\w*)\b", (Requirement(kind="CLAIM", code="VEGETARIAN"),)),
 )
 _REQUIREMENT_RES = tuple((re.compile(p, re.IGNORECASE), r) for p, r in _REQUIREMENTS)
 _DIET_RES = (
-    (re.compile(r"\b(?:keliaki\w*|keliaak(?:ikko|iko)\w*|keliakist\w*|gluteeni-?allergi\w*|co?eliacs?)\b",
+    (re.compile(r"\b(?:keliaki\w*|keliaak(?:ikko|iko)\w*|keliakist\w*|gluteeni-?allergi\w*|co?eliacs?|celiaki\w*)\b",
                 re.IGNORECASE),
      (Requirement(kind="CLAIM", code="FREE_FROM_GLUTEN"),)),
-    (re.compile(r"\b(?:maito-?allergi\w*|maidottom(?:alle|ille)|milk[\s-]+allergic)\b", re.IGNORECASE),
+    (re.compile(r"\b(?:maito-?allergi\w*|maidottom(?:alle|ille)|milk[\s-]+allergic|mjölk-?allergi\w*)\b", re.IGNORECASE),
      (Requirement(kind="AVOID_ALLERGEN", code="AM"),)),
-    (re.compile(r"\b(?:kanan)?muna-?allergi\w*\b", re.IGNORECASE),
+    (re.compile(r"\b(?:(?:kanan)?muna-?allergi\w*|ägg-?allergi\w*)\b", re.IGNORECASE),
      (Requirement(kind="AVOID_ALLERGEN", code="AE"),)),
-    (re.compile(r"\bpähkinä-?allergi\w*\b", re.IGNORECASE), (_AN, _AP)),
-    (re.compile(r"\blaktoosi[\s-]?intolerans\w*\b", re.IGNORECASE),
+    (re.compile(r"\b(?:pähkinä-?allergi\w*|nöt-?allergi\w*)\b", re.IGNORECASE), (_AN, _AP)),
+    (re.compile(r"\b(?:laktoosi[\s-]?intolerans\w*|laktos[\s-]?intolerans\w*)\b", re.IGNORECASE),
      (Requirement(kind="CLAIM", code="FREE_FROM_LACTOSE"),)),
 )
 _REQUIREMENT_LABELS = {
@@ -249,6 +261,7 @@ _PREFERENCES: tuple[tuple[re.Pattern, Preference], ...] = (
 
 _WEEKDAYS_EN = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 _WEEKDAYS_FI = ("maanantai", "tiistai", "keskiviik", "torstai", "perjantai", "lauantai", "sunnuntai")
+_WEEKDAYS_SV = ("måndag", "tisdag", "onsdag", "torsdag", "fredag", "lördag", "söndag")
 _MONTHS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
 _MONTH_RE = (r"(?P<mon>jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|"
              r"aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?")
@@ -263,12 +276,13 @@ _DATE_RES: tuple[tuple[str, re.Pattern], ...] = (
     ("dmy", re.compile(r"(?<![\w.,])(?P<d>\d{1,2})\.(?P<m>\d{1,2})\.(?P<y>\d{4})?(?![\d])")),
     ("dmon", re.compile(_DAY_PREFIX + r"\b(?P<d>\d{1,2})(?:st|nd|rd|th)?\s+" + _MONTH_RE + r"(?!\w)", re.IGNORECASE)),
     ("mond", re.compile(_DAY_PREFIX + r"\b" + _MONTH_RE + r"\s+(?P<d>\d{1,2})(?:st|nd|rd|th)?\b", re.IGNORECASE)),
-    ("today", re.compile(r"\b(?:today|tänään|tänä\s+päivänä)\b", re.IGNORECASE)),
-    ("tomorrow", re.compile(r"\b(?:tomorrow|huomenna|huomiseksi|huomiselle|huomiseen)\b", re.IGNORECASE)),
-    ("overmorrow", re.compile(r"\b(?:the\s+day\s+after\s+tomorrow|ylihuomenna|ylihuomiseksi)\b", re.IGNORECASE)),
+    ("today", re.compile(r"\b(?:today|tänään|tänä\s+päivänä|idag|i\s+dag)\b", re.IGNORECASE)),
+    ("tomorrow", re.compile(r"\b(?:tomorrow|huomenna|huomiseksi|huomiselle|huomiseen|imorgon|i\s+morgon)\b", re.IGNORECASE)),
+    ("overmorrow", re.compile(r"\b(?:the\s+day\s+after\s+tomorrow|ylihuomenna|ylihuomiseksi|i\s+övermorgon|övermorgon)\b", re.IGNORECASE)),
     ("weekday", re.compile(r"\b(?P<wd>" + "|".join(_WEEKDAYS_EN)
                            + r")\b(?:\s+(?P<wd_day>\d{1,2})(?:st|nd|rd|th)?(?!\w))?", re.IGNORECASE)),
     ("weekday_fi", re.compile(r"\b(?P<wdfi>" + "|".join(_WEEKDAYS_FI) + r")\w*", re.IGNORECASE)),
+    ("weekday_sv", re.compile(r"\b(?P<wdsv>" + "|".join(_WEEKDAYS_SV) + r")\w*", re.IGNORECASE)),
 )
 
 _STOPWORDS = {
@@ -279,6 +293,8 @@ _STOPWORDS = {
     "tarvitsemme", "tarvitsen", "tarvitaan", "tarvitsisimme", "haluamme", "tilaamme", "meille", "noin",
     "mennessä", "viimeistään", "toimitettuna", "toimitus", "toimitukseen", "olla", "pitää", "täytyy",
     "myös", "kaikki", "ole", "on", "se", "ne", "jota", "joka", "mikä",
+    "vi", "jag", "behöver", "behövs", "vill", "ha", "på", "för", "med", "utan",
+    "senast", "leverans", "levereras", "levererad", "tack", "hej", "nästa", "oss",
     "as", "usual", "thanks", "thank", "you", "hi", "hello", "hey", "kiitos", "moi", "hei", "kuten", "yleensä",
     "tavallista", "aina", "tehty", "tehtyä", "tehtyjä", "valmistettu", "valmistettua",
     "ensi", "seuraavaksi", "vähintään", "yhteensä", "olisi", "tarvittaisiin", "tilataan", "haluaisimme",
@@ -330,28 +346,33 @@ _FINNISH_NOUNS: tuple[tuple[str, str], ...] = (
 _FINNISH_FORMS: tuple[tuple[re.Pattern, str], ...] = tuple(
     (re.compile(pattern, re.IGNORECASE), english) for pattern, english in (
         # T52: stated attributes stay in the item ("suolattua voita" is salted butter, not "salt butter").
-        (r"suolat(?:tu|tua|tun|tuja|tuna)|normaalisuolai\w*", "salted"),
-        (r"suolaton|suolatonta|suolattoman|suolattomia|suolattomana", "unsalted"),
-        (r"kylmäsavustet(?:tu|tua|tun|tuja)", "cold-smoked"),
-        (r"lämminsavustet(?:tu|tua|tun|tuja)", "hot-smoked"),
-        (r"savustet(?:tu|tua|tun|tuja)", "smoked"),
-        (r"pakastet(?:tu|tua|tun|tuja)", "frozen"),
-        (r"tuore|tuoretta|tuoreen|tuoreita|tuoreet", "fresh"),
-        # T87: stated product forms (grated, sliced, block, shredded, cubed, whole, powder).
-        (r"(?:tuore)?raaste(?:ena|tta|en|et|ita|eseen|ella|elta|essa|eksi)?|raastet(?:tu|tua|tun|tuja|tuina|tuna|ut)?",
+        (r"suolat(?:tu|tua|tun|tuja|tuna)|normaalisuolai\w*|saltat|saltad|normalsaltat|normalsaltad", "salted"),
+        (r"suolaton|suolatonta|suolattoman|suolattomia|suolattomana|suolaamat\w*|osaltat|osaltad", "unsalted"),
+        (r"rasvaton|rasvatonta|rasvattoman|rasvattomia|rasvattomana|fettfri(?:tt|a)?", "skimmed"),
+        (r"maustamaton|maustamatonta|maustamattoman|maustamattomia|naturell\w*", "natural"),
+        (r"kylmäsavustet(?:tu|tua|tun|tuja)|kallrökt\w*", "cold-smoked"),
+        (r"lämminsavustet(?:tu|tua|tun|tuja)|varmrökt\w*", "hot-smoked"),
+        (r"savustet(?:tu|tua|tun|tuja)|rökt\w*", "smoked"),
+        (r"pakastet(?:tu|tua|tun|tuja)|fryst\w*|djupfryst\w*", "frozen"),
+        (r"tuore|tuoretta|tuoreen|tuoreita|tuoreet|färsk\w*", "fresh"),
+        # T87 + T101: stated product forms (grated, sliced, block, shredded, cubed, whole, powder) in FI & SV.
+        (r"(?:tuore)?raaste(?:ena|tta|en|et|ita|eseen|ella|elta|essa|eksi)?|raastet(?:tu|tua|tun|tuja|tuina|tuna|ut)?|"
+         r"riven|rivet|rivna",
          "grated"),
         (r"viipale(?:ena|ina|ita|et|en|eseen|ella|eksi)?|viipaloi(?:tu|tua|tun|tuja|tuna|dut)?|"
-         r"siivu(?:na|ina|ja|t|n)?|siivutet(?:tu|tua|tun|tuja|tuna)?", "sliced"),
-        (r"palana|paloina|kimpale(?:ena|ina|ita|et|en)?|tahko(?:na|ja|t|n)?", "block"),
-        (r"suikale(?:ena|ina|ita|et|en|eseen|ella)?|suikaloi(?:tu|tua|tun|tuja|tuna|dut)?", "shredded"),
-        (r"kuutio(?:na|ina|ita|t|n|iksi)?|kuutioi(?:tu|tua|tun|tuja|tuna|dut)?", "cubed"),
-        (r"kokonai(?:nen|sena|sia|set|sta|sen|siksi)", "whole"),
-        (r"jauhe(?:ena|tta|en|et|ita|eseen|eksi)?", "powder"),
-        (r"juusto-?raaste\w*|raaste-?juust\w*", "grated cheese"),
+         r"siivu(?:na|ina|ja|t|n)?|siivutet(?:tu|tua|tun|tuja|tuna)?|skivad|skivat|skivor", "sliced"),
+        (r"palana|paloina|kimpale(?:ena|ina|ita|et|en)?|tahko(?:na|ja|t|n)?|helbit", "block"),
+        (r"suikale(?:ena|ina|ita|et|en|eseen|ella)?|suikaloi(?:tu|tua|tun|tuja|tuna|dut)?|"
+         r"strimlad|strimlat|strimlor", "shredded"),
+        (r"kuutio(?:na|ina|ita|t|n|iksi)?|kuutioi(?:tu|tua|tun|tuja|tuna|dut)?|"
+         r"tärnad|tärnat|tärningar|kuber", "cubed"),
+        (r"kokonai(?:nen|sena|sia|set|sta|sen|siksi)|hela|hel", "whole"),
+        (r"jauhe(?:ena|tta|en|et|ita|eseen|eksi)?|pulver", "powder"),
+        (r"juusto-?raaste\w*|raaste-?juust\w*|riven-?ost\w*", "grated cheese"),
         (r"emmental-?raaste\w*|emmentaal-?raaste\w*", "grated Emmental cheese"),
         (r"mozzarella-?raaste\w*", "grated mozzarella cheese"),
         (r"cheddar-?raaste\w*", "grated cheddar cheese"),
-        (r"juusto-?viipale\w*|viipale-?juust\w*", "sliced cheese"),
+        (r"juusto-?viipale\w*|viipale-?juust\w*|skivad-?ost\w*|ost-?skiv\w*", "sliced cheese"),
         (r"emmental-?viipale\w*|emmentaal-?viipale\w*", "sliced Emmental cheese"),
         (r"juusto-?kuutio\w*|kuutio-?juust\w*", "cubed cheese"),
         (r"feta-?kuutio\w*|salaattijuusto-?kuutio\w*", "cubed feta cheese"),
@@ -365,74 +386,97 @@ _FINNISH_FORMS: tuple[tuple[re.Pattern, str], ...] = tuple(
         (r"lohi-?kuutio\w*", "cubed salmon"),
         (r"peruna-?kuutio\w*", "cubed potatoes"),
         (r"liha-?kuutio\w*", "cubed meat"),
-        (r"(?:kirnu|meijeri|ruoka)?voi(?:ta|n|hin|ksi)?", "butter"),
-        (r"kermavaah\w*|(?:kuohu|vispi)kerm\w*", "whipping cream"),
-        (r"(?:ruoka|ruoanlaitto)kerm\w*", "cooking cream"),
-        (r"kahvikerm\w*", "coffee cream"),
+        (r"(?:kirnu|meijeri|ruoka)?voi(?:ta|n|hin|ksi)?|smör(?:et)?", "butter"),
+        (r"kermavaah\w*|(?:kuohu|vispi)kerm\w*|vispgrädd\w*", "whipping cream"),
+        (r"(?:ruoka|ruoanlaitto)kerm\w*|mat(?:lagnings)?grädd\w*", "cooking cream"),
+        (r"kahvikerm\w*|kaffegrädd\w*", "coffee cream"),
         (r"kevytkerm\w*", "low-fat cream"),
-        (r"kermaviil\w*|smetan\w*|ranskankerm\w*", "sour cream"),
+        (r"kermaviil\w*|smetan\w*|ranskankerm\w*|gräddfil\w*", "sour cream"),
+        (r"grädd(?:e|en)", "cream"),
         # T74: the most specific type, never the first part ("kermajuusto" is not cream). Finnish
         # "kermajuusto" is a semi-hard cheese, sold by Valio as tilsit; cream cheese is "tuorejuusto".
-        (r"tuorejuust\w*", "cream cheese"),
+        (r"tuorejuust\w*|färskost\w*", "cream cheese"),
         (r"kermajuust\w*", "tilsit cheese"),
-        (r"sulatejuust\w*", "processed cheese"),
-        (r"raejuust\w*", "cottage cheese"),
-        (r"sinihome-?juust\w*", "blue cheese"),
-        (r"vuohen-?juust\w*|vuohi-?juust\w*", "goat cheese"),
-        (r"salaatti-?juust\w*", "salad cheese"),
+        (r"sulatejuust\w*|smältost\w*", "processed cheese"),
+        (r"raejuust\w*|grynost\w*|keso", "cottage cheese"),
+        (r"sinihome-?juust\w*|ädelost\w*|blåmögelost\w*", "blue cheese"),
+        (r"vuohen-?juust\w*|vuohi-?juust\w*|getost\w*", "goat cheese"),
+        (r"salaatti-?juust\w*|salladsost\w*", "salad cheese"),
         (r"leipä-?juust\w*", "squeaky cheese"),
         (r"pizza-?juust\w*", "pizza cheese"),
-        (r"maitojauh\w*", "milk powder"),
+        (r"ost|osten|ostar", "cheese"),
+        (r"lättmjölksdryck\w*", "light milk drink"),
+        (r"mjölkdryck\w*", "milk drink"),
+        (r"lättmjölk\w*", "light milk"),
+        (r"skummjölk\w*", "skimmed milk"),
+        (r"helmjölk\w*", "whole milk"),
+        (r"mjölk|mjölken", "milk"),
+        (r"havredryck\w*|havremjölk\w*", "oat drink"),
+        (r"sojadryck\w*|sojamjölk\w*", "soy drink"),
+        (r"mandeldryck\w*|mandelmjölk\w*", "almond drink"),
+        (r"kokosmjölk\w*|kokosdryck\w*", "coconut milk"),
+        (r"maitojauh\w*|mjölkpulver\w*", "milk powder"),
         (r"kermajauh\w*", "cream powder"),
         (r"kaakaojauh\w*", "cocoa powder"),
         (r"leivinjauh\w*", "baking powder"),
         (r"perunamuusijauh\w*", "mashed potato powder"),
-        (r"maitorahk\w*", "quark"),
+        (r"maitorahk\w*|kvarg\w*", "quark"),
         (r"kasvirasvalevit\w*", "vegetable fat spread"),
-        (r"levite|levitettä|levitteen|levitteet|levitteitä|levitteenä", "fat spread"),
-        (r"piimä|piimää|piimän|piimät|piimiä", "sour milk"),
+        (r"levite|levitettä|levitteen|levitteet|levitteitä|levitteenä|matfett\w*", "fat spread"),
+        (r"piimä|piimää|piimän|piimät|piimiä|surmjölk\w*|filmjölk\w*", "sour milk"),
         (r"voileip\w*|voileiv\w*", "sandwich"),
-        (r"suklaa|suklaata|suklaan", "chocolate"),
-        (r"emmental-?juust\w*|emmentaal-?juust\w*", "Emmental cheese"),
+        (r"suklaa|suklaata|suklaan|choklad\w*", "chocolate"),
+        (r"emmental-?(?:juust|ost)\w*|emmentaal-?juust\w*", "Emmental cheese"),
         (r"emmental(?:ia|in|ista|iin|ina)?|emmentaal\w*", "Emmental"),
-        (r"edam-?juust\w*", "Edam cheese"),
-        (r"edam(?:ia|in|ista)?", "Edam"),
-        (r"gouda-?juust\w*", "Gouda cheese"),
+        (r"edam(?:er)?-?(?:juust|ost)\w*", "Edam cheese"),
+        (r"edam(?:ia|in|ista|er)?", "Edam"),
+        (r"gouda-?(?:juust|ost)\w*", "Gouda cheese"),
         (r"gouda(?:a|n|sta)?", "Gouda"),
-        (r"cheddar-?juust\w*", "cheddar cheese"),
+        (r"cheddar-?(?:juust|ost)\w*", "cheddar cheese"),
         (r"cheddar(?:ia|in|ista)?", "cheddar"),
-        (r"mozzarella-?juust\w*", "mozzarella cheese"),
+        (r"mozzarella-?(?:juust|ost)\w*", "mozzarella cheese"),
         (r"mozzarella(?:a|n|sta)?", "mozzarella"),
-        (r"feta-?juust\w*", "feta cheese"),
+        (r"feta-?(?:juust|ost)\w*", "feta cheese"),
         (r"feta(?:a|n|sta)?", "feta"),
-        (r"halloumi-?juust\w*", "halloumi cheese"),
+        (r"halloumi-?(?:juust|ost)\w*", "halloumi cheese"),
         (r"halloumi(?:a|n|sta)?", "halloumi"),
-        (r"brie-?juust\w*", "brie cheese"),
+        (r"brie-?(?:juust|ost)\w*", "brie cheese"),
         (r"brie(?:tä|n)?", "brie"),
         (r"parmesa(?:an|n)\w*", "parmesan"),
-        (r"lohifile\w*", "salmon fillet"),
-        (r"kirjolo(?:hi|ht|he)\w*", "rainbow trout"),
-        (r"lohi|lohta|lohen|lohia|lohet|loheen|lohesta", "salmon"),
-        (r"(?:kanan?)?muna(?:a|t|n)?|(?:kanan?)?munia|(?:kanan?)?munien", "eggs"),
-        (r"broiler\w*|kana|kanaa|kanan|kanoja|kanafile\w*", "chicken"),
-        (r"jauhelih\w*", "minced meat"),
-        (r"kala|kalaa|kalan|kaloja", "fish"),
-        (r"kinkku\w*|kinkkua|kinkun", "ham"),
-        (r"makkar\w*", "sausage"),
+        (r"lohifile\w*|laxfil[eé]\w*", "salmon fillet"),
+        (r"kirjolo(?:hi|ht|he)\w*|regnbågslax\w*", "rainbow trout"),
+        (r"lohi|lohta|lohen|lohia|lohet|loheen|lohesta|lax(?:en)?", "salmon"),
+        (r"(?:kanan?)?muna(?:a|t|n)?|(?:kanan?)?munia|(?:kanan?)?munien|ägg(?:en)?", "eggs"),
+        (r"broiler\w*|kana|kanaa|kanan|kanoja|kanafile\w*|kyckling\w*", "chicken"),
+        (r"jauhelih\w*|köttfärs\w*|nötfärs\w*|blandfärs\w*", "minced meat"),
+        (r"köttbull\w*", "meatballs"),
+        (r"kala|kalaa|kalan|kaloja|fisk(?:en|ar)?", "fish"),
+        (r"kinkku\w*|kinkkua|kinkun|skink(?:a|an|or)", "ham"),
+        (r"makkar\w*|korv(?:en|ar)?", "sausage"),
         (r"jäätelö\w*", "ice cream"),
-        (r"margariin\w*", "margarine"),
-        (r"rypsiöljy\w*", "rapeseed oil"),
-        (r"öljy\w*", "oil"),
+        (r"margariin\w*|margarin\w*", "margarine"),
+        (r"rypsiöljy\w*|rapsolj\w*", "rapeseed oil"),
+        (r"öljy\w*|olj(?:a|an|or)", "oil"),
         (r"mehu\w*", "juice"),
         (r"tee|teetä|teen", "tea"),
         (r"kaakao\w*", "cocoa"),
-        (r"sokeri\w*", "sugar"),
+        (r"sokeri\w*|socker|sockret", "sugar"),
         (r"suola|suolaa", "salt"),
-        (r"sinappi|sinappi(?:a|in|en|na)|sinapi(?:n|t|sta|lla|lle)", "mustard"),
-        (r"tomaatti(?:a|in|na)?|tomaat(?:in|it|tia|teja|ista)", "tomato"),
-        (r"porkkana(?:a|n|t|na|sta)?|porkkanoi(?:ta|ssa)", "carrot"),
-        (r"kurkku(?:a|un|na)?|kurku(?:n|t|sta)|kurkkuja", "cucumber"),
-        (r"sipuli(?:a|n|t|in|sta|na|en|lla|lle|ksi)|sipuleita|sipuli", "onion"),
+        (r"sinappi|sinappi(?:a|in|en|na)|sinapi(?:n|t|sta|lla|lle)|senap\w*", "mustard"),
+        (r"tomaatti(?:a|in|na)?|tomaat(?:in|it|tia|teja|ista)|tomat(?:er|en)?", "tomato"),
+        (r"porkkana(?:a|n|t|na|sta)?|porkkanoi(?:ta|ssa)|morot\w*|morötter\w*", "carrot"),
+        (r"kurkku(?:a|un|na)?|kurku(?:n|t|sta)|kurkkuja|gurk(?:a|an|or)", "cucumber"),
+        (r"sipuli(?:a|n|t|in|sta|na|en|lla|lle|ksi)|sipuleita|sipuli|lök(?:en|ar)?", "onion"),
+        (r"peruna(?:a|n|t|na|sta)?|perunoi(?:ta|ssa)|potatis\w*", "potatoes"),
+        (r"havregryn\w*|havrefling\w*", "oat flakes"),
+        (r"rågbröd\w*", "rye bread"),
+        (r"knäckebröd\w*", "crispbread"),
+        (r"bröd(?:et)?", "bread"),
+        (r"vetemjöl\w*", "wheat flour"),
+        (r"rågmjöl\w*", "rye flour"),
+        (r"mjöl(?:et)?", "flour"),
+        (r"ris(?:et)?", "rice"),
+        (r"kaff(?:e|et)|bryggkaff\w*", "coffee"),
     )
 )
 # After the product noun of a Finnish request, a word in a place case (illative, adessive, allative,
@@ -529,6 +573,12 @@ _FI_HINT_RE = re.compile(
     r"ilman|meille|kiitos|klo|kello|\w{3,}ksi|\w*[äö]\w*)\b",
     re.IGNORECASE,
 )
+_SV_HINT_RE = re.compile(
+    r"\b(?:vi|jag|behöv\w*|till|för|med|utan|och|samt|eller|senast|idag|imorgon|"
+    r"måndag\w*|tisdag\w*|onsdag\w*|torsdag\w*|fredag\w*|lördag\w*|söndag\w*|"
+    r"\w+fri(?:tt|a)?|mjölk\w*|smör\w*|grädd\w*|ost(?:en|ar)?|skivad\w*|riven\w*|\w*å\w*)\b",
+    re.IGNORECASE,
+)
 _EN_HINT_RE = re.compile(
     r"\b(?:we|i|need|needs|please|of|the|by|and|for|with|without|no|some|something|today|tomorrow|order|"
     r"send|deliver\w*|our|us)\b",
@@ -541,9 +591,9 @@ _PLANT_RE = re.compile(r"\b(?:oat|soy|soya|almond|coconut|rice|pea|plant|vegan|v
 _SENTENCE_SPLIT = re.compile(
     r"(?<=[.!?])(?<!\d\.)\s+(?!\d)|(?:(?<=\.\d\.)|(?<=\.\d\d\.))\s+(?=[A-ZÅÄÖ])|\s*(?:…|\.{2,})\s*|\n+"
 )
-_CHUNK_SPLIT = re.compile(r",\s+|;\s*|\s+(?:and|ja|sekä|plus|\+|&)\s+", re.IGNORECASE)
+_CHUNK_SPLIT = re.compile(r",\s+|;\s*|\s+(?:and|ja|sekä|och|samt|plus|\+|&)\s+", re.IGNORECASE)
 _PUNCTUATION = re.compile(r"[()\[\]{}.,:;!?\"“”«»—–/]+")
-_ALT_SPLIT_RE = re.compile(r"\s+\b(?:tai|or)\b\s+", re.IGNORECASE)
+_ALT_SPLIT_RE = re.compile(r"\s+\b(?:tai|or|eller)\b\s+", re.IGNORECASE)
 _ADJECTIVE_FORMS = frozenset({"grated", "sliced", "block", "shredded", "cubed", "whole"})
 _KNOWN_EN_PRODUCT_WORDS = frozenset({
     "milk", "drink", "light", "skimmed", "semi-skimmed", "whole", "oat", "soy", "soya", "almond",
@@ -569,23 +619,218 @@ UNIT_WORDS = "litres, kilograms, pieces or cases"
 # Explicit exclusion lists keep every term, not just the first allergen after a negation.
 # Stop words keep delivery clauses and another exclusion out of the ingredient list.
 _EXCLUSION_STOP = "|".join(re.escape(w) for w in sorted(
-    _STOPWORDS | _BENIGN_NEGATED | {"no", "without", "ilman", "ei", "eivät"}, key=len, reverse=True,
+    _STOPWORDS | _BENIGN_NEGATED | {"no", "without", "ilman", "ei", "eivät", "utan"}, key=len, reverse=True,
 ))
 _EXCLUSION_WORD = rf"(?!(?:{_EXCLUSION_STOP})\b)(?:tree[\s-]+nuts?|[^\W\d_][\w-]*)"
-_EXCLUSION_JOIN = r"(?:\s*,\s*(?:(?:tai|eikä|ja|sekä|or|and|nor)\s+)?|\s+(?:tai|eikä|ja|sekä|or|and|nor)\s+)"
+_EXCLUSION_JOIN = (
+    r"(?:\s*,\s*(?:(?:tai|eikä|ja|sekä|och|samt|eller|or|and|nor)\s+)?"
+    r"|\s+(?:tai|eikä|ja|sekä|och|samt|eller|or|and|nor)\s+)"
+)
 _EXCLUSION_TERMS = rf"{_EXCLUSION_WORD}(?:{_EXCLUSION_JOIN}{_EXCLUSION_WORD})*"
 _EXCLUSION_RES = (
-    re.compile(rf"\b(?:(?:ei(?:vät)?\s+saa\s+sisältää|ilman)\s+|{_NEGATION_EN})"
+    re.compile(rf"\b(?:(?:ei(?:vät)?\s+saa\s+sisältää|ilman|utan|får\s+inte\s+innehålla)\s+|{_NEGATION_EN})"
                rf"(?P<terms>{_EXCLUSION_TERMS})", re.IGNORECASE),
     re.compile(rf"\b(?P<terms>{_EXCLUSION_TERMS})\s+ei\s+saa\s+olla\b", re.IGNORECASE),
 )
 _EXCLUSION_TERM_RE = re.compile(r"tree[\s-]+nuts?|[^\W\d_][\w-]*", re.IGNORECASE)
-_EXCLUSION_CONJUNCTIONS = {"tai", "eikä", "ja", "sekä", "or", "and", "nor"}
-_UNKNOWN_FI_EXCLUSION_RE = re.compile(r"\bei(?:vät)?\s+saa\s+sisältää\b|\bei\s+saa\s+olla\b", re.IGNORECASE)
+_EXCLUSION_CONJUNCTIONS = {"tai", "eikä", "ja", "sekä", "och", "samt", "eller", "or", "and", "nor"}
+_UNKNOWN_FI_EXCLUSION_RE = re.compile(
+    r"\bei(?:vät)?\s+saa\s+sisältää\b|\bei\s+saa\s+olla\b|\bfår\s+inte\s+innehålla\b", re.IGNORECASE
+)
 # Only a standalone free-from statement is read this way, never a suffix inside a brand/product name.
 _FI_FREE_STATEMENT_RE = re.compile(
     r"(?:täysin\s+)?[^\W\d_]+(?:ton|tön|tonta|töntä|ttomia|ttömiä|ttoman|ttömän)", re.IGNORECASE,
 )
+
+# T101 Scope 2: Free-from adjectives (FI -ton/-tön/-tonta/-töntä, SV -fri/-fritt, EN -free) that do not
+# match exactly are fuzzy-matched (edit distance <= 2 against the requirement vocabulary) with an assumption
+# chip ("Read 'laktootonta' as lactose-free"), or trigger a clarification question if nothing is close.
+_FUZZY_VOCAB: tuple[tuple[tuple[Requirement, ...], str, tuple[str, ...], tuple[str, ...], tuple[str, ...]], ...] = (
+    ((Requirement(kind="CLAIM", code="FREE_FROM_LACTOSE"),), "lactose-free", ("lactose",), ("laktoosi",), ("laktos",)),
+    ((Requirement(kind="CLAIM", code="FREE_FROM_GLUTEN"),), "gluten-free", ("gluten",), ("gluteeni",), ("gluten",)),
+    ((Requirement(kind="AVOID_ALLERGEN", code="AM"),), "milk-free", ("milk", "dairy"), ("maido", "maito"), ("mjölk", "mejeri")),
+    ((_AP,), "peanut-free", ("peanut",), ("maapähkinä",), ("jordnöt", "jordnöts")),
+    ((_AN,), "tree-nut-free", ("tree-nut", "treenut"), ("puupähkinä",), ("trädnöt", "trädnöts")),
+    ((_AN, _AP), "nut-free", ("nut",), ("pähkinä",), ("nöt", "nöts")),
+    ((Requirement(kind="AVOID_ALLERGEN", code="AE"),), "egg-free", ("egg",), ("kananmuna", "muna"), ("ägg",)),
+    ((Requirement(kind="AVOID_ALLERGEN", code="AF"),), "fish-free", ("fish",), ("kala",), ("fisk",)),
+    (
+        (Requirement(kind="AVOID_ALLERGEN", code="AC"),),
+        "crustacean-free",
+        ("crustacean", "shellfish"),
+        ("äyriäise", "äyriäis"),
+        ("kräftdjurs", "skaldjurs"),
+    ),
+    (
+        (Requirement(kind="AVOID_ALLERGEN", code="UM"),),
+        "mollusc-free",
+        ("mollusc", "mollusk"),
+        ("nilviäise", "nilviäis"),
+        ("blötdjurs",),
+    ),
+    ((Requirement(kind="AVOID_ALLERGEN", code="AY"),), "soy-free", ("soy", "soya"), ("soija",), ("soja",)),
+    ((Requirement(kind="AVOID_ALLERGEN", code="AS"),), "sesame-free", ("sesame",), ("seesami",), ("sesam",)),
+    ((Requirement(kind="AVOID_ALLERGEN", code="BC"),), "celery-free", ("celery",), ("selleri",), ("selleri",)),
+    ((Requirement(kind="AVOID_ALLERGEN", code="BM"),), "mustard-free", ("mustard",), ("sinapi", "sinappi"), ("senap", "senaps")),
+    ((Requirement(kind="AVOID_ALLERGEN", code="NL"),), "lupin-free", ("lupin",), ("lupiini",), ("lupin",)),
+    ((Requirement(kind="AVOID_ALLERGEN", code="AU"),), "sulphite-free", ("sulphite", "sulfite"), ("sulfiiti", "sulfiitti"), ("sulfit",)),
+    ((Requirement(kind="AVOID_ALLERGEN", code="UW"),), "wheat-free", ("wheat",), ("vehnä",), ("vete",)),
+)
+_FI_CANON_SUF = (
+    "ton", "tön", "tonta", "töntä", "ttoman", "ttömän", "ttomat", "ttömät",
+    "ttomia", "ttömiä", "ttomana", "ttömänä", "ttomalle", "ttömälle", "ttomille", "ttömille",
+)
+_SV_CANON_SUF = ("fri", "fritt", "fria")
+_EN_CANON_SUF = ("-free", "free")
+_FI_FUZZY_SUF = _FI_CANON_SUF + (
+    "totna", "tötna", "tona", "tönä", "tnta", "tntä", "tota", "tötä", "toman", "tömän", "tomia", "tömiä", "ttn", "tn",
+)
+_SV_FUZZY_SUF = _SV_CANON_SUF + ("frit", "fir", "fr")
+_EN_FUZZY_SUF = _EN_CANON_SUF + ("-fre", "-fee", "-ree", "-fere")
+_BENIGN_FREE_RE = re.compile(
+    r"^(?:suolaton\w*|suolattom\w*|suolaamaton\w*|suolaamattom\w*|osaltad\w*|osaltat\w*|"
+    r"rasvaton\w*|rasvattom\w*|fettfri\w*|maustamaton\w*|maustamattom\w*|"
+    r"luuton\w*|luuttom\w*|ruodoton\w*|ruodottom\w*|nahaton\w*|nahattom\w*|"
+    r"kuoreton\w*|kuorettom\w*|kivetön\w*|kivettöm\w*|benfri\w*|skinnfri\w*|kärnfri\w*|"
+    r"hajuton\w*|hajuttom\w*|väritön\w*|värittöm\w*|äänetön\w*|äänettöm\w*|"
+    r"maksuton\w*|maksuttom\w*|veloitukseton\w*|veloituksettom\w*|ehdoton\w*|ehdottom\w*|"
+    r"välitön\w*|välittöm\w*|kohtuuton\w*|kohtuuttom\w*|mahdoton\w*|mahdottom\w*|"
+    r"tarpeeton\w*|tarpeettom\w*|toivoton\w*|toivottom\w*|huoleton\w*|huolettom\w*|"
+    r"ongelmaton\w*|ongelmattom\w*|vaivaton\w*|vaivattom\w*|lukematon\w*|lukemattom\w*|"
+    r"tuntematon\w*|tuntemattom\w*|uskomaton\w*|uskomattom\w*|odottamaton\w*|odottamattom\w*|"
+    r"korvaamaton\w*|korvaamattom\w*|välttämätön\w*|välttämättöm\w*|"
+    r"rostfri\w*|valfri\w*|kostnadsfri\w*|avgiftsfri\w*|fraktfri\w*|luktfri\w*|parfymfri\w*|"
+    r"keiton|käytön|laaton|katon|maton|tytön|peiton|voiton|liiton|kiiton|viikon|puiston|"
+    r"osaston|varaston|viraston|toimiston|rahaston|kirjaston|opiston|"
+    r"cartons?|croutons?|mutton|wontons?|buttons?|cotton|lipton|boston|hilton|tons?|free)$",
+    re.IGNORECASE,
+)
+_UNMAPPABLE_FREE_RE = re.compile(
+    r"^(?:sokerit(?:on|onta|tom\w*)|sockerfri(?:tt|a)?|sugar[\s-]?free|"
+    r"salt[\s-]?free|saltfri(?:tt|a)?|fat[\s-]?free|"
+    r"lisäaineet(?:on|onta|tom\w*)|tillsatsfri(?:tt|a)?|additive[\s-]?free|preservative[\s-]?free|"
+    r"kalorit(?:on|onta|tom\w*)|kolesterolit(?:on|onta|tom\w*)|alkoholit(?:on|onta|tom\w*)|"
+    r"kofeiinit(?:on|onta|tom\w*)|palmuöljyt(?:ön|öntä|töm\w*)|nitriitit(?:ön|öntä|töm\w*)|"
+    r"histamiinit(?:on|onta|tom\w*))$",
+    re.IGNORECASE,
+)
+_STRICT_FREE_WORD_RE = re.compile(
+    r"^(?:[^\W\d_]{4,}(?:ton|tön|tonta|töntä|ttoman|ttömän|ttomat|ttömät|ttomia|ttömiä|ttomana|ttömänä)"
+    r"|[^\W\d_]{3,}(?:fri|fritt|fria)"
+    r"|[^\W\d_]{3,}-free)$",
+    re.IGNORECASE,
+)
+_TOKEN_WORD_RE = re.compile(r"\b[^\W\d_]+(?:-[^\W\d_]+)*\b", re.UNICODE)
+
+
+def _strip_accents(s: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
+
+
+def _edit_distance(a: str, b: str) -> int:
+    if a == b:
+        return 0
+    if abs(len(a) - len(b)) > 3:
+        return abs(len(a) - len(b))
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, start=1):
+        curr = [i]
+        for j, cb in enumerate(b, start=1):
+            cost = 0 if ca == cb else 1
+            curr.append(min(curr[-1] + 1, prev[j] + 1, prev[j - 1] + cost))
+        prev = curr
+    return prev[-1]
+
+
+def _fuzzy_match_free_word(word: str) -> tuple[tuple[Requirement, ...], str] | None:
+    low = word.lower()
+    if _BENIGN_FREE_RE.fullmatch(low) or _UNMAPPABLE_FREE_RE.fullmatch(low):
+        return None
+    sp: tuple[str, str, str] | None = None
+    for suf in _EN_FUZZY_SUF:
+        if low.endswith(suf) and len(low) - len(suf) >= 3:
+            sp = ("en", low[: -len(suf)].rstrip("-"), suf)
+            break
+    if sp is None:
+        for suf in _SV_FUZZY_SUF:
+            if low.endswith(suf) and len(low) - len(suf) >= 3:
+                sp = ("sv", low[: -len(suf)].rstrip("-"), suf)
+                break
+    if sp is None:
+        for suf in _FI_FUZZY_SUF:
+            if low.endswith(suf) and len(low) - len(suf) >= 3:
+                sp = ("fi", low[: -len(suf)].rstrip("-"), suf)
+                break
+    if sp is None:
+        return None
+    lang, w_stem, _w_suf = sp
+    best: tuple[tuple[int, int, int, int], tuple[Requirement, ...], str] | None = None
+    for reqs, label, en_s, fi_s, sv_s in _FUZZY_VOCAB:
+        stems = en_s if lang == "en" else (fi_s if lang == "fi" else sv_s)
+        canon_sufs = _EN_CANON_SUF if lang == "en" else (_FI_CANON_SUF if lang == "fi" else _SV_CANON_SUF)
+        for target_stem in stems:
+            stem_d = _edit_distance(w_stem, target_stem)
+            stem_d_ascii = _edit_distance(_strip_accents(w_stem), _strip_accents(target_stem))
+            eff_stem_d = min(stem_d, stem_d_ascii if stem_d <= 2 else 99)
+            is_anagram = len(w_stem) == len(target_stem) and sorted(_strip_accents(w_stem)) == sorted(
+                _strip_accents(target_stem)
+            )
+            max_stem_d = 2 if (len(target_stem) >= 5 or is_anagram) else 1
+            if eff_stem_d > max_stem_d:
+                continue
+            if not (set(_strip_accents(w_stem[:2])) & set(_strip_accents(target_stem[:2]))):
+                continue
+            word_d = min(
+                min(
+                    _edit_distance(low, f"{target_stem}{cs}"),
+                    _edit_distance(_strip_accents(low), _strip_accents(f"{target_stem}{cs}")),
+                )
+                for cs in canon_sufs
+            )
+            if word_d > 2:
+                continue
+            score = (word_d, eff_stem_d, stem_d, abs(len(w_stem) - len(target_stem)))
+            if best is None or score < best[0]:
+                best = (score, reqs, label)
+    return (best[1], best[2]) if best is not None else None
+
+
+def _take_fuzzy_free_from(text: str) -> tuple[str, list[Requirement], list[str]]:
+    """Fuzzy-match misspelled free-from adjectives (edit distance <= 2) and record an assumption chip."""
+    requirements: list[Requirement] = []
+    notes: list[str] = []
+    brands = [m.span() for m in _BRAND_PHRASE_RE.finditer(text)]
+
+    def replace(match: re.Match) -> str:
+        if any(start <= match.start() < end for start, end in brands):
+            return match.group(0)
+        word = match.group(0)
+        matched = _fuzzy_match_free_word(word)
+        if matched is None:
+            return word
+        reqs, label = matched
+        for r in reqs:
+            if r not in requirements:
+                requirements.append(r)
+        note = f"Read '{word.lower()}' as {label}"
+        if note not in notes:
+            notes.append(note)
+        return " "
+
+    cleaned = _TOKEN_WORD_RE.sub(replace, text)
+    return cleaned, requirements, notes
+
+
+def _find_unmapped_free_word(text: str) -> str | None:
+    """Return any remaining free-from adjective that neither mapped exactly nor fuzzy-matched."""
+    for m in _TOKEN_WORD_RE.finditer(text):
+        word = m.group(0)
+        low = word.lower()
+        if _BENIGN_FREE_RE.fullmatch(low):
+            continue
+        if _UNMAPPABLE_FREE_RE.fullmatch(low) or _STRICT_FREE_WORD_RE.fullmatch(low):
+            return word
+    return None
 
 
 # --------------------------------------------------------------------------- helpers
@@ -646,6 +891,8 @@ def _find_dates(text: str, today: date) -> list[_DatePhrase]:
                     value = today + timedelta(days=2)
                 elif kind == "weekday":
                     value = _next_weekday(today, _WEEKDAYS_EN.index(m["wd"].lower()))
+                elif kind == "weekday_sv":
+                    value = _next_weekday(today, _WEEKDAYS_SV.index(m["wdsv"].lower()[: _sv_len(m["wdsv"])]))
                 else:
                     value = _next_weekday(today, _WEEKDAYS_FI.index(m["wdfi"].lower()[: _fi_len(m["wdfi"])]))
             except ValueError:
@@ -660,8 +907,14 @@ def _fi_len(word: str) -> int:
     return next(len(stem) for stem in _WEEKDAYS_FI if lower.startswith(stem))
 
 
+def _sv_len(word: str) -> int:
+    lower = word.lower()
+    return next(len(stem) for stem in _WEEKDAYS_SV if lower.startswith(stem))
+
+
 def _is_finnish(text: str) -> bool:
-    return len(_FI_HINT_RE.findall(text)) > len(_EN_HINT_RE.findall(text))
+    fi_count = len(_FI_HINT_RE.findall(text))
+    return fi_count > len(_EN_HINT_RE.findall(text)) and fi_count > len(_SV_HINT_RE.findall(text))
 
 
 @dataclass(frozen=True)
@@ -809,7 +1062,7 @@ def _translate(token: str) -> tuple[str, bool]:
         if lower.startswith(stem):
             return english, True
     for stem, english_terms in FI_SV_TO_EN_SYNONYMS:
-        if len(stem) >= 4 and lower.startswith(stem):
+        if (len(stem) >= 4 and lower.startswith(stem)) or (len(stem) == 3 and lower == stem):
             return english_terms[0], True
     if "-" in token and not any(token.lower() == b.lower() for b in KNOWN_BRANDS):
         parts = [p for p in token.split("-") if p]
@@ -837,12 +1090,13 @@ class _ItemDraft:
     notes: list[str] = field(default_factory=list)
 
 
-def _extract(fragment: str) -> tuple[str, list[Requirement], list[Preference], str | None, list[str]]:
-    """Strip requirement/preference/date/id phrases from a fragment; return (rest, reqs, prefs, id, packs)."""
+def _extract(fragment: str) -> tuple[str, list[Requirement], list[Preference], str | None, list[str], list[str]]:
+    """Strip requirement/preference/date/id phrases from a fragment; return (rest, reqs, prefs, id, packs, notes)."""
     requirements: list[Requirement] = []
     preferences: list[Preference] = []
     product_id = None
     packs: list[str] = []
+    notes: list[str] = []
 
     def take_id(m: re.Match) -> str:
         nonlocal product_id
@@ -860,6 +1114,9 @@ def _extract(fragment: str) -> tuple[str, list[Requirement], list[Preference], s
         if pattern.search(rest):
             requirements.extend(r for r in found if r not in requirements)
             rest = pattern.sub(" ", rest)
+    rest, fuzzy_reqs, fuzzy_notes = _take_fuzzy_free_from(rest)
+    requirements.extend(r for r in fuzzy_reqs if r not in requirements)
+    notes.extend(n for n in fuzzy_notes if n not in notes)
     for pattern, preference in _PREFERENCES:
         if pattern.search(rest):
             preferences.append(preference)
@@ -900,7 +1157,7 @@ def _extract(fragment: str) -> tuple[str, list[Requirement], list[Preference], s
         form_pref = Preference(kind="OTHER", value=req_form.label)
         if form_pref not in preferences:
             preferences.append(form_pref)
-    return rest, requirements, preferences, product_id, packs
+    return rest, requirements, preferences, product_id, packs, notes
 
 
 def _order_quantities(text: str) -> list[re.Match]:
@@ -945,9 +1202,10 @@ def _take_exclusions(text: str) -> tuple[str, list[Requirement], str | None]:
             # A delivery date after a comma ends the list, rather than naming an ingredient.
             if any(pattern.fullmatch(word) for _kind, pattern in _DATE_RES):
                 return " " + match.group(0)[term.start() + match.start("terms") - match.start():]
-            found = next((reqs for reqs, en, fi in _ALLERGEN_VOCAB
+            found = next((reqs for reqs, en, fi, sv in _ALLERGEN_VOCAB
                           if (en and re.fullmatch(en, word, re.IGNORECASE))
-                          or (fi and re.fullmatch(rf"(?:{fi})\w*", word, re.IGNORECASE))), None)
+                          or (fi and re.fullmatch(rf"(?:{fi})\w*", word, re.IGNORECASE))
+                          or (sv and re.fullmatch(rf"(?:{sv})\w*", word, re.IGNORECASE))), None)
             if found is None:
                 unknown = unknown or " ".join(match.group(0).split())
             else:
@@ -971,6 +1229,7 @@ def _unknown_negation(text: str) -> str | None:
         return unknown
     for pattern, _found in _REQUIREMENT_RES:
         rest = pattern.sub(" ", rest)
+    rest, _fuzzy_reqs, _fuzzy_notes = _take_fuzzy_free_from(rest)
     for _kind, pattern in _DATE_RES:
         rest = pattern.sub(" ", rest)
     if match := _UNKNOWN_FI_EXCLUSION_RE.search(rest):
@@ -978,12 +1237,14 @@ def _unknown_negation(text: str) -> str | None:
     for sentence in _SENTENCE_SPLIT.split(rest):
         for chunk in _split_chunks(sentence):
             statement = chunk.strip(" .!?;:\t\n")
-            if _FI_FREE_STATEMENT_RE.fullmatch(statement):
+            if _FI_FREE_STATEMENT_RE.fullmatch(statement) and not _BENIGN_FREE_RE.fullmatch(statement.split()[-1]):
                 return statement
     for m in _UNKNOWN_NEGATION_RE.finditer(rest):
         word = (m["word"] or m["free"]).lower()
         if word not in _BENIGN_NEGATED:
             return " ".join(m.group(0).split())
+    if unmapped := _find_unmapped_free_word(rest):
+        return unmapped
     return None
 
 
@@ -1233,7 +1494,7 @@ def _pure_constraint_clause(clause: str, finnish: bool) -> list[Requirement] | N
     with no quantity, product noun, pack size or soft preference."""
     if _order_quantities(clause) or _unknown_negation(clause):
         return None
-    rest, requirements, preferences, product_id, packs = _extract(clause)
+    rest, requirements, preferences, product_id, packs, _notes = _extract(clause)
     for pattern, found in _DIET_RES:
         if pattern.search(clause):
             requirements.extend(r for r in found if r not in requirements)
@@ -1365,17 +1626,19 @@ def _fallback(
 
     items: list[_ItemDraft] = []
     extra_requirements: list[Requirement] = []
+    extra_fuzzy_notes: list[str] = []
     pending_tails: list[tuple[int, list[Requirement]]] = []
     for pattern, found in _DIET_RES:
         if pattern.search(clean):
             extra_requirements.extend(r for r in found if r not in extra_requirements)
     for sentence in _SENTENCE_SPLIT.split(clean):
         if items and _PACK_PHRASE_RE.search(sentence) and not _order_quantities(sentence):
-            rest, requirements, preferences, _product_id, packs = _extract(sentence)
+            rest, requirements, preferences, _product_id, packs, fuzzy_notes = _extract(sentence)
             if _what(rest, finnish) is None:
                 additions = [*preferences, *(Preference(kind="PACK_SIZE", value=pack) for pack in packs)]
                 items[-1].preferences.extend(pref for pref in additions if pref not in items[-1].preferences)
                 items[-1].requirements.extend(req for req in requirements if req not in items[-1].requirements)
+                items[-1].notes.extend(n for n in fuzzy_notes if n not in items[-1].notes)
                 continue
         if not _QUANTITY_RE.search(sentence):
             # A sentence without a quantity can still carry a hard requirement ("It must be gluten-free").
@@ -1385,10 +1648,16 @@ def _fallback(
                 if pattern.search(rest_sentence):
                     extra_requirements.extend(r for r in found if r not in extra_requirements)
                     rest_sentence = pattern.sub(" ", rest_sentence)
+            rest_sentence, fuzzy_reqs, fuzzy_notes = _take_fuzzy_free_from(rest_sentence)
+            extra_requirements.extend(r for r in fuzzy_reqs if r not in extra_requirements)
+            extra_fuzzy_notes.extend(n for n in fuzzy_notes if n not in extra_fuzzy_notes)
             continue
+        _unused_rest, _unused_reqs, sentence_fuzzy = _take_fuzzy_free_from(sentence)
         sentence, leading_global = _take_leading_global_clauses(sentence, finnish)
         extra_requirements.extend(r for r in leading_global if r not in extra_requirements)
         sentence, trailing_reqs, trailing_explicit = _take_trailing_constraint_clause(sentence, finnish)
+        if leading_global or trailing_reqs:
+            extra_fuzzy_notes.extend(n for n in sentence_fuzzy if n not in extra_fuzzy_notes)
         if trailing_reqs and trailing_explicit:
             extra_requirements.extend(r for r in trailing_reqs if r not in extra_requirements)
             trailing_reqs = []
@@ -1399,21 +1668,21 @@ def _fallback(
                 fragments.append(f"{pending} {chunk}".strip())
                 pending = ""
             elif fragments:
-                fragments[-1] = f"{fragments[-1]} {chunk}"
+                fragments[-1] = f"{fragments[-1]}, {chunk}"
             else:
-                pending = f"{pending} {chunk}".strip()
+                pending = f"{pending}, {chunk}".strip(" ,")
         for fragment in fragments:
             similar = bool(_SIMILAR_RE.search(fragment))
             fragment = _SIMILAR_RE.sub(" ", fragment)
             first = _order_quantities(fragment)[0]
             before, after = fragment[: first.start()], fragment[first.end() :]
-            rest_after, req_a, pref_a, id_a, packs = _extract(after)
-            rest_before, req_b, pref_b, id_b, leading_packs = _extract(before)
+            rest_after, req_a, pref_a, id_a, packs, notes_a = _extract(after)
+            rest_before, req_b, pref_b, id_b, leading_packs, notes_b = _extract(before)
             requirements = req_b + [r for r in req_a if r not in req_b]
             what = _item_name(rest_before, rest_after, finnish)
             unit = _unit_of(first)
             value = _to_decimal(first["num"])
-            notes: list[str] = []
+            notes: list[str] = list(dict.fromkeys([*notes_b, *notes_a]))
             if unit in ("g", "ml", "dl"):
                 factor = {"g": Decimal(1000), "ml": Decimal(1000), "dl": Decimal(10)}[unit]
                 converted = value / factor
@@ -1509,6 +1778,7 @@ def _fallback(
     if extra_requirements:
         labels = ", ".join(_REQUIREMENT_LABELS.get(r.code, r.code) for r in extra_requirements)
         notes.append(f"Applied to every item: {labels}")
+    notes.extend(n for n in extra_fuzzy_notes if n not in notes)
     notes.extend(note for pattern, note in _READING_NOTES if items and pattern.search(clean))
     notes.extend(_label_notes([p for item in items for p in item.preferences]))
     request = None
@@ -1521,7 +1791,7 @@ def _fallback(
             assumptions.append(
                 f"No delivery date given: “{deadline.phrase}” read as {format_date(requested)} ({day})"
             )
-        elif explicit.kind in ("weekday", "weekday_fi"):
+        elif explicit.kind in ("weekday", "weekday_fi", "weekday_sv"):
             assumptions.append(f"Delivered on or before {format_date(requested)}")
         assumptions.extend(notes)
         for item in items:
@@ -1645,7 +1915,7 @@ def _strip_lead(text: str) -> str:
     return re.sub(
         r"^.*?\b(?:we need|i need|we'd like|i'd like|we want|i want|please send|send us|order|"
         r"tarvitsemme|tarvitsen|tarvitaan|tarvitsisimme|haluamme|haluaisimme|tilaamme|tilaisimme|tilataan|"
-        r"toimittakaa|lähettäkää)\b",
+        r"toimittakaa|lähettäkää|vi behöver|jag behöver|behöver|vi vill ha|beställ\w*|leverera|skicka(?:\s+oss)?)\b",
         " ",
         text,
         flags=re.IGNORECASE,
@@ -1707,15 +1977,20 @@ def _label_notes(preferences: list[Preference]) -> list[str]:
 
 
 def _clean_name(what: object) -> object:
-    """The LLM's product name without certification, occasion or instruction words (T74, T87)."""
+    """The LLM's product name without certification, occasion, requirement or instruction words (T74, T87, T101)."""
     if not isinstance(what, str):
         return what
     cleaned = _cut_instruction_clauses(what, detect_instructions(what))
     for pattern, _code, _label in _CERTIFICATIONS:
         cleaned = pattern.sub(" ", cleaned)
+    for pattern, _found in _REQUIREMENT_RES:
+        cleaned = pattern.sub(" ", cleaned)
+    cleaned, _fuzzy_reqs, _fuzzy_notes = _take_fuzzy_free_from(cleaned)
+    for _kind, pattern in _DATE_RES:
+        cleaned = pattern.sub(" ", cleaned)
     cleaned = _OCCASION_CONTEXT_FI_RE.sub(" ", _OCCASION_CONTEXT_RE.sub(" ", cleaned))
     cleaned = " ".join(cleaned.split()).strip(" ,;-.")
-    if cleaned and (_ALT_SPLIT_RE.search(cleaned) or _is_finnish(cleaned)):
+    if cleaned and (_ALT_SPLIT_RE.search(cleaned) or _is_finnish(cleaned) or _SV_HINT_RE.search(cleaned)):
         normalised = _what(cleaned, finnish=_is_finnish(cleaned))
         if normalised:
             return normalised
@@ -1845,6 +2120,10 @@ def _from_llm(raw: dict, text: str, today: date, fallback: _Fallback) -> tuple[S
                 "requirements": [*llm_item.requirements, *extra],
                 "preferences": [*llm_item.preferences, *labels],
             }))
+        for draft_item in fallback.items:
+            for note in draft_item.notes:
+                if note.startswith("Read '") and note not in assumptions:
+                    assumptions.append(note)
         for det_item in fallback.request.items:
             for p in det_item.preferences:
                 if p.kind == "OTHER" and p.value.lower() in FORMS_BY_LABEL and p.value not in assumptions:
