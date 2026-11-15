@@ -67,12 +67,24 @@ _PATTERNS: tuple[tuple[Category, str], ...] = (
                            r"\bapprove\s+(?:it|this(?:\s+order)?|the\s+order|automatically|immediately|now)\b"),
     ("SYSTEM_INSTRUCTION", r"\b(?:skip|bypass|no\s+need\s+for|without)\s+(?:the\s+|any\s+|human\s+)?"
                            r"(?:approval|approver|sign[\s-]?off|human(?:\s+review|\s+approval)?)\b"),
-    ("SYSTEM_INSTRUCTION", r"\b(?:do\s+not|don't|dont|no\s+need\s+to|never)\s+ask"
-                           r"(?:\s+(?:anyone|anybody|someone|a\s+human|for\s+approval|for\s+sign[\s-]?off|"
-                           r"(?:the\s+|our\s+)?" + _ROLE_EN + r"(?:\s+for\s+approval)?))?\b"),
+    ("SYSTEM_INSTRUCTION", r"\b(?:do\s+not|don't|dont|no\s+need\s+to|there\s+is\s+no\s+need\s+to|never)\s+"
+                           r"(?:ask|check\s+with|double[\s-]?check\s+with|confirm\s+with|verify\s+with|"
+                           r"consult(?:\s+with)?|clear\s+(?:it|this)\s+with|bother|contact|escalate\s+to)"
+                           r"(?:\s+(?:anyone|anybody|someone|somebody|a\s+human|a\s+person|"
+                           r"for\s+approval|for\s+sign[\s-]?off|for\s+permission|"
+                           r"(?:the\s+|our\s+)?" + _ROLE_EN + r"(?:\s+for\s+approval)?))\b|"
+                           r"\b(?:do\s+not|don't|dont|no\s+need\s+to|never)\s+ask\b"),
+    ("SYSTEM_INSTRUCTION", r"\bwithout\s+(?:checking|asking|confirming|consulting|verifying)(?:\s+with)?\s+"
+                           r"(?:anyone|anybody|someone|somebody|a\s+human|"
+                           r"(?:the\s+|our\s+)?" + _ROLE_EN + r")\b"),
     ("SYSTEM_INSTRUCTION", r"\bhyväksy\s+(?:tämä|tilaus|automaattisesti|heti|suoraan)\b|"
-                           r"\bälä\s+kysy(?:\s+(?:keneltäkään|hyväksyntää|\w*päällik\w*|\w*johtaj\w*|esimie\w*))?\b|"
+                           r"\b(?:älä|ei\s+tarvitse|ei\s+tarvi)\s+(?:kysyä?|tarkistaa?|varmistaa?)"
+                           r"(?:\s+(?:keneltäkään|hyväksyntää|lupaa|\w*päällik\w*|\w*johtaj\w*|esimie\w*|keittiömestar\w*))?\b|"
+                           r"\bilman\s+(?:hyväksyntää|lupaa|tarkistusta)\b|"
                            r"\bohita\s+hyväksyntä\w*|\bunohda\s+(?:\w+\s+)?ohjee\w*"),
+    ("SYSTEM_INSTRUCTION", r"\b(?:fråga\s+inte|behöver\s+inte\s+(?:fråga|kolla\s+med))"
+                           r"(?:\s+(?:någon|inköpschef\w*|köksmästar\w*|chef\w*))?\b|"
+                           r"\butan\s+godkännande\b|\bignorera\s+(?:\w+\s+)?(?:gräns\w*|regl\w*|instruktion\w*)\b"),
 )
 _COMPILED = tuple((category, re.compile(pattern, re.IGNORECASE)) for category, pattern in _PATTERNS)
 

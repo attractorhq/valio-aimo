@@ -47,12 +47,21 @@ from app.agent.plan import (
     variant_choices,
 )
 from app.agent.suggest import ClarificationOption, clarification_options
+from app.catalog.categories import product_type_match, proposal_type_match
 from app.catalog.search import (
     SearchProductsRequest,
     SearchProductsResult,
     evaluate_product_static_requirements,
 )
-from app.catalog.vocab import expand_query_tokens, extract_inline_requirements
+from app.catalog.vocab import (
+    expand_query_tokens,
+    extract_inline_requirements,
+    extract_requested_form,
+    match_concept_in_text,
+    product_form_difference,
+    resolve_query_concepts,
+    split_query_alternatives,
+)
 from app.contracts import (
     CreateProposalRequest,
     Decision,
@@ -512,6 +521,56 @@ def _probe_candidates(
     return observations, live_excluded
 
 
+def _closest_match_type_ok(
+    original_query: str,
+    relaxed_query: str,
+    product: Product,
+    requirement_codes: tuple[str, ...],
+) -> bool:
+    """T105: closest matches must pass the same product-type check as proposals (T96 / T100)."""
+    product_names = (product.name, *product.names.values())
+    cleaned, _ = extract_inline_requirements(original_query)
+    alternatives = split_query_alternatives(cleaned)
+    if not alternatives:
+        return False
+    if any(resolve_query_concepts(alt) for alt in alternatives):
+        return proposal_type_match(
+            original_query,
+            product_names,
+            category=product.category,
+            requirement_codes=requirement_codes,
+        ).exact
+    if not product_type_match(cleaned, product_names, concept_id=None, requirement_codes=requirement_codes).exact:
+        return False
+    requested_form = extract_requested_form(cleaned)
+    if requested_form and product_form_difference(product_names, product.category, requested_form):
+        return False
+    return proposal_type_match(
+        relaxed_query,
+        product_names,
+        category=product.category,
+        requirement_codes=requirement_codes,
+    ).exact
+
+
+def _token_group_satisfied_by_product(
+    group: tuple[str, ...],
+    names_lower: str,
+    words: frozenset[str],
+    category: str,
+    concepts: Sequence[Any],
+) -> bool:
+    if any(token in names_lower for token in group):
+        return True
+    for concept in concepts:
+        concept_terms = (*concept.en_terms, *concept.fi_stems, *concept.sv_stems)
+        if any(token in concept_terms for token in group) and match_concept_in_text(
+            concept, names_lower, words, category
+        ):
+            return True
+    return False
+
+
 def _closest_matches(
     channel: AgentChannel,
     customer_id: str,
@@ -520,11 +579,13 @@ def _closest_matches(
 ) -> list[ClosestMatch]:
     _, inline_requirements = extract_inline_requirements(search.query)
     requirements = list(dict.fromkeys([*search.requirements, *inline_requirements]))
+    req_codes = tuple(r.code for r in hard_requirements(requirements, mandate))
     matches: dict[str, ClosestMatch] = {}
     for query in relaxed_name_queries(search.query):
         tokens, _ = expand_query_tokens(query)
         if not tokens:
             continue
+        query_concepts = resolve_query_concepts(query)
         result = channel.search_products(
             search.model_copy(update={"query": query, "requirements": requirements, "productId": None}),
             customer_id=customer_id,
@@ -533,8 +594,14 @@ def _closest_matches(
             reasons, _ = evaluate_product_static_requirements(product, requirements, mandate)
             if reasons:
                 continue
+            if not _closest_match_type_ok(search.query, query, product, req_codes):
+                continue
             names = " ".join((product.name, *product.names.values())).lower()
-            if not all(any(token in names for token in group) for group in tokens):
+            words = frozenset(names.replace(",", " ").replace(".", " ").split())
+            if not all(
+                _token_group_satisfied_by_product(group, names, words, product.category, query_concepts)
+                for group in tokens
+            ):
                 continue
             matches[product.productId] = ClosestMatch(productId=product.productId, name=product.name)
             if len(matches) == 3:
