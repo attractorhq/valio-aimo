@@ -21,7 +21,8 @@ This is the shared **contract**, not a claim that the routes are implemented. T0
 - `GET /v0.1/proposals` lists only the authenticated agent key's buyer proposals, newest first, without capabilities.
 - The approver queue and capability issuance require `X-Demo-Approver-Role: Head Chef` (school) or `Purchasing Manager` (hotel). The server checks the proposal's buyer and named role; the wrong role returns 403. A signed phone capability can supply only its issued role; an explicitly supplied wrong role still fails. The UI labels sign-in as role only, no password.
 - Buyer-admin writes (including session reset) require `X-Demo-Admin-Key: demo-admin` (401 otherwise). Global reset additionally retains its architect-only reset secret. This admin key does not grant approval capability issuance or decisions.
-- Audit reads, JSON/CSV exports, and `/v0.1/audit/verify` require the owning buyer's agent key for `customerId` or `proposalId`. Cross-buyer access returns 403. Global audit/verification is admin-only with `X-Demo-Admin-Key`; scoped admin reads are also allowed. Global approver proposal listing (without issuing capabilities) is admin-only.
+- Audit reads, JSON/CSV exports, and `/v0.1/audit/verify` require the owning buyer's agent key for `customerId` or `proposalId`. Cross-buyer access returns 403. Global audit reads are admin-only with `X-Demo-Admin-Key`; scoped admin reads are also allowed. Global approver proposal listing (without issuing capabilities) is admin-only.
+- **Buyer-verifiable chain (T110).** `GET /v0.1/audit/verify` with only the buyer's agent key (`Authorization: Bearer demo-agent-<customerId>`, no `customerId`/`proposalId`) verifies **that buyer's entries only** and returns `verified`, `chainLength` and `headHash` of the buyer's own chain. The admin key without parameters keeps the full verify over every buyer. `AuditChainVerification` echoes the checked scope in two optional fields: `customerId` (null for the admin's full verify) and `proposalId` (set for a per-proposal verify). The head hash is not signed; a buyer can store it and compare it on a later verify. 401 and 403 messages name the header to send (`Authorization: Bearer demo-agent-<customerId>` or `X-Demo-Admin-Key: demo-admin`).
 
 All of these values are published demo credentials, not production identity. Production requires scoped secrets and SSO/OIDC. Approval tokens remain separate, version-bound, expiring, and single-use.
 
@@ -127,6 +128,29 @@ The buyer admin sets them with `PATCH /v0.1/admin/mandates/{customerId}` (`allow
 
 - **Chain verification & export (T28, T30, T67):** `GET /v0.1/audit/verify` verifies the SHA-256 hash chain on the server, and `GET /v0.1/audit/export?proposalId=…|customerId=…&format=json|csv` exports the full trail including each entry's `prevHash`, `hash`, `kid`, and `signature` (with spreadsheet formula cells neutralised in CSV).
 - **Published keys, discovery & offline verification (T67):** `GET /.well-known/aimo-connect-keys.json` publishes the gateway's Ed25519 public key as an RFC 8037 OKP JWK Set (`kty: "OKP"`, `crv: "Ed25519"`, `alg: "EdDSA"`, `kid`, `x`), and `GET /.well-known/aimo-connect.json` points to OpenAPI, MCP, `/spec`, and the JWK Set. Detached base64url signatures cover canonical UTF-8 JSON (`sort_keys=True`, `(",", ":")` separators) for `aimo-connect.offer.v0.1`, `aimo-connect.decision.v0.1`, `aimo-connect.confirmation.v0.1`, and `aimo-connect.audit-entry.v0.1`. `scripts/verify-audit <export.json> [--keys <jwks>]` verifies both the SHA-256 chain and Ed25519 signatures offline using the Python standard library alone.
+
+## Trust labels and existing standards (T110)
+
+Agent Trust Labels map to concepts in GS1 product data and W3C Verifiable Credentials (VC). They are not GS1 messages and not Verifiable Credentials, and labels are not signed. The same tables are on `/spec#standards`.
+
+| Trust level | GS1 | W3C VC |
+|---|---|---|
+| `VERIFIED` | No GS1 trust level. Price and availability are trading-partner transaction data, not GDSN master data. | `issuer` = Valio Aimo's live price or availability system. |
+| `DECLARED` | Supplier master data published through GDSN (GS1 Synkka in Finland); the brand owner is the information provider. | `issuer` = the supplier, read through `valio-aimo.product-data`. |
+| `ESTIMATE` | No GS1 equivalent. | `issuer` = `derived` (the gateway) or a statistics source; `evidence` = `method`, always stated. |
+| `UNKNOWN` | No GS1 equivalent. A missing allergen declaration is never read as `FREE_FROM`. | No credential exists for the fact. |
+
+| Label field | GS1 | W3C VC |
+|---|---|---|
+| `fact` + `value` | Attribute and value, e.g. `allergen.AM` = allergen type code AM (milk) with a level of containment; `claim.FREE_FROM_GLUTEN` = nutritional claim type `FREE_FROM` for `GLUTEN`. | A claim in `credentialSubject` (property and value). |
+| allergen status | `CONTAINS`, `MAY_CONTAIN` and `FREE_FROM` map to the GS1 `levelOfContainmentCode` values of the same name. `NOT_LISTED`, `UNDECLARED` and `UNKNOWN` describe missing or partial declarations and never prove absence. | The claim value. |
+| `productId` | Valio Aimo's own product number. The GS1 identifier is the GTIN, which v0.1 does not carry. | `credentialSubject.id` (what the claim is about). |
+| `source.system` | For `DECLARED` facts, the GDSN data source. | `issuer` |
+| `source.field` | The attribute name in the source record. | The property name inside `credentialSubject`. |
+| `source.retrievedAt` | No GS1 equivalent. | `issuanceDate` (`validFrom` in VC Data Model 2.0). It is when the gateway read the fact, not when the source first stated it; `null` for static data. |
+| `method` | No GS1 equivalent. | `evidence`: how the value was derived or checked. |
+| `level` | No GS1 equivalent. | No VC field: our classification of the issuer and method. |
+| `conflict` | No GS1 equivalent. | No VC field: two sources whose claims disagree. |
 
 ## Reason-code registry
 
