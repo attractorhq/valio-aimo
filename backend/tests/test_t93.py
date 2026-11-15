@@ -43,6 +43,7 @@ def sandboxes(monkeypatch):
 
 def test_contract_requirement_code_sets_stay_in_sync_with_trust_labels():
     expected_claims = set(CLAIM_DISPLAY_NAMES) | (set(LABEL_DISPLAY_NAMES) - STORAGE_TEMP_LABELS)
+    expected_claims |= {"FINNISH_ORIGIN"}  # T75: any Finnish-origin label or countryOfOrigin = FI
     expected_allergens = set(EU14_ALLERGEN_CODES) | set(NON_EU14_ALLERGEN_CODES)
     assert set(VALID_CLAIM_CODES) == expected_claims
     assert set(VALID_ALLERGEN_CODES) == expected_allergens
