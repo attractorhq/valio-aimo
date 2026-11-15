@@ -790,6 +790,14 @@ TYPE_QUALIFIER_GROUPS: tuple[TypeQualifierGroup, ...] = (
             ),
         ),
     ),
+    # T117: "barista" is a stated use (foams for coffee): a plain drink is at most a named substitute.
+    TypeQualifierGroup(
+        group_id="barista",
+        concepts=frozenset(),
+        variants=(
+            TypeVariant("barista", "Barista", (r"\bbarista\w*",), product_terms=("barista",)),
+        ),
+    ),
     TypeQualifierGroup(
         group_id="drink_vs_cooking",
         concepts=frozenset(),
@@ -1043,6 +1051,9 @@ _NON_FAMILY_QUERY_WORDS: frozenset[str] = frozenset({
     "large", "medium", "small", "big", "mini", "iso", "pieni",
     "approx", "apx", "about", "ca", "noin", "synthetic", "synteettinen", "syntetisk",
 })
+
+# T117: descriptive words (form, state, delivery, preference) are never a product name the buyer gave.
+DESCRIPTIVE_QUERY_WORDS = _NON_FAMILY_QUERY_WORDS
 
 _BRAND_QUERY_WORDS: frozenset[str] = frozenset({
     "valio", "arla", "oatly", "oddlygood", "fazer", "aito", "elovena", "urtekram",
