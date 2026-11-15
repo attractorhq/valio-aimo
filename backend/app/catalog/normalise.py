@@ -632,6 +632,12 @@ def product_fact(product: Product, fact_name: str) -> TrustLabel:
     )
 
 
+def _gtin(value: object) -> str | None:
+    """A GTIN-8/12/13/14 as digits, or None."""
+    text = str(value).strip() if isinstance(value, (str, int)) else ""
+    return text if text.isdigit() and len(text) in (8, 12, 13, 14) else None
+
+
 def normalise_product(
     record: Mapping[str, object],
     *,
@@ -790,6 +796,7 @@ def normalise_product(
         substitutions=substitutions,
         deposits=deposits,
         facts=facts,
+        gtin=_gtin(record.get("salesUnitGtin")) or _gtin(synkka.get("gtin")),
     )
 
     from app.policy.requirements import K6_MESSAGE, allergen_status, is_inherently_dairy_product

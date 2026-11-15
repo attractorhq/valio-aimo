@@ -438,6 +438,18 @@
       },
       "title": "Facts",
       "type": "array"
+    },
+    "gtin": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Gtin"
     }
   },
   "required": [

@@ -235,6 +235,19 @@ function Section({
   )
 }
 
+/** T72: proposal states → Peppol BIS Order Response (document code, UNCL1229 line status). Same as the server. */
+const PEPPOL_RESPONSES: ReadonlyArray<readonly [string, string, string, string]> = [
+  ['Confirmed', 'AP accepted', '5', 'Every line exactly as proposed.'],
+  [
+    'Waiting for approval (a trade-off)',
+    'CA conditionally accepted',
+    '3',
+    'The changed lines (partial, later date, substitute) wait for the buyer.',
+  ],
+  ['Superseded at the re-check', 'CA conditionally accepted', '3', 'A new version replaces it.'],
+  ['Rejected, blocked or expired', 'RE rejected', '7', 'Nothing is ordered.'],
+]
+
 /** S7: the human-readable open specification of Agent Trust Labels v0.1 and the gateway interface. */
 export function Spec() {
   return (
@@ -400,6 +413,41 @@ export function Spec() {
             </table>
           </div>
         ))}
+      </Section>
+
+      <Section id="peppol" title="Peppol ordering">
+        <p className="muted small">
+          A confirmed order downloads as a Peppol BIS Order (UBL 2.1) from its decision log or{' '}
+          <code>GET /v0.1/proposals/{'{proposalId}'}/peppol-order</code>: buyer, seller, delivery
+          date, lines with GTIN when known (else the Valio product number), quantities and net
+          prices. Nothing is sent. Our states map to the Peppol Order Response like this:
+        </p>
+        <div className="table-scroll mt-3">
+          <table className="data-table" aria-label="Proposal states and Peppol Order Response codes">
+            <thead>
+              <tr>
+                <th scope="col">Proposal state</th>
+                <th scope="col">Response</th>
+                <th scope="col">Line status</th>
+                <th scope="col">Meaning</th>
+              </tr>
+            </thead>
+            <tbody>
+              {PEPPOL_RESPONSES.map(([state, code, line, meaning]) => (
+                <tr key={state}>
+                  <td className="small">{state}</td>
+                  <td>
+                    <code>{code}</code>
+                  </td>
+                  <td>
+                    <code>{line}</code>
+                  </td>
+                  <td className="small">{meaning}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </Section>
 
       <Section id="reasons" title="Reason codes">

@@ -218,6 +218,7 @@ export type Product = {
   substitutions?: Array<string>;
   deposits?: Array<Deposit>;
   facts?: Array<TrustLabel>;
+  gtin?: string | null;
 };
 
 export type Proposal = {
