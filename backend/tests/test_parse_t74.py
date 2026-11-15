@@ -34,7 +34,7 @@ def concept_of(what: str) -> str | None:
 
 # (Finnish request word, English item name, the catalogue's product type for that name)
 COMPOUNDS = [
-    ("kermajuustoa", "tilsit cheese", "cheese"),
+    ("tilsit-juustoa", "tilsit cheese", "cheese"),
     ("tuorejuustoa", "cream cheese", "cream_cheese"),
     ("sulatejuustoa", "processed cheese", "processed_cheese"),
     ("sulatejuustoviipaleita", "processed cheese", "processed_cheese"),
@@ -104,12 +104,14 @@ def test_the_longest_match_wins_over_its_head_word(query, concept):
 
 def test_judge_kermajuusto_is_a_cheese_never_cream():
     """Finnish "kermajuusto" is a semi-hard cheese (Valio's own English name for it is tilsit); cream cheese
-    is "tuorejuusto". It must never become cream, and the reading is said in the assumptions."""
-    item, request = only_item("Tarvitsen huomiseksi 40 kg laktoositonta ja gluteenitonta kermajuustoa")
+    is "tuorejuusto". It must never become cream. T114: an English reader takes it for cream cheese, so the agent
+    asks which one instead of picking silently."""
+    result = parse_request("Tarvitsen huomiseksi 40 kg laktoositonta ja gluteenitonta kermajuustoa", MORNING)
+    assert result.clarificationQuestion is not None and "tuorejuusto" in result.clarificationQuestion
+    (item,) = result.request.items
     assert item.what == "tilsit cheese"
     assert concept_of(item.what) == "cheese"
     assert item.requirements == [LACTOSE_FREE, GLUTEN_FREE]
-    assert any("Kermajuusto” read as tilsit" in a for a in request.assumptions)
 
 
 def test_english_cream_cheese_is_cream_cheese():

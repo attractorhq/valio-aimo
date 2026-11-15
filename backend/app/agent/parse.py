@@ -271,7 +271,25 @@ _CERTIFICATION_NAMES = {code: label for _pattern, code, label in _CERTIFICATIONS
 _PURPOSE_RE = re.compile(
     r"\bfor\s+(?:the|our|a|an|my|this|their)?\s*(?!(?:cooking|whipping|frying|drinking)\b)[^\W\d_]+"
     r"(?:\s+(?:kitchen|canteen|cafeteria|restaurant|"
-    r"staff|team|event|lunch|dinner|breakfast|guests|week|weekend))?",
+    r"staff|team|event|lunch|dinner|breakfast|guests|week|weekend|ward|wards|department|unit|patients|"
+    r"residents|clinic))?",
+    re.IGNORECASE,
+)
+# T114: Finnish destinations ("osastolle", "sairaalan osastolle", "ruokalaan") describe the buyer, not the product.
+_DESTINATION_FI_RE = re.compile(
+    r"\b(?:[^\W\d_]+n\s+)?(?:osasto(?:lle|ille|lla|illa)|sairaala(?:an|lle)|ruokala(?:an|lle)|kanttiini(?:in|lle)|"
+    r"keittiö(?:ön|lle)|päiväkoti(?:in|lle)|kouluun|koululle|hoivakoti(?:in|lle)|palvelutalo(?:on|lle))\b",
+    re.IGNORECASE,
+)
+# T114: a pack-size wish ("isoissa pakkauksissa", "large packs", "catering pack") is a ranking preference,
+# never part of the product name: the planner prefers the largest compliant pack.
+LARGE_PACKS = "Large packs"
+_LARGE_PACK_RE = re.compile(
+    r"\b(?:in\s+)?(?:large|big|bigger|larger|bulk|catering|food[\s-]?service|wholesale)\s+"
+    r"(?:packs?|packages?|packaging|packets?|sizes?|containers?|tubs?)\b|\bin\s+bulk\b|\bbulk\b|"
+    r"\b(?:isoissa|isoina|isot|isoja|suurissa|suurina|suuret|suuria|isommissa|suuremmissa)\s+"
+    r"(?:pakkauksissa|pakkauksina|pakkaukset|pakkauksia|pakkauksessa|pakkauksena)\b|"
+    r"\b(?:suurtalous|ammattikeittiö|catering)pakkau\w*|\bisopakkau\w*",
     re.IGNORECASE,
 )
 _CREAM_PURPOSE_RES: tuple[tuple[re.Pattern, str], ...] = (
@@ -1174,12 +1192,18 @@ def _extract(fragment: str) -> tuple[str, list[Requirement], list[Preference], s
     rest = _QUANTITY_RE.sub(take_pack, rest)
     for _kind, pattern in _DATE_RES:
         rest = pattern.sub(" ", rest)
+    if _LARGE_PACK_RE.search(rest):
+        rest = _LARGE_PACK_RE.sub(" ", rest)
+        large = Preference(kind="OTHER", value=LARGE_PACKS)
+        if large not in preferences:
+            preferences.append(large)
     rest = _HEADCOUNT_RE.sub(" ", rest)
     rest = _OCCASION_CONTEXT_RE.sub(" ", rest)
     rest = _OCCASION_CONTEXT_FI_RE.sub(" ", rest)
     rest = _PURPOSE_RE.sub(" ", rest)
     rest = _PURPOSE_FI_RE.sub(" ", rest)
     rest = _DESTINATION_RE.sub(" ", rest)
+    rest = _DESTINATION_FI_RE.sub(" ", rest)
     rest = _BENIGN_NEGATION_RE.sub(" ", rest)
     if req_form := extract_requested_form(rest):
         form_pref = Preference(kind="OTHER", value=req_form.label)
@@ -2026,6 +2050,11 @@ def _item_assumptions(what: str, preferences: list[Preference]) -> list[str]:
     # T52: a stated attribute is required, never silently a soft preference.
     if any(p.kind == "ORGANIC" for p in preferences):
         out.append("Organic required: proven only by an organic label, otherwise offered as a substitute")
+    if any(p.kind == "OTHER" and p.value == LARGE_PACKS for p in preferences):
+        out.append(LARGE_PACKS)
+    # T114: butter without "salted"/"unsalted" may be either; the choice is shown, never made silently.
+    if re.search(r"\bbutter\b", lower) and not re.search(r"salt|peanut|cocoa|shea|nut\s+butter", lower):
+        out.append("Salted or unsalted butter")
     # T87: a stated product form is shown as a chip ("Grated", "Sliced", ...).
     for p in preferences:
         if p.kind == "OTHER" and p.value.lower() in FORMS_BY_LABEL:
@@ -2330,6 +2359,52 @@ def _keep_explicit_products(
 # --------------------------------------------------------------------------- entry point
 
 
+# T114: a bare "cream"/"kermaa" (no type word) and "kermajuusto" (semi-hard cheese in Finnish, cream cheese to an
+# English reader) are ambiguous: the agent asks which one, with one-tap choices, instead of picking silently.
+_CREAM_TYPE_WORD_RE = re.compile(
+    r"whipp|cooking|coffee|sour|double|single|ice|clotted|crème|creme|cheese|soup|sauce|vispi|kuohu|ruoka|kahvi|"
+    r"hapan|kermaviil|jäätelö|juust|vaahto|ruoanlait|ruuanlait|vatka|grädde|dairy|plant|vegan|oat|soy|kaura|"
+    r"soija|kasvi|maidoton",
+    re.IGNORECASE,
+)
+_BARE_CREAM_RE = re.compile(r"\b(?:cream|kerma(?:a|n)?)\b", re.IGNORECASE)
+_KERMAJUUSTO_RE = re.compile(r"\bkermajuust(?P<end>o|oa|on|ot|oja)?\b", re.IGNORECASE)
+_KERMAJUUSTO_RESOLVED_RE = re.compile(r"tilsit|tuorejuust|cream\s+cheese|semi[\s-]?hard|puolikov|oltermanni",
+                                      re.IGNORECASE)
+
+
+def product_type_choices(text: str) -> tuple[str, str, list[tuple[str, str]]] | None:
+    """(question fi, question en, [(label, rewritten request text), ...]) when the product type is ambiguous."""
+    if _KERMAJUUSTO_RE.search(text) and not _KERMAJUUSTO_RESOLVED_RE.search(text):
+        def cheese(word_fi: str) -> str:
+            return _KERMAJUUSTO_RE.sub(lambda m: word_fi + ("a" if (m["end"] or "").endswith("a") else ""), text)
+        return (
+            "Tarkoitatteko kermajuustoa (puolikova juusto, esim. tilsit) vai tuorejuustoa (cream cheese)?",
+            "Do you mean kermajuusto, the Finnish semi-hard cheese (tilsit type), or cream cheese (tuorejuusto)?",
+            [("Semi-hard cheese (tilsit)", cheese("tilsit-juusto")), ("Cream cheese", cheese("tuorejuusto"))],
+        )
+    if _BARE_CREAM_RE.search(text) and not _CREAM_TYPE_WORD_RE.search(text):
+        def cream(en: str, fi: str) -> str:
+            return _BARE_CREAM_RE.sub(lambda m: f"{fi}{m.group(0)[5:]}" if m.group(0).lower().startswith("kerma")
+                                      else en, text)
+        return (
+            "Mitä kermaa tarvitsette: vispikermaa vai ruokakermaa?",
+            "Which cream do you need: whipping cream or cooking cream?",
+            [("Whipping cream", cream("whipping cream", "vispikerma")),
+             ("Cooking cream", cream("cooking cream", "ruokakerma"))],
+        )
+    return None
+
+
+def _type_question(request: StructuredRequest, text: str, finnish: bool) -> str | None:
+    if not any(item.what and re.search(r"\b(?:cream|tilsit)\b", item.what, re.IGNORECASE) for item in request.items):
+        return None
+    choice = product_type_choices(text)
+    if choice is None:
+        return None
+    return choice[0] if finnish else choice[1]
+
+
 def parse_request(
     text: str,
     now: datetime,
@@ -2411,6 +2486,8 @@ def parse_request(
         question = next(
             (q for item in request.items if (q := _contradiction(item.what, item.requirements, finnish))), None
         )
+    if question is None and request is not None:
+        question = _type_question(request, text, finnish)
     if question is not None:
         reasons.append(ReasonCode.CLARIFICATION_NEEDED)
     return ParseResult(

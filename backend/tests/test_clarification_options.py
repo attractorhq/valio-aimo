@@ -73,7 +73,7 @@ def test_the_agent_run_returns_the_options_with_the_question(synthetic_api):  # 
 def test_lead_in_words_are_dropped_so_the_amount_reads_naturally():
     assert _texts("We need lactose-free milk by Monday.")[0] == "20 l lactose-free milk by Monday."
     assert _texts("Tarvitaan laktoositonta maitoa maanantaiksi.")[0] == "20 l laktoositonta maitoa maanantaiksi."
-    assert _texts("Please send cream tomorrow")[0] == "10 l cream tomorrow"
+    assert _texts("Please send cream tomorrow")[0] == "10 l whipping cream tomorrow"  # T114: which cream
 
 
 def test_the_streamed_run_carries_the_options_too(synthetic_api):  # noqa: F811
