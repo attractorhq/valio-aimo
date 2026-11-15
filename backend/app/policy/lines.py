@@ -7,7 +7,16 @@ from enum import StrEnum
 from typing import Literal
 
 from app.catalog.categories import TYPE_QUALIFIER_GROUPS, product_variant, proposal_type_match
-from app.contracts import Mandate, Product, Quantity, RequestItem, TrustLabel, TrustSource, format_money
+from app.contracts import (
+    Mandate,
+    Product,
+    Quantity,
+    RequestItem,
+    TrustLabel,
+    TrustSource,
+    format_date,
+    format_money,
+)
 from app.trust.labels import EU14_ALLERGEN_CODES, allergen_name
 
 from .findings import Finding, ordered_codes
@@ -15,6 +24,15 @@ from .mandates import category_allowed
 from .requirements import check_requirements, claim_conflicts, conflict_is_decisive, hard_requirements
 
 SPLIT_PRICE_GUARD_THRESHOLD_PCT = Decimal("10")
+EARLY_DELIVERY_MAX_DAYS = 2
+
+
+def early_delivery_detail(available_date: date, requested_date: date) -> str | None:
+    """T103: delivery more than 2 days before the requested date is a storage/freshness trade-off (ASK)."""
+    days = (requested_date - available_date).days
+    if days <= EARLY_DELIVERY_MAX_DAYS:
+        return None
+    return f"Arrives {format_date(available_date)}, {days} days before your {format_date(requested_date)}"
 
 
 def split_price_rise_pct(
@@ -265,6 +283,8 @@ def evaluate_line(
     # L5–L7: delivery.
     if line.available_date is not None and line.available_date > requested_date:
         add("DATE_LATER", "ASK", "L5")
+    elif line.available_date is not None and (early := early_delivery_detail(line.available_date, requested_date)):
+        add("DATE_LATER", "ASK", "L5", early)
     if mandate.enforceCutoff and (cutoff_passed or "K3" in conflicts):
         add("CUTOFF_PASSED", "EXCLUDE", "L6")  # P2.3: cannot be promised, so not approvable
     if line.stock is StockKind.SUPPLIER and not mandate.autoAcceptSupplierStock:

@@ -87,3 +87,24 @@ def test_the_streamed_run_carries_the_options_too(synthetic_api):  # noqa: F811
     final = next(e for e in reversed(events) if "clarificationOptions" in e or "result" in e)
     payload = final.get("result", final)
     assert [o["label"] for o in payload["clarificationOptions"]] == ["10 kg sliced cheese", "10 kg yoghurt", "10 kg butter"]
+
+
+def test_vague_multi_item_request_asks_per_item_and_gives_picks_for_each():
+    text = "Tarvitsemme maitoa ja juustoa huomenna, noin sadalle hengelle"
+    parsed = parse_request(text, NOW)
+    assert parsed.request is None
+    assert parsed.clarificationQuestion is not None
+    assert "maitoa juustoa" not in parsed.clarificationQuestion
+    assert "maitoa (litroina)" in parsed.clarificationQuestion
+    assert "juustoa (kiloina)" in parsed.clarificationQuestion
+
+    options = clarification_options(text, NOW)
+    assert [o.label for o in options] == [
+        "20 l maitoa ja 5 kg juustoa",
+        "50 l maitoa ja 10 kg juustoa",
+        "100 l maitoa ja 20 kg juustoa",
+    ]
+    for opt in options:
+        reparsed = parse_request(opt.requestText, NOW)
+        assert reparsed.clarificationQuestion is None and reparsed.request is not None
+        assert [i.what for i in reparsed.request.items] == ["milk", "cheese"]
