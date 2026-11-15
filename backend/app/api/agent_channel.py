@@ -284,8 +284,20 @@ def get_offer(
     return state.gateway.get_offer(body).offer
 
 
+COMPACT_HINT = (
+    "Shortcut for agents: `POST /v0.1/agent/run?view=compact` runs search, offer and proposal in one call and "
+    "returns a few-KB summary (one-line `summary`, reason codes with their human text, totals, lines, links)."
+)
+
+
 @router.post("/proposals", response_model=Proposal, status_code=201, operation_id="createProposal",
-             summary="Bind the request to an offer version; the gateway decides AUTO / ASK / BLOCK")
+             summary="Bind the request to an offer version; the gateway decides AUTO / ASK / BLOCK",
+             description=(
+                 "Returns the full Proposal. If nothing can be ordered the gateway answers 422 `NO_ORDER`; for "
+                 "NO_CANDIDATE, `error.details.noOrder` lists each unmatched item with why, `closestMatches` "
+                 "(never ordered) and `earliestDeliverableDate` with a `retryHint` (repeat getOffer with "
+                 "`lookupDate`). " + COMPACT_HINT
+             ))
 def create_proposal_route(
     body: Annotated[CreateProposalRequest, Body(openapi_examples={
         "school_gluten_free": {
@@ -313,7 +325,14 @@ def create_proposal_route(
     state: State,
     customer: AgentCustomer,
 ) -> Proposal:
-    proposal = create_proposal(body, state, customer)
+    try:
+        proposal = create_proposal(body, state, customer)
+    except NoOrderError as exc:
+        from .no_order_help import attach_no_candidate_details
+
+        offer = state.gateway.get_registered_offer(body.offerId, body.offerVersion)
+        attach_no_candidate_details(state, body, offer, exc)  # T108: same help as the buyer UI
+        raise
     call: AgentCall | None = getattr(request.state, "agent_call", None)
     if call is not None:
         call.instruction_refused = ReasonCode.INSTRUCTION_IGNORED in proposal.reasons
@@ -332,7 +351,8 @@ def create_proposal(body: CreateProposalRequest, state: GatewayState, customer: 
 
 
 @router.get("/proposals/{proposalId}", response_model=Proposal, operation_id="getProposal",
-            summary="The current state of a proposal (the owning buyer's agent key; 404 for another buyer)")
+            summary="The current state of a proposal (the owning buyer's agent key; 404 for another buyer)",
+            description="Returns the full Proposal with facts. " + COMPACT_HINT)
 def get_proposal_route(proposalId: str, request: Request, state: ApprovalState) -> Proposal:
     proposal_read_scope(request, state, proposalId)
     return get_proposal(proposalId, state)
