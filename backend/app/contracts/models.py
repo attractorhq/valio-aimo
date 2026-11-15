@@ -100,6 +100,9 @@ class RequestItem(Contract):
     productId: Identifier | None = None
     requirements: list[Requirement] = Field(default_factory=list)
     preferences: list[Preference] = Field(default_factory=list)
+    # T120: this item's own delivery deadline when the request gives items different dates ("butter today and
+    # emmental tomorrow"). None = the request's requestedDate.
+    requestedDate: date | None = None
 
 
 class StructuredRequest(Contract):
@@ -107,6 +110,20 @@ class StructuredRequest(Contract):
     requestedDate: date
     items: list[RequestItem] = Field(min_length=1)
     assumptions: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _item_dates_not_before_request(self) -> "StructuredRequest":
+        # requestedDate is the earliest deadline, so offers and lookups start from it (T120).
+        if any(item.requestedDate is not None and item.requestedDate < self.requestedDate for item in self.items):
+            raise ValueError("an item's requestedDate must not be before the request's requestedDate")
+        return self
+
+    def deadline_for(self, item_id: str) -> date:
+        """The delivery deadline for one item: its own requestedDate, else the request's."""
+        for item in self.items:
+            if item.itemId == item_id:
+                return item.requestedDate or self.requestedDate
+        return self.requestedDate
 
 
 class Totals(Contract):

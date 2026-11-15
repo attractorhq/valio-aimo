@@ -435,16 +435,19 @@ def _format_core_approval_statement(
                 )
 
     date_clause: str | None = None
-    if ReasonCode.DATE_LATER in reasons and proposal.lines:
-        earliest_delivery = max(line.deliveryDate for line in proposal.lines)
-        if earliest_delivery > proposal.requestedDate:
+    late_lines = [ln for ln in proposal.lines if ln.deliveryDate > proposal.request.deadline_for(ln.itemId)]
+    if ReasonCode.DATE_LATER in reasons and late_lines:
+        earliest_delivery = max(line.deliveryDate for line in late_lines)
+        requested_for_late = min(proposal.request.deadline_for(ln.itemId) for ln in late_lines)
+        if earliest_delivery > requested_for_late:
             ref_today = today or proposal.createdAt.date()
             req_lower = proposal.request.requestText.lower()
-            asked_today = proposal.requestedDate == ref_today or any(
-                w in req_lower for w in ("today", "tänään", "idag")
+            asked_today = requested_for_late == ref_today or (
+                requested_for_late == proposal.requestedDate
+                and any(w in req_lower for w in ("today", "tänään", "idag"))
             )
-            req_label = "today" if asked_today else format_date(proposal.requestedDate)
-            days_ahead = (earliest_delivery - proposal.requestedDate).days
+            req_label = "today" if asked_today else format_date(requested_for_late)
+            days_ahead = (earliest_delivery - requested_for_late).days
             deliv_label = (
                 _WEEKDAY_NAMES[earliest_delivery.weekday()]
                 if 0 < days_ahead <= 7
@@ -1455,7 +1458,7 @@ class ProposalGateway:
                     updated[idx],
                     item=item,
                     mandate=mandate,
-                    requested_date=request.requestedDate,
+                    requested_date=request.deadline_for(item.itemId),
                     now=eval_now,
                 ).status
                 != "EXCLUDED"
@@ -1682,12 +1685,13 @@ class ProposalGateway:
                 diffs.append(f"sales blocked for {line.productId}")
             if avail.delivery_date != line.deliveryDate:
                 diffs.append(f"delivery date for {line.productId} {line.deliveryDate} → {avail.delivery_date}")
+            item_deadline = proposal.request.deadline_for(line.itemId)  # T120
             if avail.delivery_date is None or (
-                avail.delivery_date > proposal.requestedDate
+                avail.delivery_date > item_deadline
                 and ReasonCode.DATE_LATER not in proposal.reasons
             ):
                 diffs.append(
-                    f"delivery date {avail.delivery_date} is later than requested {proposal.requestedDate}"
+                    f"delivery date {avail.delivery_date} is later than requested {item_deadline}"
                 )
             if current_mandate.enforceCutoff and (
                 avail.closing_time is None
@@ -1728,7 +1732,7 @@ class ProposalGateway:
                 probe,
                 item=req_item,
                 mandate=current_mandate,
-                requested_date=proposal.requestedDate,
+                requested_date=proposal.request.deadline_for(line.itemId),
                 now=check_now,
             )
             # A changed type/base or added allergen is a new trade-off, even if the reason remains AGENT_SUBSTITUTE.

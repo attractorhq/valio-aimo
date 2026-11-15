@@ -284,6 +284,7 @@ export type RequestItem = {
   productId?: string | null;
   requirements?: Array<Requirement>;
   preferences?: Array<Preference>;
+  requestedDate?: string | null;
 };
 
 export type RequestUnit = "l" | "kg" | "pcs" | "cases";

@@ -129,7 +129,8 @@ def decide(
         raise ValueError(f"partial_items reference unknown items {sorted(unknown)}")
 
     verdicts = [
-        evaluate_line(line, item=items[line.item_id], mandate=mandate, requested_date=request.requestedDate, now=now)
+        evaluate_line(line, item=items[line.item_id], mandate=mandate,
+                      requested_date=request.deadline_for(line.item_id), now=now)  # T120: per-item deadline
         for line in lines
     ]
     kept = tuple(v for v in verdicts if v.status != "EXCLUDED")

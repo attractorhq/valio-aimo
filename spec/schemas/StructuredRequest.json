@@ -87,6 +87,19 @@
           },
           "title": "Preferences",
           "type": "array"
+        },
+        "requestedDate": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Requesteddate"
         }
       },
       "required": [
