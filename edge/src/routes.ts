@@ -2,7 +2,7 @@
 // Keep this list in sync with `assets.run_worker_first` in wrangler.jsonc.
 
 const EXACT = new Set(['/health', '/openapi.json', '/docs', '/mcp'])
-const PREFIXES = ['/v0.1/', '/docs/', '/mcp/']
+const PREFIXES = ['/v0.1/', '/docs/', '/mcp/', '/.well-known/']
 
 export function isGatewayPath(pathname: string): boolean {
   return EXACT.has(pathname) || PREFIXES.some((prefix) => pathname.startsWith(prefix))

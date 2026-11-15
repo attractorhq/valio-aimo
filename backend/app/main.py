@@ -21,6 +21,7 @@ from app.api.mcp import router as mcp_router
 from app.api.state import SANDBOX_COOKIE, SANDBOX_ID_RE, sandbox_count, try_state
 from app.config import get_settings
 from app.contracts import VERSION
+from app.gateway.signing import GatewaySigner
 
 TAGS = [
     {"name": "Agent channel",
@@ -123,7 +124,7 @@ async def demo_session_cookie(request: Request, call_next):
         session_id = request.state.demo_sandbox if new_cookie else cookie
         response.set_cookie(SANDBOX_COOKIE, session_id, httponly=True, samesite="lax", secure=https,
                             max_age=6 * 60 * 60)
-    if request.url.path.startswith(("/v0.1/", "/mcp", "/health")):
+    if request.url.path.startswith(("/v0.1/", "/mcp", "/health", "/.well-known/")):
         response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -165,4 +166,38 @@ def health(state: Annotated[GatewayState | GatewayUnavailable, Depends(try_state
         "mode": state.mode,
         "catalogProducts": len(state.catalog),
         "sandboxes": sandbox_count(),
+    }
+
+
+def _origin(request: Request) -> str:
+    proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip() or request.url.scheme
+    host = request.headers.get("x-forwarded-host", "").split(",")[0].strip() or request.url.netloc
+    return f"{proto}://{host}".rstrip("/")
+
+
+@app.get("/.well-known/verified-or-ask-keys.json", tags=["Operations"], operation_id="getSigningKeys")
+def get_signing_keys(state: Annotated[GatewayState | GatewayUnavailable, Depends(try_state)]) -> dict:
+    """RFC 8037 JWK Set publishing the Ed25519 public key used to sign offers, decisions and confirmations."""
+    signer = GatewaySigner() if isinstance(state, GatewayUnavailable) else state.gateway.signer
+    return signer.jwks()
+
+
+@app.get("/.well-known/verified-or-ask.json", tags=["Operations"], operation_id="getDiscovery")
+def get_discovery(
+    request: Request,
+    state: Annotated[GatewayState | GatewayUnavailable, Depends(try_state)],
+) -> dict:
+    """Gateway service discovery pointing to OpenAPI, MCP, the open specification page and the JWK Set."""
+    base = _origin(request)
+    signer = GatewaySigner() if isinstance(state, GatewayUnavailable) else state.gateway.signer
+    return {
+        "name": "Aimo Connect · Trusted Trade Gateway",
+        "version": VERSION,
+        "openapi": f"{base}/openapi.json",
+        "docs": f"{base}/docs",
+        "mcp": f"{base}/mcp",
+        "spec": f"{base}/spec",
+        "jwks": f"{base}/.well-known/verified-or-ask-keys.json",
+        "kid": signer.kid,
+        "signingAlgorithm": "EdDSA",
     }

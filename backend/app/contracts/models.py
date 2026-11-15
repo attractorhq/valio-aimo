@@ -158,6 +158,8 @@ class Offer(Contract):
     lines: list[OfferLine]
     excluded: list[ExcludedProduct] = Field(default_factory=list)
     totals: Totals
+    kid: str | None = None
+    signature: str | None = None
 
 
 class Decision(Contract):
@@ -187,6 +189,9 @@ class Proposal(Decision):
     # total: "€297.96 already committed for delivery on Mon 16 Nov; with this order €595.92 > €500.00 …".
     reasonDetails: dict[ReasonCode, str] = Field(default_factory=dict)
     supersededBy: Identifier | None = None
+    kid: str | None = None
+    signature: str | None = None
+    confirmationSignature: str | None = None
     simulationNotice: Literal["Simulated order — mock environment"] = "Simulated order — mock environment"
 
 
@@ -249,6 +254,10 @@ class AuditEntry(Contract):
     facts: list[TrustLabel] = Field(default_factory=list)
     summary: str
     comment: str | None = None
+    prevHash: OfferHash | None = None
+    hash: OfferHash | None = None
+    kid: str | None = None
+    signature: str | None = None
 
 
 class ApproverView(Contract):

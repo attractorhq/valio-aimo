@@ -72,13 +72,13 @@ X99 proves free-from **only for EU-14 groups and their subcodes** (P4), not lact
 
 ### Offer and proposal binding
 
-`Offer` includes `offerId`, positive `offerVersion`, `offerHash` (64 lowercase hex characters, SHA-256), customer, requested date, creation/expiry, mode/capture time, lines, excluded products and totals.
+`Offer` includes `offerId`, positive `offerVersion`, `offerHash` (64 lowercase hex characters, SHA-256), customer, requested date, creation/expiry, mode/capture time, lines, excluded products, totals, and detached Ed25519 receipt fields `kid` and `signature` (T67).
 
 Each `OfferLine` fixes product/name, item link, sales-unit count, delivered physical quantity, content basis, unit price, line total, API VAT rate, delivery date, cut-off, facts, reasons and optional substitution relation. `facts[]` includes price, VAT, stock, date/cut-off and every decisive requirement with its evidence. Empty/unknown data must not be interpreted as proof.
 
 `offerHash` commits to the ordered line snapshots: product IDs, quantities, units, unit prices, VAT, dates, cut-offs and trust labels. T06 supplies canonical hashing; the schema only requires the digest shape. Offer expiry is `min(createdAt + 15 minutes, price validTo across lines)`.
 
-`Proposal` repeats the frozen lines/totals and binds them to `customerId + mandateVersion + request + offerId + offerVersion + offerHash`. It adds a stable `proposalId`, state, server `decision`, order-level `reasons[]` and optional `approverRole`. `Decision` is the standalone shape `{decision: AUTO|ASK|BLOCK, reasons: ReasonCode[], approverRole?: string|null}`. In a Proposal those fields are **flat**, not a nested object. Excluded candidates and their reasons stay in `excluded[]`; they do not pollute an otherwise valid proposal's ASK reasons.
+`Proposal` repeats the frozen lines/totals and binds them to `customerId + mandateVersion + request + offerId + offerVersion + offerHash`. It adds a stable `proposalId`, state, server `decision`, order-level `reasons[]`, optional `approverRole`, detached Ed25519 decision receipt (`kid`, `signature`), and — once `state == "CONFIRMED_SIMULATED"` — `confirmationSignature`. `Decision` is the standalone shape `{decision: AUTO|ASK|BLOCK, reasons: ReasonCode[], approverRole?: string|null}`. In a Proposal those fields are **flat**, not a nested object. Excluded candidates and their reasons stay in `excluded[]`; they do not pollute an otherwise valid proposal's ASK reasons.
 
 `reasonDetails` (optional, T97) maps a reason code to the server's own wording where the code alone is not enough. Example: an `OVER_AUTO_LIMIT` caused by the same-day total reads `"€297.96 already committed for delivery on Mon 16 Nov; with this order €595.92 > €500.00 auto-approve limit"`. It is informational; `decision` and `reasons[]` stay authoritative.
 
@@ -123,7 +123,10 @@ The buyer admin sets them with `PATCH /v0.1/admin/mandates/{customerId}` (`allow
 - The model reports what it used as `restaurantPreferenceNotes` ("Applied: …", "Not applied: …", "Unclear: …"). They are added to `StructuredRequest.assumptions` as "Restaurant preference · …", shown in the UI as read-only notes.
 - Without a model reading (no LLM configured, timeout, invalid output), the deterministic parser ignores them and the request says "Restaurant preferences not applied: the request was read without the language model." 
 
-`AuditEntry` records timestamp, actor, event/summary, customer/proposal/offer binding, mandate version, optional old/new state, rule, reason codes, facts, and optional human comment. There is no arbitrary credential-bearing metadata field. Rejection/approval comments and request text remain untrusted data. Hash chaining and audit export are later tickets.
+`AuditEntry` records timestamp, actor, event/summary, customer/proposal/offer binding, mandate version, optional old/new state, rule, reason codes, facts, optional human comment, the SHA-256 chain links (`prevHash`, `hash`, starting from `0`×64 genesis), and detached Ed25519 receipt fields (`kid`, `signature`) on offer, decision, and confirmation transitions. There is no arbitrary credential-bearing metadata field. Rejection/approval comments and request text remain untrusted data.
+
+- **Chain verification & export (T28, T30, T67):** `GET /v0.1/audit/verify` verifies the SHA-256 hash chain on the server, and `GET /v0.1/audit/export?proposalId=…|customerId=…&format=json|csv` exports the full trail including each entry's `prevHash`, `hash`, `kid`, and `signature` (with spreadsheet formula cells neutralised in CSV).
+- **Published keys, discovery & offline verification (T67):** `GET /.well-known/verified-or-ask-keys.json` publishes the gateway's Ed25519 public key as an RFC 8037 OKP JWK Set (`kty: "OKP"`, `crv: "Ed25519"`, `alg: "EdDSA"`, `kid`, `x`), and `GET /.well-known/verified-or-ask.json` points to OpenAPI, MCP, `/spec`, and the JWK Set. Detached base64url signatures cover canonical UTF-8 JSON (`sort_keys=True`, `(",", ":")` separators) for `aimo-connect.offer.v0.1`, `aimo-connect.decision.v0.1`, `aimo-connect.confirmation.v0.1`, and `aimo-connect.audit-entry.v0.1`. `scripts/verify-audit <export.json> [--keys <jwks>]` verifies both the SHA-256 chain and Ed25519 signatures offline using the Python standard library alone.
 
 ## Reason-code registry
 
@@ -236,6 +239,7 @@ Decision:     ASK
 Reasons:      ["OVER_AUTO_LIMIT"]
 Totals:       €506.16 excl. VAT · VAT €68.33 · €574.49 incl. VAT (EUR)
 offerHash:    <64-char sha256 hex digest>
+Signature:    signature verified (voa-ed25519-...)
 ```
 
 ### Equivalent `curl` + `jq` walkthrough (agent channel only)

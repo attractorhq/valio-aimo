@@ -42,6 +42,10 @@ export type AuditEntry = {
   facts?: Array<TrustLabel>;
   summary: string;
   comment?: string | null;
+  prevHash?: string | null;
+  hash?: string | null;
+  kid?: string | null;
+  signature?: string | null;
 };
 
 export type AuditTrail = {
@@ -146,6 +150,8 @@ export type Offer = {
   lines: Array<OfferLine>;
   excluded?: Array<ExcludedProduct>;
   totals: Totals;
+  kid?: string | null;
+  signature?: string | null;
 };
 
 export type OfferItem = {
@@ -227,6 +233,9 @@ export type Proposal = {
   totals: Totals;
   reasonDetails?: { [key: string]: string };
   supersededBy?: string | null;
+  kid?: string | null;
+  signature?: string | null;
+  confirmationSignature?: string | null;
   simulationNotice?: "Simulated order \u2014 mock environment";
 };
 
