@@ -122,7 +122,7 @@ def test_the_same_day_total_is_in_the_api_reason_detail():
     second = _order(gateway, "OF-2", "65")
     assert second.reasons == [ReasonCode.OVER_AUTO_LIMIT]
     assert second.reasonDetails[ReasonCode.OVER_AUTO_LIMIT] == (
-        "€297.96 already committed for delivery on Mon 16 Nov; with this order €595.92 > €500.00 auto-approve limit"
+        "€297.96 already ordered or awaiting approval for Mon 16 Nov; with this order €595.92 > €500.00 auto-approve limit"
     )
     assert "reasonDetails" in second.model_dump(mode="json")
 

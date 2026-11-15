@@ -32,6 +32,10 @@ def test_scenario_b_compact_explains_over_auto_limit_and_stays_small(synthetic_a
     assert reason["text"] in body["summary"]
     assert "\n" not in body["summary"]
     assert body["noOrder"] is None
+    # T112: the summary names the chosen product and its pack, not just "1 line".
+    first = body["lines"][0]
+    assert f"90 kg · {' '.join(first['name'].split())} (18 × 5 kg) and 1 more" in body["summary"]
+    assert "2 lines" not in body["summary"]
 
 
 def test_no_candidate_compact_carries_earliest_date_retry(synthetic_api):

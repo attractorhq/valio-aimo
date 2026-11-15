@@ -450,9 +450,9 @@ def decision_summary(
     # T62: when the same delivery day already has committed orders, the limits apply to their sum.
     if committed_excl_vat > 0:
         days = committed_days or ((requested_date,) if requested_date else ())
-        day = f" for delivery on {format_days(days)}" if days else ""
+        day = f" for {format_days(days)}" if days else ""
         total_text = (
-            f"{format_money(committed_excl_vat)} already committed{day}; with this order "
+            f"{format_money(committed_excl_vat)} already ordered or awaiting approval{day}; with this order "
             f"{format_money(committed_excl_vat + total_excl_vat)}"
         )
     auto_text = format_money(mandate.autoApproveLimitEur)

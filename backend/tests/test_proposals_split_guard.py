@@ -52,7 +52,7 @@ def test_committed_same_day_orders_count_against_the_auto_approve_limit():
     assert decision.reasons == (ReasonCode.OVER_AUTO_LIMIT,)
     (finding,) = [f for f in decision.findings if f.code == ReasonCode.OVER_AUTO_LIMIT]
     assert finding.detail == (
-        "€300.00 already committed for delivery on Mon 16 Nov; with this order €600.00 > €500.00 auto-approve limit"
+        "€300.00 already ordered or awaiting approval for Mon 16 Nov; with this order €600.00 > €500.00 auto-approve limit"
     )
     assert decision.committed_excl_vat == Decimal("300.00")
 
@@ -63,7 +63,7 @@ def test_committed_same_day_orders_count_against_the_hard_limit():
     assert ReasonCode.OVER_HARD_LIMIT in decision.reasons
     (finding,) = [f for f in decision.findings if f.code == ReasonCode.OVER_HARD_LIMIT]
     assert finding.detail == (
-        "€5,900.00 already committed for delivery on Mon 16 Nov; with this order €6,200.00 > €6,000.00 hard limit"
+        "€5,900.00 already ordered or awaiting approval for Mon 16 Nov; with this order €6,200.00 > €6,000.00 hard limit"
     )
 
 
@@ -111,12 +111,12 @@ def test_four_small_orders_on_one_day_cannot_all_be_auto():
 
     trail = get_audit_trail(gateway, proposal_id=second.proposalId)
     (decided,) = [e for e in trail.entries if e.event == "POLICY_DECIDED"]
-    assert "€297.96 already committed for delivery on Mon 16 Nov; with this order €595.92" in decided.summary
+    assert "€297.96 already ordered or awaiting approval for Mon 16 Nov; with this order €595.92" in decided.summary
     assert "€500.00 auto-approve limit" in decided.summary
 
     # The explanation never claims the €297.96 order alone is over the limit.
     text = template_explanation(proposal=second, mandate=M2)
-    assert "plus the orders already committed for delivery on Mon 16 Nov is above your €500.00 auto-approve limit" in text
+    assert "plus what is already ordered or awaiting approval for Mon 16 Nov is above your €500.00 auto-approve limit" in text
 
 
 def test_another_delivery_date_does_not_count():
@@ -176,7 +176,7 @@ def test_a_new_version_does_not_count_the_version_it_replaces():
     assert v2.reasons == [ReasonCode.OVER_AUTO_LIMIT]  # €412.56 + €114.65, without the replaced €114.60
     trail = get_audit_trail(gateway, proposal_id=v2.proposalId)
     decided = [e for e in trail.entries if e.event == "POLICY_DECIDED"][-1]
-    assert "€412.56 already committed for delivery on Mon 16 Nov; with this order €527.21" in decided.summary
+    assert "€412.56 already ordered or awaiting approval for Mon 16 Nov; with this order €527.21" in decided.summary
     # The superseded version no longer counts; the new one does.
     assert gateway.committed_total(M2.customerId, MONDAY) == Decimal("412.56") + v2.totals.exclVat
 
@@ -200,9 +200,9 @@ def test_orders_requested_for_different_days_but_delivered_on_one_day_count_toge
     assert gateway.committed_total(M2.customerId, TUESDAY) == 0  # nothing is delivered on Tuesday
     trail = get_audit_trail(gateway, proposal_id=second.proposalId)
     (decided,) = [e for e in trail.entries if e.event == "POLICY_DECIDED"]
-    assert "€297.96 already committed for delivery on Mon 16 Nov; with this order €595.92" in decided.summary
+    assert "€297.96 already ordered or awaiting approval for Mon 16 Nov; with this order €595.92" in decided.summary
     text = template_explanation(proposal=second, mandate=M2)
-    assert "plus the orders already committed for delivery on Mon 16 Nov is above your €500.00" in text
+    assert "plus what is already ordered or awaiting approval for Mon 16 Nov is above your €500.00" in text
 
 
 def test_review_repro_three_requested_dates_one_delivery_day_m1():
@@ -230,7 +230,7 @@ def test_review_repro_three_requested_dates_one_delivery_day_m1():
     assert proposals[2].decision == "ASK"
     trail = get_audit_trail(gateway, proposal_id=proposals[2].proposalId)
     decided = [e for e in trail.entries if e.event == "POLICY_DECIDED"][-1]
-    assert "€1,818.00 already committed for delivery on Mon 16 Nov; with this order €2,727.00" in decided.summary
+    assert "€1,818.00 already ordered or awaiting approval for Mon 16 Nov; with this order €2,727.00" in decided.summary
 
 
 def test_delivery_days_and_their_wording():

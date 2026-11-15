@@ -474,10 +474,10 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
       .fill('Tarvitsen tuhat litraa laktoositonta maitoa maanantaiksi')
     await page.getByRole('button', { name: 'Run request' }).click()
     await expect(step(page, 'Approval')).toContainText(
-      '€1,010.00 excl. VAT plus the orders already committed for delivery on Mon 16 Nov exceeds your €2,500.00 auto-approve limit.',
+      '€1,010.00 excl. VAT plus what is already ordered or awaiting approval for Mon 16 Nov exceeds your €2,500.00 auto-approve limit.',
     )
     await expect(page.getByTestId('result-why')).toContainText(
-      'This order plus the orders already committed for delivery on Mon 16 Nov exceeds your €2,500.00 auto-approve limit',
+      'This order plus what is already ordered or awaiting approval for Mon 16 Nov exceeds your €2,500.00 auto-approve limit',
     )
     await expect(step(page, 'Order')).toContainText('€1,010.00 excl. VAT')
 
@@ -501,7 +501,7 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     await page.getByRole('button', { name: 'Run request' }).click()
     // The answered request is decided like any other order: ASK for the same reason as step 4 (T62).
     await expect(step(page, 'Approval')).toContainText(
-      'already committed for delivery on Mon 16 Nov',
+      'already ordered or awaiting approval for Mon 16 Nov',
     )
 
     // 6. Verify no horizontal scroll at 390 px width

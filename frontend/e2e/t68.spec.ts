@@ -97,11 +97,12 @@ test('T68: summary on the main view and /admin follows a buyer-admin edit', asyn
 
   await expect(page.getByRole('status')).toContainText('mandate v2')
   await expect(summary(page)).toContainText(
-    'In-stock, verified products from categories 211, 2240 up to €750.00 per delivery day, until Thu 31 Dec',
+    'In-stock, verified products from categories 211, 2240 up to €750.00 per delivery day, a split across products of the same type that meet every requirement, until Thu 31 Dec',
   )
   await expect(summary(page)).toContainText('Needs the Head ChefOver €750.00')
   await expect(summary(page)).toContainText('orders after Thu 31 Dec, other categories')
 
   await page.getByRole('link', { name: 'Buyer view' }).click()
-  await expect(summary(page)).toContainText('up to €750.00 per delivery day, until Thu 31 Dec')
+  await expect(summary(page)).toContainText('up to €750.00 per delivery day, a split across')
+  await expect(summary(page)).toContainText('requirement, until Thu 31 Dec')
 })

@@ -5,12 +5,13 @@ import { explainWhyNotAuto, plainReason, uniqueReasons } from '../approver/expla
 import {
   formatDate,
   formatMoney,
+  formatNumber,
   formatQuantity,
   formatTime,
   reasonChip,
   requirementLabel,
 } from '../../lib/format'
-import { isProven, proposalRequirementChecks } from '../../lib/requirements'
+import { proposalRequirementChecks } from '../../lib/requirements'
 import { ProposalRefText } from '../trust/ProposalRefText'
 import { earlyDeliverySentence, overshootNotes } from '../../lib/clarity'
 import { splitReasonLines } from '../proposal/SplitProposalSummary'
@@ -100,6 +101,37 @@ function resultBullets(proposal: Proposal, mandate?: Mandate) {
     .concat(delivery ? [`${deliveryBullet(delivery, early)}${orderBy}`] : [])
 }
 
+/** "(1,000 × 1 l)": whole packs times the content of one, when the delivered quantity is exactly that. */
+function packText(line: Proposal['lines'][number]): string | null {
+  const content = Number(line.contentPerSalesUnit.value)
+  const units = Number(line.quantitySalesUnits)
+  if (!(content > 0) || line.contentPerSalesUnit.unit !== line.deliveredQuantity.unit) return null
+  if (Math.abs(content * units - Number(line.deliveredQuantity.value)) >= 0.001) return null
+  // A product sold by the kilo in 1 kg steps has no pack worth naming.
+  if (content === 1 && line.salesUnit.toUpperCase() === line.contentPerSalesUnit.unit.toUpperCase()) return null
+  const size = formatNumber(String(Math.round(content * 1000) / 1000))
+  return `(${formatNumber(line.quantitySalesUnits)} × ${formatQuantity(size, line.contentPerSalesUnit.unit)})`
+}
+
+/**
+ * T112: the headline names what was bought: "1,000 l · Valio Eila® semi skimmed milk drink 1 l lactose free
+ * (1,000 × 1 l)". Several lines: the first product and "and N more".
+ */
+export function orderedProducts(proposal: Proposal): string {
+  const first = proposal.lines[0]
+  if (!first) return ''
+  const name = first.name.replace(/\s+/g, ' ').trim()
+  const head = [
+    `${formatQuantity(first.deliveredQuantity.value, first.deliveredQuantity.unit)} ·`,
+    name,
+    packText(first),
+  ]
+    .filter(Boolean)
+    .join(' ')
+  const more = proposal.lines.length - 1
+  return more > 0 ? `${head} and ${more} more` : head
+}
+
 export function ResultBanner({
   proposal,
   mandate,
@@ -117,39 +149,7 @@ export function ResultBanner({
   const pending = proposal.state === 'PENDING_APPROVAL'
   const total = formatMoney(proposal.totals.exclVat)
   const delivery = deliverySummary(proposal)
-  const first = proposal.lines[0]
-  const item =
-    first && proposal.request.items.find((requestItem) => requestItem.itemId === first.itemId)
-  const product = item && !first.substitutionSource ? item.what : first?.name
-  const qualifier = (item?.requirements ?? [])
-    .filter(
-      (requirement) =>
-        requirement.kind === 'CLAIM' &&
-        isProven(
-          requirement,
-          first?.facts.find((fact) => fact.fact === `claim.${requirement.code}`),
-        ),
-    )
-    .map((requirement) => requirementLabel(requirement).toLowerCase())
-    .filter((label) => !product?.toLowerCase().includes(label))
-    .join(' ')
-  const items =
-    proposal.lines.length === 1 && first
-      ? [
-          formatQuantity(first.deliveredQuantity.value, first.deliveredQuantity.unit),
-          qualifier,
-          product,
-        ]
-          .filter(Boolean)
-          .join(' ')
-      : proposal.lines.length === 2
-        ? proposal.lines
-            .map((line) => {
-              const requested = proposal.request.items.find((entry) => entry.itemId === line.itemId)
-              return `${formatQuantity(line.deliveredQuantity.value, line.deliveredQuantity.unit)} ${line.substitutionSource ? line.name : (requested?.what ?? line.name)}`
-            })
-            .join(' and ')
-        : `${proposal.lines.length} order lines`
+  const items = orderedProducts(proposal)
   const blockReason = proposal.reasons.find((code) => REASON_REGISTRY[code].effect === 'BLOCK')
   const why = pending
     ? explainWhyNotAuto(proposal, mandate, { omitTotalAmount: true })
@@ -170,10 +170,11 @@ export function ResultBanner({
         : proposal.state === 'BLOCKED'
           ? 'Order blocked'
           : approvalLabel(proposal)
-  const summary =
-    tone === 'block'
-      ? `${next}. ${total} excl. VAT.`
-      : `${next}: ${items}${delivery ? `, ${delivery}` : ''}, ${total} excl. VAT.`
+  // T112: the chosen product and pack on one line (ellipsis when it does not fit), then delivery and total.
+  const what = tone === 'block' || !items ? `${next}.` : `${next}: ${items}`
+  const rest = tone === 'block' || !items
+    ? `${total} excl. VAT.`
+    : `${delivery ? `${delivery}, ` : ''}${total} excl. VAT.`
   return (
     <section
       className={`outcome outcome-${tone} result-banner`}
@@ -182,7 +183,10 @@ export function ResultBanner({
     >
       <p className="outcome-headline" data-testid="result-summary">
         <Icon size={20} aria-hidden />
-        <span>{summary}</span>
+        <span className="result-summary-text">
+          <span className="result-what" title={what}>{what}</span>{' '}
+          <span className="result-rest">{rest}</span>
+        </span>
       </p>
       {why && (
         <p className="text-xs text-[var(--ink)]" data-testid="result-why">

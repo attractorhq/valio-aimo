@@ -20,7 +20,8 @@ function askPhrase(code: ReasonCode, m: Mandate): Phrase {
     case 'DATE_LATER':
       return 'later delivery'
     case 'PARTIAL_AVAILABILITY':
-      return 'partial stock'
+      // T112: a split across same-type products that meet every requirement is allowed alone (SPLIT is INFO).
+      return 'partial stock that no other product of the same type can cover'
     case 'SUPPLIER_STOCK_UNKNOWN':
       return m.autoAcceptSupplierStock ? null : 'supplier-warehouse stock'
     case 'VALIO_SUBSTITUTE':
@@ -102,6 +103,7 @@ export function mandateSummary(m: Mandate): MandateSummary {
   const alone = [`${what} up to ${formatMoney(m.autoApproveLimitEur)} per delivery day`]
   if (m.autoAcceptValioSubstitutes) alone.push('Valio Aimo substitutes that meet every requirement')
   if (m.autoAcceptSupplierStock) alone.push('supplier-warehouse stock')
+  alone.push('a split across products of the same type that meet every requirement')
   if (m.validTo) alone.push(`until ${formatDate(m.validTo)}`)
   else if (m.validFrom) alone.push(`from ${formatDate(m.validFrom)}`)
 

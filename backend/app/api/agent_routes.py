@@ -7,6 +7,7 @@ token or QR payload (patch P3, AC15).
 import json
 from collections.abc import Iterator
 from datetime import date
+from decimal import Decimal
 from typing import Annotated, Literal
 from urllib.parse import quote
 
@@ -205,6 +206,29 @@ def _reason_texts(
     return out
 
 
+def _amount(value: Decimal) -> str:
+    norm = value.normalize()
+    return f"{int(norm):,}" if norm == norm.to_integral() else format(norm, ",f")
+
+
+def _ordered_products(lines: list) -> str:
+    """T112: "1,000 l · Valio Eila® ... (1,000 × 1 l)"; several lines: the first product and "and N more"."""
+    if not lines:
+        return ""
+    first = lines[0]
+    delivered = first.deliveredQuantity
+    content = first.contentPerSalesUnit
+    unit = delivered.unit
+    text = f"{_amount(delivered.value)} {unit} · {' '.join(first.name.split())}"
+    same_unit = content.unit == delivered.unit and content.value > 0
+    if same_unit and content.value * first.quantitySalesUnits == delivered.value and not (
+        content.value == 1 and first.salesUnit.upper() == content.unit.upper()
+    ):
+        text += f" ({_amount(first.quantitySalesUnits)} × {_amount(content.value)} {unit})"
+    more = len(lines) - 1
+    return f"{text} and {more} more" if more else text
+
+
 def _compact_summary(
     result: AgentRunResult, reason_texts: list[CompactReason], no_order: CompactNoOrder | None,
 ) -> str:
@@ -221,7 +245,7 @@ def _compact_summary(
         lead = "No order: the full request could not be fulfilled."
         return f"{lead} {reason_texts[0].text}" if reason_texts else lead
     total = format_money(proposal.totals.exclVat)
-    lines = f"{len(proposal.lines)} line{'s' if len(proposal.lines) != 1 else ''}"
+    lines = _ordered_products(proposal.lines) or "0 lines"
     decisive = [r.text for r in reason_texts if r.effect == proposal.decision]
     if proposal.decision == "AUTO":
         return f"AUTO: {total} excl. VAT, {lines}, within the mandate ({proposal.state})."

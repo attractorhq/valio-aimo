@@ -38,6 +38,6 @@ def limit_sentence(code: ReasonCode, total: Decimal, limit: Decimal, days: Seque
     if total > limit:
         return f"{format_money(total)} excl. VAT is above your {format_money(limit)} {kind}"
     return (
-        f"{format_money(total)} excl. VAT plus the orders already committed for delivery on {format_days(days)} "
+        f"{format_money(total)} excl. VAT plus what is already ordered or awaiting approval for {format_days(days)} "
         f"is above your {format_money(limit)} {kind}"
     )

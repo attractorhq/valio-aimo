@@ -66,7 +66,7 @@ function deliveryDays(proposal: Proposal): string {
 }
 
 /**
- * T62: the limits apply to this order plus what is already committed for delivery on the same day. When this
+ * T62: the limits apply to this order plus what is already ordered or awaiting approval for the same day. When this
  * order alone is within the limit, the day's committed orders took it over: say that, never "€300 is above
  * your €500 limit". Returns null when the order alone is over the limit (the usual wording applies).
  */
@@ -84,7 +84,7 @@ export function committedLimitSentence(
   if (!limit || Number(proposal.totals.exclVat) > Number(limit)) return null
   const order = omitTotalAmount ? 'this order' : `${formatMoney(proposal.totals.exclVat)} excl. VAT`
   const threshold = hard ? 'hard limit' : 'auto-approve limit'
-  const sentence = `${order} plus the orders already committed for delivery on ${deliveryDays(proposal)} exceeds your ${formatMoney(limit)} ${threshold}.`
+  const sentence = `${order} plus what is already ordered or awaiting approval for ${deliveryDays(proposal)} exceeds your ${formatMoney(limit)} ${threshold}.`
   return hard ? `${sentence} No agent or approver can override this.` : sentence
 }
 
