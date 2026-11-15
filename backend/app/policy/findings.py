@@ -10,6 +10,7 @@ from app.contracts import REASON_REGISTRY, ReasonCode, ReasonEffect
 RULE_ORDER = (
     "O0", "L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9", "L10", "L11", "L12", "L13", "L14", "L15",
     "O1", "O2", "O3", "O4", "O5", "O6",
+    "O7",  # T71: price and stock from the stale-fallback cache
 )
 RULE_RANK = {rule: rank for rank, rule in enumerate(RULE_ORDER)}
 

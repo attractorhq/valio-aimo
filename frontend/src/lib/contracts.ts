@@ -256,7 +256,7 @@ export type Quantity = {
   unit: "l" | "kg" | "pcs" | "cases";
 };
 
-export type ReasonCode = "DATE_LATER" | "CUTOFF_PASSED" | "SUPPLIER_STOCK_UNKNOWN" | "PARTIAL_AVAILABILITY" | "SPLIT" | "DATA_CONFLICT" | "AGENT_SUBSTITUTE" | "VALIO_SUBSTITUTE" | "SUBSTITUTE_REJECTED" | "QUANTITY_BASIS_WEAK" | "QUANTITY_BASIS_UNKNOWN" | "LOW_RELIABILITY" | "UNIT_MISMATCH" | "OVER_AUTO_LIMIT" | "OVER_HARD_LIMIT" | "ALLERGEN_CONTAINS" | "ALLERGEN_MAY_CONTAIN" | "ALLERGEN_IMPLICIT" | "ALLERGEN_UNKNOWN" | "CLAIM_MISSING" | "NOT_AVAILABLE" | "SALES_BLOCKED" | "PRICE_UNAVAILABLE" | "INSTRUCTION_IGNORED" | "NO_CANDIDATE" | "CLARIFICATION_NEEDED" | "REQUOTED" | "DEPOSIT_COST_UNVERIFIED" | "VARIABLE_WEIGHT_UNVERIFIED" | "CATEGORY_NOT_ALLOWED" | "MANDATE_NOT_VALID";
+export type ReasonCode = "DATE_LATER" | "CUTOFF_PASSED" | "SUPPLIER_STOCK_UNKNOWN" | "PARTIAL_AVAILABILITY" | "SPLIT" | "DATA_CONFLICT" | "AGENT_SUBSTITUTE" | "VALIO_SUBSTITUTE" | "SUBSTITUTE_REJECTED" | "QUANTITY_BASIS_WEAK" | "QUANTITY_BASIS_UNKNOWN" | "LOW_RELIABILITY" | "UNIT_MISMATCH" | "OVER_AUTO_LIMIT" | "OVER_HARD_LIMIT" | "ALLERGEN_CONTAINS" | "ALLERGEN_MAY_CONTAIN" | "ALLERGEN_IMPLICIT" | "ALLERGEN_UNKNOWN" | "CLAIM_MISSING" | "NOT_AVAILABLE" | "SALES_BLOCKED" | "PRICE_UNAVAILABLE" | "INSTRUCTION_IGNORED" | "NO_CANDIDATE" | "CLARIFICATION_NEEDED" | "REQUOTED" | "DEPOSIT_COST_UNVERIFIED" | "VARIABLE_WEIGHT_UNVERIFIED" | "CATEGORY_NOT_ALLOWED" | "MANDATE_NOT_VALID" | "STALE_DATA";
 
 export type ReasonDefinition = {
   code: ReasonCode;
@@ -631,6 +631,16 @@ export const REASON_REGISTRY = {
     "template": "The mandate is not valid on {date}. A buyer admin must renew it before the agent can order.",
     "allowedEffects": [
       "BLOCK"
+    ]
+  },
+  "STALE_DATA": {
+    "code": "STALE_DATA",
+    "effect": "ASK",
+    "approvable": true,
+    "chipText": "Cached data",
+    "template": "Live price and stock were unavailable; this uses Valio data cached in the last 15 minutes. Approving re-checks live before ordering.",
+    "allowedEffects": [
+      "ASK"
     ]
   },
   "VARIABLE_WEIGHT_UNVERIFIED": {

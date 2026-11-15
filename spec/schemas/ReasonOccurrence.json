@@ -35,7 +35,8 @@
         "DEPOSIT_COST_UNVERIFIED",
         "VARIABLE_WEIGHT_UNVERIFIED",
         "CATEGORY_NOT_ALLOWED",
-        "MANDATE_NOT_VALID"
+        "MANDATE_NOT_VALID",
+        "STALE_DATA"
       ],
       "title": "ReasonCode",
       "type": "string"
