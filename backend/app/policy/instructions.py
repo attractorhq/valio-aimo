@@ -1,10 +1,14 @@
 """Rule O4: request text is data. Spot attempts to change rules or claim approval (EN/FI/SV).
 
-The text is never executed; a match only adds INFO · INSTRUCTION_IGNORED so the attempt is visible and logged.
-Deterministic, so it works without the LLM; the parser may flag more cases.
+The text is never executed. A match adds INSTRUCTION_IGNORED so the attempt is visible and logged, and (T107) an
+order that would otherwise be AUTO becomes ASK: a person checks any order whose request tried to bypass controls.
+Deterministic, so it works without the LLM. The gateway also applies the agent parser's patterns, so an attempt the
+parser reports can never slip through as AUTO.
 """
 
 import re
+
+from app.agent.injection import contains_instruction
 
 _PATTERNS = (
     # English
@@ -32,4 +36,4 @@ _REGEX = re.compile("|".join(f"(?:{p})" for p in _PATTERNS), re.IGNORECASE)
 
 
 def detect_instruction(text: str) -> bool:
-    return _REGEX.search(text) is not None
+    return _REGEX.search(text) is not None or contains_instruction(text)

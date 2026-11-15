@@ -1715,6 +1715,9 @@ class ProposalGateway:
                 lines=refreshed_line_inputs,
                 now=check_now,
                 partial_items=partial,
+                # T107: an O4 attempt stays on the order at the re-check, so an approved ASK confirms instead of
+                # being superseded as AUTO.
+                instruction_ignored=ReasonCode.INSTRUCTION_IGNORED in proposal.reasons,
             )
             if rechecked_decision.outcome != proposal.decision:
                 diffs.append(f"policy outcome changed {proposal.decision} → {rechecked_decision.outcome}")
@@ -1937,6 +1940,7 @@ class ProposalGateway:
             ),
             now=check_now,
             partial_items=partial,
+            instruction_ignored=ReasonCode.INSTRUCTION_IGNORED in proposal.reasons,
             auto_confirm=False,
             allow_no_order_block=True,
             replaces=proposal.proposalId,
