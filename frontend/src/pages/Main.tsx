@@ -20,6 +20,7 @@ import { RequestComposer } from '../components/flow/RequestComposer'
 import { Step, type StepStatus } from '../components/flow/Step'
 import { RequestCard, ResultBanner, approvalLabel } from '../components/flow/StepContent'
 import { NoOrderBanner } from '../components/flow/NoOrderBanner'
+import { NotOrderedLines } from '../components/flow/NotOrderedLines'
 import type { ItemPlanSummary } from '../components/request/AssumptionChips'
 import { DecisionFooter } from '../components/order/DecisionFooter'
 import { ExcludedList } from '../components/order/ExcludedList'
@@ -324,6 +325,7 @@ export function Main() {
                 onToggleEvidence={toggleEvidence}
               />
             )}
+            {proposal && <NotOrderedLines proposal={proposal} noOrder={step4?.noOrder} />}
             {!proposal && step4 && (
               <NoOrderBanner
                 summary={step4.summary}

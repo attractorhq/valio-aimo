@@ -24,7 +24,7 @@ from app.agent.run import (
     iter_agent_steps,
     run_agent,
 )
-from app.contracts import GetOfferRequest, OfferItem, ReasonCode, Totals
+from app.contracts import GetOfferRequest, NotOrderedItem, OfferItem, ReasonCode, Totals
 from app.contracts.common import (
     Contract,
     DecisionOutcome,
@@ -82,6 +82,8 @@ class CompactAgentRunResult(Contract):
     approverRole: str | None
     clarificationQuestion: str | None
     links: CompactAgentLinks | None
+    # T106: requested lines this proposal does not order, each with its plain reason.
+    notOrdered: list[NotOrderedItem] = Field(default_factory=list)
 
 
 def _compact_result(result: AgentRunResult) -> CompactAgentRunResult:
@@ -105,6 +107,7 @@ def _compact_result(result: AgentRunResult) -> CompactAgentRunResult:
         links=CompactAgentLinks(
             proposal=f"/v0.1/proposals/{pid}", audit=f"/v0.1/audit?proposalId={pid}",
         ) if proposal else None,
+        notOrdered=list(proposal.notOrdered) if proposal else [],
     )
 
 

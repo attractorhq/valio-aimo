@@ -102,6 +102,7 @@ def decide(
     clarification_needed: bool = False,
     committed_excl_vat: Decimal = Decimal(0),
     committed_days: Sequence[date] = (),
+    not_ordered_items: Sequence[str] = (),
 ) -> PolicyDecision:
     """Decide one order (offer or proposal version) from scratch.
 
@@ -114,6 +115,8 @@ def decide(
       delivery days (confirmed or awaiting sign-off), passed in by the gateway: the limits apply to it plus this
       order, so a need split into several small orders can never pass the auto-approve or hard limit unnoticed.
       `committed_days` are the delivery days that total falls on (for the wording; the requested date if empty).
+    - `not_ordered_items` (T106) are requested lines left out of this version because no compliant product was
+      found. They count as zero availability: a partial delivery a person must sign off, never AUTO.
     """
     items = {item.itemId: item for item in request.items}
     for line in lines:
@@ -155,6 +158,12 @@ def decide(
         if covered > item.quantity * OVERBUY_FACTOR:
             findings.append(Finding("QUANTITY_BASIS_WEAK", "ASK", "L12", item_id=item.itemId,
                                     detail=overbuy_detail(covered, item.quantity, item.unit, item_lines)))
+
+    # L8 (T106): lines left out of a multi-line request are a partial delivery of the whole request.
+    for item_id in dict.fromkeys(not_ordered_items):
+        if item_id in items:
+            raise ValueError(f"not-ordered item {item_id} is also in the request")
+        findings.append(Finding("PARTIAL_AVAILABILITY", "ASK", "L8", item_id=item_id))
 
     # O1 / O3: limits on the total excl. VAT of the lines that remain, plus what is already committed for
     # delivery on the same day (T62: split-order guard).

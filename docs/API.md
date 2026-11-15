@@ -188,7 +188,8 @@ only a decision summary (`CompactAgentRunResult`, also described in OpenAPI):
   ],
   "approverRole": "Head Chef",
   "clarificationQuestion": null,
-  "links": {"proposal": "/v0.1/proposals/PR-EXAMPLE-v1", "audit": "/v0.1/audit?proposalId=PR-EXAMPLE-v1"}
+  "links": {"proposal": "/v0.1/proposals/PR-EXAMPLE-v1", "audit": "/v0.1/audit?proposalId=PR-EXAMPLE-v1"},
+  "notOrdered": []
 }
 ```
 
@@ -198,6 +199,17 @@ from a model-generated summary. `mode` and the snapshot's `recordedAt` preserve 
 (`recordedAt` is null when no offer/proposal snapshot exists). Relative links point only to public
 agent-channel reads; follow them in the same session to retrieve the full proposal and audit.
 No facts, candidate lists, approval tokens, approval links or QR payloads are included.
+
+`notOrdered` (T106) lists requested lines the proposal leaves out because no compliant product was
+found, e.g. `{"itemId": "I2", "what": "oat drink", "quantity": "30", "unit": "l", "reason": "no gluten-free
+oat drink was found"}`. It mirrors `proposal.notOrdered` in the full view. When a multi-line request has at
+least one deliverable line and at least one line with no compliant candidate, the agent proposes the
+deliverable lines on their own; the gateway decides that version from scratch with `PARTIAL_AVAILABILITY`
+(never AUTO), and `reasonDetails.PARTIAL_AVAILABILITY` and the approval statement start with one plain
+sentence: "Approving means pasta only; oat drink is not ordered: no gluten-free oat drink was found." The
+not-ordered lines are never ordered. If no line is deliverable, the result is the usual no-order result.
+`createProposal` (REST and MCP) accepts the same optional `notOrdered` list; it can only make a decision
+stricter.
 
 If no proposal is created (clarification or no candidate), `proposalId`, `decision`, `state`,
 `totals`, `approverRole` and `links` are null, and `lines` is empty. `reasons` and any

@@ -68,6 +68,7 @@ from app.contracts import (
     ExcludedProduct,
     GetOfferRequest,
     Mandate,
+    NotOrderedItem,
     Offer,
     OfferItem,
     OfferLine,
@@ -665,6 +666,19 @@ def cannot_fulfil_items(request: StructuredRequest, lines: Sequence[OfferLine]) 
     return out
 
 
+def _not_found_reason(item: RequestItem, search: SearchProductsRequest, mandate: Mandate) -> str:
+    """T106: 'no gluten-free oat drink was found' for a line with no compliant candidate."""
+    _, inline_requirements = extract_inline_requirements(search.query)
+    labels = [
+        requirement_display_name(req)
+        for req in hard_requirements([*search.requirements, *inline_requirements], mandate)
+    ]
+    words = [label.lower() for label in dict.fromkeys(labels) if label.lower() not in item.what.lower()]
+    if not words:
+        return f"no matching {item.what} was found"
+    return f"no {', '.join(words)} {item.what} was found"
+
+
 def _no_order_step(
     *,
     channel: AgentChannel,
@@ -1095,6 +1109,9 @@ def _iter_agent_steps_inner(
         excluded=all_lookup_excluded,
     )
 
+    full_request = planned_request
+    dropped_no_order: list[NoOrderItem] = []
+
     def no_order(
         offer: Offer | None = None,
         offer_request: GetOfferRequest | None = None,
@@ -1102,7 +1119,7 @@ def _iter_agent_steps_inner(
         policy_excluded: Sequence[ExcludedProduct] = (),
         cannot_fulfil: Mapping[str, str] | None = None,
     ) -> AgentStepEvent:
-        return _no_order_step(
+        step = _no_order_step(
             channel=channel, customer_id=customer_id, request=planned_request, mandate=mandate,
             item_plans=item_plans, searches=searches, candidates=candidates_by_item, products=products_by_id,
             observations=observations_by_item,
@@ -1110,10 +1127,41 @@ def _iter_agent_steps_inner(
             reasons=[*reasons, *parse_res.reasons], offer=offer, offer_request=offer_request, now=eval_now,
             cannot_fulfil=cannot_fulfil,
         )
+        if not dropped_no_order or step.noOrder is None:
+            return step
+        # T106: the remaining lines could not be ordered either, so report the whole request as before: every
+        # line in request order, and no later date to retry because the dropped lines have none.
+        order = {item.itemId: n for n, item in enumerate(full_request.items)}
+        merged = sorted([*dropped_no_order, *step.noOrder.items], key=lambda entry: order.get(entry.itemId, 0))
+        return step.model_copy(update={
+            "request": full_request,
+            "noOrder": NoOrderDetails(items=merged, earliestDelivery=None),
+        })
 
-    if not final_offer_items or any(not cands for cands in candidates_by_item.values()):
+    if not final_offer_items or all(not cands for cands in candidates_by_item.values()):
         yield no_order()
         return
+
+    # T106: a line with no compliant candidate at all is dropped when another line can still be offered. The rest
+    # becomes its own proposal that the gateway decides from scratch as PARTIAL_AVAILABILITY (never AUTO); the
+    # dropped line is never ordered and is shown with its real reason.
+    not_ordered: list[NotOrderedItem] = []
+    if any(not cands for cands in candidates_by_item.values()):
+        dropped_ids = {item_id for item_id, cands in candidates_by_item.items() if not cands}
+        full_step = no_order()
+        dropped_no_order = [entry for entry in full_step.noOrder.items if entry.itemId in dropped_ids]
+        not_ordered = [
+            NotOrderedItem(
+                itemId=item.itemId, what=item.what, quantity=item.quantity, unit=item.unit,
+                reason=_not_found_reason(item, searches[item.itemId], mandate),
+            )
+            for item in planned_request.items if item.itemId in dropped_ids
+        ]
+        planned_request = planned_request.model_copy(update={
+            "items": [item for item in planned_request.items if item.itemId not in dropped_ids],
+        })
+        item_plans = [plan for plan in item_plans if plan.item.itemId not in dropped_ids]
+        candidates_by_item = {k: v for k, v in candidates_by_item.items() if k not in dropped_ids}
 
     # ------------------------------------------------------------------ Step 3: ORDER (`getOffer`)
     offer_request = GetOfferRequest(
@@ -1164,6 +1212,7 @@ def _iter_agent_steps_inner(
         offerId=offer.offerId,
         offerVersion=offer.offerVersion,
         request=planned_request,
+        notOrdered=not_ordered,
     )
     local_channel = channel if isinstance(channel, GatewayAgentChannel) else None
     # Check and create together so concurrent agent runs cannot both queue a matching proposal.
@@ -1233,6 +1282,8 @@ def _iter_agent_steps_inner(
         explanation=exp,
         reasons=list(enriched_proposal.reasons),
         excluded=list(enriched_proposal.excluded),
+        # T106: the lines this proposal leaves out, with their reason and closest matches as in a no-order result.
+        noOrder=NoOrderDetails(items=dropped_no_order) if dropped_no_order else None,
     )
 
 

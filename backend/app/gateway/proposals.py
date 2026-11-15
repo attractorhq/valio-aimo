@@ -37,6 +37,7 @@ from app.contracts import (
     GetAuditTrailRequest,
     GetOfferRequest,
     Mandate,
+    NotOrderedItem,
     Offer,
     OfferItem,
     OfferLine,
@@ -372,7 +373,35 @@ def _format_split_clauses(proposal: Proposal) -> list[str]:
     return clauses
 
 
+def _join_names(names: Sequence[str]) -> str:
+    names = list(dict.fromkeys(names))
+    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+def not_ordered_sentence(request: StructuredRequest, not_ordered: Sequence[NotOrderedItem]) -> str | None:
+    """T106: "Approving means pasta only; oat drink is not ordered: no gluten-free oat drink was found." """
+    if not not_ordered:
+        return None
+    ordered = _join_names([item.what for item in request.items])
+    dropped = "; ".join(f"{item.what} is not ordered: {item.reason.rstrip('.')}" for item in not_ordered)
+    return f"Approving means {ordered} only; {dropped}."
+
+
 def format_approval_statement(
+    proposal: Proposal,
+    *,
+    mandate: Mandate | None = None,
+    today: date | None = None,
+) -> str | None:
+    """What approving means, led by the requested lines this version does not order (T106)."""
+    core = _format_core_approval_statement(proposal, mandate=mandate, today=today)
+    if proposal.decision != "ASK":
+        return core
+    dropped = not_ordered_sentence(proposal.request, proposal.notOrdered)
+    return " ".join(part for part in (dropped, core) if part) or None
+
+
+def _format_core_approval_statement(
     proposal: Proposal,
     *,
     mandate: Mandate | None = None,
@@ -1024,6 +1053,7 @@ class ProposalGateway:
             clarification_needed=clarification_needed,
             committed_excl_vat=committed,
             committed_days=committed_days,
+            not_ordered_items=[item.itemId for item in create_req.notOrdered],
         )
 
         verdict_by_line = {v.line.line_id: v for v in policy_decision.lines}
@@ -1132,6 +1162,7 @@ class ProposalGateway:
                 lines=kept_lines,
                 excluded=excluded,
                 totals=totals,
+                notOrdered=create_req.notOrdered,
             )
             self._save_proposal(expired_proposal)
             return expired_proposal
@@ -1158,6 +1189,12 @@ class ProposalGateway:
                     )
             if held_parts:
                 reason_details[ReasonCode.PARTIAL_AVAILABILITY] = " ".join(held_parts)
+        if ReasonCode.PARTIAL_AVAILABILITY in reasons and (
+            dropped := not_ordered_sentence(create_req.request, create_req.notOrdered)
+        ):
+            reason_details[ReasonCode.PARTIAL_AVAILABILITY] = " ".join(
+                part for part in (dropped, reason_details.get(ReasonCode.PARTIAL_AVAILABILITY)) if part
+            )
 
         preview_proposal = Proposal(
             proposalId=pid,
@@ -1180,6 +1217,7 @@ class ProposalGateway:
             excluded=excluded,
             totals=totals,
             reasonDetails=reason_details,
+            notOrdered=create_req.notOrdered,
         )
         base_summary = decision_summary(
             outcome, reasons, total_excl_vat=totals.exclVat, mandate=mandate,
@@ -1691,6 +1729,7 @@ class ProposalGateway:
                 lines=refreshed_line_inputs,
                 now=check_now,
                 partial_items=partial,
+                not_ordered_items=[item.itemId for item in proposal.notOrdered],
             )
             if rechecked_decision.outcome != proposal.decision:
                 diffs.append(f"policy outcome changed {proposal.decision} → {rechecked_decision.outcome}")
@@ -1900,6 +1939,7 @@ class ProposalGateway:
                 offerId=proposal.offerId,
                 offerVersion=next_version,
                 request=proposal.request,
+                notOrdered=proposal.notOrdered,
             ),
             now=check_now,
             partial_items=partial,

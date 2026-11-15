@@ -3,6 +3,50 @@
   "$id": "urn:aimo-connect:v0.1:CreateProposalRequest",
   "x-contract-version": "0.1",
   "$defs": {
+    "NotOrderedItem": {
+      "additionalProperties": false,
+      "description": "T106: a requested line left out of a multi-line proposal because no compliant product was found.\nIt is never ordered; `reason` is the plain sentence shown to the buyer and the approver.",
+      "properties": {
+        "itemId": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Itemid",
+          "type": "string"
+        },
+        "what": {
+          "title": "What",
+          "type": "string"
+        },
+        "quantity": {
+          "pattern": "^\\d+(\\.\\d+)?$",
+          "title": "Quantity",
+          "type": "string"
+        },
+        "unit": {
+          "enum": [
+            "l",
+            "kg",
+            "pcs",
+            "cases"
+          ],
+          "title": "Unit",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "itemId",
+        "what",
+        "quantity",
+        "unit",
+        "reason"
+      ],
+      "title": "NotOrderedItem",
+      "type": "object"
+    },
     "Preference": {
       "additionalProperties": false,
       "properties": {
@@ -181,6 +225,13 @@
     },
     "request": {
       "$ref": "#/$defs/StructuredRequest"
+    },
+    "notOrdered": {
+      "items": {
+        "$ref": "#/$defs/NotOrderedItem"
+      },
+      "title": "Notordered",
+      "type": "array"
     }
   },
   "required": [
