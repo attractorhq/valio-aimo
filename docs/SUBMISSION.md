@@ -33,6 +33,7 @@ A trusted trade gateway for Valio Aimo plus a demo purchasing agent. It separate
   - The single-use demo permission is bound to that proposal version. The agent's responses never contain an approval link, token or QR.
   - Before confirmation, the server re-checks price, quantity, delivery and requirements. Any change voids the old approval and decides a new version from scratch.
   - Unknown allergens and passed cut-offs cannot be waived.
+  - If Valio's price or availability API fails, a copy at most 15 minutes old keeps the lookup working. Its facts are labelled Estimate with the time they were read, and such an order always goes to a person.
   - When nothing qualifies, the result says what was searched, offers the earliest deliverable date as a one-click retry, and lists the closest compliant products (nothing is ordered from them).
   - Partial stock becomes its own proposal version with its own approval.
   - When one line of a multi-item request cannot be met, the deliverable lines become their own proposal for a person, who sees which line is not ordered and why. The missing line is never ordered.
@@ -56,7 +57,7 @@ A trusted trade gateway for Valio Aimo plus a demo purchasing agent. It separate
   - Agents identify their buyer with a public key, `Authorization: Bearer demo-agent-<customerId>`, and can act only for that buyer. Approvers sign in by role and see only their buyer's queue, and can enrol a passkey on their phone so that approving requires it; buyer-admin changes need the public admin key shown on `/admin`.
   - A second, independent client gets the same decision and offer hash.
 - **Valio Aimo readiness view** (`/valio`): computed from the 17,546-product catalogue.
-  - An agent activity feed lists every agent call, refused ones included. Valio can pause all agents, and an agent with repeated refused calls is suspended; a rogue-agent run shows the refusals live.
+  - An agent activity feed lists every agent call, refused ones included. Valio can pause all agents. An agent session that keeps making refused calls (approval attempts, acting for another buyer) is warned, then suspended for two minutes; Valio can resume it at once. A rogue-agent run shows this live.
   - It shows which data gaps keep products from automatic ordering, by supplier.
   - It shows live AUTO / ASK / BLOCK statistics and a prioritised fix list.
 
