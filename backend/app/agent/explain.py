@@ -36,6 +36,7 @@ from app.contracts import (
 from app.contracts.common import Contract
 from app.policy.decision import OVERBUY_FACTOR
 from app.policy.limits import delivery_dates, limit_sentence
+from app.policy.lines import early_delivery_detail
 from app.policy.requirements import hard_requirements
 from app.valio.vendor import HELSINKI
 
@@ -54,13 +55,14 @@ def no_order_item_reason(
     excluded: Sequence[ExcludedProduct],
     requirements: Sequence[Requirement],
 ) -> str:
+    if delivered and not delivery_label:
+        return "Availability was found by the deadline."
     if delivery_label:
         timing = f"Available {delivery_label}, after your {deadline_label} deadline."
-    elif delivered:
-        timing = "Availability was found by the deadline."
     else:
         timing = ""
     codes = list(dict.fromkeys(code for entry in excluded for code in entry.reasons))
+    req_labels = [requirement_display_name(req) for req in requirements]
     claim_labels = ", ".join(requirement_display_name(req) for req in requirements if req.kind == "CLAIM")
     if codes:
         missing_label_details = list(
@@ -87,13 +89,23 @@ def no_order_item_reason(
         }
         labels = ", ".join(dict.fromkeys(descriptions.get(code, REASON_REGISTRY[code].chipText.lower())
                                          for code in codes))
-        return f"{timing or f'No eligible delivery by {deadline_label}.'} Exclusions include {labels}."
+        if timing:
+            lead = timing
+        elif not has_candidates and req_labels:
+            lead = f"No product satisfies all requirements ({', '.join(req_labels)})."
+        elif ReasonCode.CUTOFF_PASSED in codes:
+            lead = f"Order cut-off has passed for {deadline_label} delivery."
+        elif ReasonCode.NOT_AVAILABLE in codes:
+            lead = f"No stock available for {deadline_label} delivery."
+        else:
+            lead = f"No eligible delivery by {deadline_label}."
+        return f"{lead} Exclusions include {labels}."
     if timing:
         return timing
     if has_candidates:
         return f"The requested quantity could not be offered by {deadline_label}."
-    if claim_labels:
-        return f"No eligible products matched this catalogue search ({claim_labels})."
+    if req_labels:
+        return f"No eligible products matched this catalogue search ({', '.join(req_labels)})."
     return "No eligible products matched this catalogue search."
 
 
@@ -381,15 +393,27 @@ def template_explanation(
             for ln in proposal.lines[:2]
         )
         within_str = f" within the {auto_limit_str} mandate limit" if auto_limit_str else " within the buyer mandate"
+        early_notes = list(
+            dict.fromkeys(
+                d
+                for ln in proposal.lines
+                if (d := early_delivery_detail(ln.deliveryDate, proposal.requestedDate))
+            )
+        )
+        if early_notes:
+            earliest_str = format_date(min(ln.deliveryDate for ln in proposal.lines))
+            date_clause = f"{earliest_str} delivery ({early_notes[0]})"
+        else:
+            date_clause = f"{date_str} delivery"
         if unproven:
             s1 = (
-                f"Stock and {date_str} delivery are verified or declared for {line_summary} at {total_str} excl. "
+                f"Stock and {date_clause} are verified or declared for {line_summary} at {total_str} excl. "
                 f"VAT{within_str}, but {', '.join(unproven)} is not proven by the product data."
             )
         else:
             named = f" ({', '.join(proven_names)})" if proven_names else ""
             s1 = (
-                f"All hard requirements{named}, stock and {date_str} delivery are verified or declared for "
+                f"All hard requirements{named}, stock and {date_clause} are verified or declared for "
                 f"{line_summary} at {total_str} excl. VAT{within_str}."
             )
         if ReasonCode.INSTRUCTION_IGNORED in active_reasons:

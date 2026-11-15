@@ -53,7 +53,22 @@ function deliverySummary(proposal: Proposal) {
   return dates.map(formatDate).join(', ')
 }
 
-/** "Arrives Mon 16 Nov, 4 days early" when everything comes early; otherwise the dates, plus a note if part does. */
+function dayNumber(value: string): number {
+  const [year, month, day] = value.slice(0, 10).split('-').map(Number)
+  return Date.UTC(year, month - 1, day) / 86_400_000
+}
+
+function earlyBeforeNote(proposal: Proposal): string | null {
+  const reqDay = dayNumber(proposal.requestedDate)
+  const early = proposal.lines.map((line) => line.deliveryDate).filter((d) => dayNumber(d) < reqDay)
+  if (early.length === 0) return null
+  const first = early.sort()[0]
+  const days = reqDay - dayNumber(first)
+  const who = early.length === proposal.lines.length ? 'Arrives' : 'Part arrives'
+  return `${who} ${formatDate(first)}, ${days} ${days === 1 ? 'day' : 'days'} before your ${formatDate(proposal.requestedDate)}`
+}
+
+/** "Arrives Mon 16 Nov, 4 days before your Fri 20 Nov" when everything comes early; otherwise the dates, plus a note if part does. */
 function deliveryBullet(delivery: string, early: string | null) {
   if (!early) return `Delivery ${delivery}`
   if (early.startsWith('Arrives')) return early
@@ -92,7 +107,7 @@ function resultBullets(proposal: Proposal, mandate?: Mandate) {
     .flatMap((line) => (line.closingTime ? [line.closingTime] : []))
     .sort((left, right) => Date.parse(left) - Date.parse(right))[0]
   const delivery = deliverySummary(proposal)
-  const early = earlyDeliveryNote(proposal.lines, proposal.requestedDate)
+  const early = earlyBeforeNote(proposal) ?? earlyDeliveryNote(proposal.lines, proposal.requestedDate)
   const orderBy = cutoff ? ` (order by ${formatTime(cutoff)})` : ''
   return [...new Set([...requirements, ...allergens, ...decisionReasons])]
     .slice(0, delivery ? 3 : 4)

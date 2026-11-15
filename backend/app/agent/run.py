@@ -67,12 +67,15 @@ from app.contracts import (
     ReasonCode,
     RequestItem,
     StructuredRequest,
+    TrustLabel,
+    TrustSource,
     format_date,
     format_money,
 )
 from app.contracts.common import Contract
 from app.gateway.offers import get_offer as compute_offer
 from app.gateway.proposals import NoOrderError
+from app.policy.lines import early_delivery_detail
 from app.policy.requirements import hard_requirements
 from app.valio import IntegrationError
 from app.valio.errors import ValioRateLimited
@@ -403,6 +406,24 @@ def _enrich_proposal_for_display(
         base_facts = [f for f in ln.facts if f.fact != "substitute.valio"]
         if rejected_checks:
             base_facts.extend(c.trustLabel for c in rejected_checks)
+        if (
+            (early := early_delivery_detail(ln.deliveryDate, proposal.requestedDate))
+            and not any(f.fact == "delivery.early" for f in base_facts)
+        ):
+            base_facts.append(
+                TrustLabel(
+                    fact="delivery.early",
+                    value=(proposal.requestedDate - ln.deliveryDate).days,
+                    display=early,
+                    level="VERIFIED",
+                    source=TrustSource(
+                        system="valio-aimo.availability-api",
+                        field="scheduleLines[0].availableDate",
+                        retrievedAt=None,
+                    ),
+                    method=None,
+                )
+            )
         norm_line_reasons = [ReasonCode(r) for r in ln.reasons]
         updated_lines.append(ln.model_copy(update={"facts": base_facts, "reasons": norm_line_reasons}))
 
@@ -625,10 +646,13 @@ def _no_order_step(
     items = []
     for plan, delivery in zip(item_plans, dates, strict=True):
         item = plan.item
+        covered_on_time = delivery is not None and delivery <= deadline and len(request.items) > 1
         if delivery is None:
             delivery = min(
                 (candidate.deliveryDate for candidate in plan.rankedCandidates
-                 if candidate.deliveryDate is not None and candidate.productId in observations.get(item.itemId, {})),
+                 if candidate.deliveryDate is not None
+                 and candidate.deliveryDate > deadline
+                 and candidate.productId in observations.get(item.itemId, {})),
                 default=None,
             )
         search = searches[item.itemId]
@@ -646,7 +670,7 @@ def _no_order_step(
                 has_candidates=bool(candidates[item.itemId]),
                 deadline_label=format_date(deadline),
                 delivery_label=format_date(delivery) if delivery and delivery > deadline else None,
-                delivered=delivery is not None,
+                delivered=covered_on_time,
                 excluded=item_excluded,
                 requirements=requirements,
             ),

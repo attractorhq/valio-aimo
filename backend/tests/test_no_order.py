@@ -110,4 +110,32 @@ def test_no_order_explains_hard_requirement_failures(synthetic_api):
     details = result["steps"][-1]["noOrder"]
     assert "gluten-free" in details["items"][0]["searched"]
     assert "claim missing" in details["items"][0]["why"].lower()
+    assert "availability was found by the deadline" not in details["items"][0]["why"].lower()
     assert details["earliestDelivery"] is None
+
+
+def test_friday_request_delivered_monday_auto_confirms_with_early_note_and_no_date_later(synthetic_api):
+    client, _ = synthetic_api
+    result = run(client, "Tarvitaan 50 litraa gluteenitonta kauramaitoa 20.11. mennessä", customer=M1)
+    proposal = result["proposal"]
+    assert proposal is not None
+    assert proposal["decision"] == "AUTO"
+    assert proposal["state"] == "CONFIRMED_SIMULATED"
+    assert ReasonCode.DATE_LATER not in proposal["reasons"]
+    assert ReasonCode.DATE_LATER not in result["reasons"]
+    early_note = "Arrives Mon 16 Nov, 4 days before your Fri 20 Nov"
+    line_facts = {f["fact"]: f for f in proposal["lines"][0]["facts"]}
+    assert line_facts["delivery.early"]["display"] == early_note
+    assert early_note in result["explanation"]["text"]
+
+
+def test_failed_gluten_free_milk_free_pasta_line_never_says_availability_found_by_deadline(synthetic_api):
+    client, _ = synthetic_api
+    # 474235 has 19 bags × 5 kg = 95 kg in synthetic_api; asking for 1000 kg cannot be fulfilled.
+    result = run(client, "We need 1000 kg of gluten-free and milk-free pasta by Monday.", customer=M2)
+    assert result["proposal"] is None
+    details = result["steps"][-1]["noOrder"]
+    why = details["items"][0]["why"]
+    assert "Availability was found by the deadline" not in why
+    assert "gluten-free" in details["items"][0]["searched"] and "milk-free" in details["items"][0]["searched"]
+    assert "Exclusions include" in why or "Cannot fulfil" in why or "could not be offered" in why
