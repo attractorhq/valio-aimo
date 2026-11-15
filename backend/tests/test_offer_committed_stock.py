@@ -70,7 +70,7 @@ def test_a_second_order_only_gets_what_the_first_order_left_and_cites_that_propo
     second = _offer(gateway, "OF-2", "60")
     (line,) = second.lines
     expected_note = (
-        f"35 kg left for you: 95 kg in stock, 60 kg already in your earlier order today ({first.proposalId})"
+        f"35 kg left for you: 95 kg in stock, 60 kg already in your earlier order for Mon 16 Nov ({first.proposalId})"
     )
     assert line.quantitySalesUnits == Decimal(7)  # 19 − 12 = 7 bags = 35 kg
     assert line.deliveredQuantity.value == Decimal(35)
@@ -94,7 +94,7 @@ def test_the_held_stock_makes_the_second_order_a_shortfall_with_explained_reason
     assert second.decision == "ASK"
     assert ReasonCode.PARTIAL_AVAILABILITY in second.reasons
     expected_note = (
-        f"35 kg left for you: 95 kg in stock, 60 kg already in your earlier order today ({first.proposalId})"
+        f"35 kg left for you: 95 kg in stock, 60 kg already in your earlier order for Mon 16 Nov ({first.proposalId})"
     )
     assert expected_note in second.reasonDetails[ReasonCode.PARTIAL_AVAILABILITY]
 
@@ -166,7 +166,7 @@ def test_rest_offer_and_agent_run_agree_for_same_session_and_fresh_session_shows
             first_pid = prop1["proposalId"]
 
             expected_note = (
-                f"35 kg left for you: 95 kg in stock, 60 kg already in your earlier order today ({first_pid})"
+                f"35 kg left for you: 95 kg in stock, 60 kg already in your earlier order for Mon 16 Nov ({first_pid})"
             )
 
             # 2. REST POST /v0.1/offers in the SAME session reports the exact deducted stock (7 bags = 35 kg).

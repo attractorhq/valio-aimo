@@ -232,18 +232,22 @@ def format_held_stock_note(
     held_qty: Decimal,
     unit: str,
     proposal_ids: Sequence[str] = (),
+    delivery_date: date | None = None,
 ) -> str:
-    """T102: '35 kg left for you: 95 kg in stock, 60 kg already in your earlier order today (PR-…)'."""
+    """T102: '35 kg left for you: 95 kg in stock, 60 kg already in your earlier order for Mon 16 Nov (PR-…)'.
+
+    T118: the hold is per delivery date, so the note names that date, never "today"."""
     left_s = f"{_format_qty_comma(left_qty)} {unit}"
     raw_s = f"{_format_qty_comma(raw_qty)} {unit}"
     held_s = f"{_format_qty_comma(held_qty)} {unit}"
     unique_ids = list(dict.fromkeys(pid for pid in proposal_ids if pid))
+    day = f" for {format_date(delivery_date)}" if delivery_date is not None else ""
     if len(unique_ids) == 1:
-        order_part = f"your earlier order today ({unique_ids[0]})"
+        order_part = f"your earlier order{day} ({unique_ids[0]})"
     elif len(unique_ids) > 1:
-        order_part = f"your earlier orders today ({', '.join(unique_ids)})"
+        order_part = f"your earlier orders{day} ({', '.join(unique_ids)})"
     else:
-        order_part = "your earlier orders today"
+        order_part = f"your earlier orders{day}"
     return f"{left_s} left for you: {raw_s} in stock, {held_s} already in {order_part}"
 
 
@@ -257,6 +261,7 @@ def _with_held_stock_facts(
     unit: str,
     proposal_ids: Sequence[str] = (),
     retrieved_at: datetime | None = None,
+    delivery_date: date | None = None,
 ) -> list[TrustLabel]:
     """T102: adjust `stock.quantity` to what remains for this buyer and emit `stock.heldByYourOrders` next to it."""
     left_phys = free_sales * content_val
@@ -269,6 +274,7 @@ def _with_held_stock_facts(
         held_qty=held_phys,
         unit=unit,
         proposal_ids=unique_ids,
+        delivery_date=delivery_date,
     )
     held_label = TrustLabel(
         fact="stock.heldByYourOrders",
@@ -541,6 +547,7 @@ def build_offer(
                                 unit=sizing.content.unit,
                                 proposal_ids=held_pids,
                                 retrieved_at=snapshot.captured_at,
+                                delivery_date=facts.availability.delivery_date,
                             )
                         excluded.append(ExcludedProduct(
                             productId=product.productId, name=product.name, itemId=item_id,
@@ -577,6 +584,7 @@ def build_offer(
                     unit=sizing.content.unit,
                     proposal_ids=held_pids,
                     retrieved_at=snapshot.captured_at,
+                    delivery_date=facts.availability.delivery_date,
                 )
             lines.append(OfferLine(
                 lineId=line_id,

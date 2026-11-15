@@ -919,6 +919,18 @@ def _no_order_step(
                 labels,
                 deadline,
             )
+        if cannot_fulfil and item.itemId in cannot_fulfil:
+            # T118: the products that do hold the small quantity lead the list, in the same words as the reason,
+            # so the matches never say "no stock" next to "only 40 kg is available".
+            available = [
+                ClosestMatch(productId=ln.productId, name=ln.name,
+                             lacks=f"only {_qty(ln.deliveredQuantity.value, ln.deliveredQuantity.unit)} "
+                                   f"available for {format_date(ln.deliveryDate)}")
+                for ln in (_compliant_offer_lines(offer, request, products, mandate) if offer else [])
+                if ln.itemId == item.itemId
+            ]
+            shown = {m.productId for m in available}
+            matches = [*available, *(m for m in matches if m.productId not in shown)][:3]
         items.append(NoOrderItem(
             itemId=item.itemId,
             searched=searched,

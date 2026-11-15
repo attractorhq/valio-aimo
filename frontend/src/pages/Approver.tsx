@@ -72,14 +72,15 @@ export function Approver() {
         </div>
         {mandates.isPending ? (
           <div className="approver-switch" aria-hidden="true">
-            <span>Signed in as</span>
+            <span>Choose your role</span>
             <Skeleton className="skeleton-roles" />
           </div>
         ) : (
           mandates.data &&
           mandates.data.length > 1 && (
             <div className="approver-switch">
-              <span id="approver-role-label">Signed in as</span>
+              {/* T118: "Signed in as" only once a role is chosen. */}
+              <span id="approver-role-label">{customerId ? 'Signed in as' : 'Choose your role'}</span>
               {/* T112: one large tap button per role; the native select stays only as a hidden fallback. */}
               <div className="approver-roles" role="group" aria-label="Choose your role">
                 {mandates.data.map((m) => {
