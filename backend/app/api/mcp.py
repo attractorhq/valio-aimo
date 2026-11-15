@@ -55,7 +55,14 @@ from app.valio import IntegrationError
 from app.valio.errors import ValioRateLimited
 from app.valio.record import BRIEF_PRODUCT_IDS
 
-from .agent_channel import FORBIDDEN_CAPABILITY_KEYS, AgentCall, AgentControlError
+from .agent_channel import (
+    FORBIDDEN_CAPABILITY_KEYS,
+    WARNING_HEADER,
+    AgentCall,
+    AgentControlError,
+    agent_session,
+    buyer_client_label,
+)
 from .auth import AgentCustomer, agent_customer, bind_customer
 from .no_order_help import attach_no_candidate_details
 from .state import (
@@ -64,6 +71,7 @@ from .state import (
     find_proposal_state,
     iter_audit_sessions,
     try_state,
+    utc_now,
 )
 
 router = APIRouter(tags=["Operations"])
@@ -804,7 +812,10 @@ def _execute_tool(name: str, arguments: dict[str, Any], state: GatewayState,
 
 def _format_domain_error(exc: Exception) -> dict[str, Any]:
     if isinstance(exc, AgentControlError):
-        return {"error": {"code": exc.code, "message": str(exc)}}
+        body = {"code": exc.code, "message": str(exc)}
+        if exc.details:
+            body["details"] = exc.details
+        return {"error": body}
     if isinstance(exc, HTTPException):
         return {"error": {"code": "FORBIDDEN" if exc.status_code == 403 else "UNAUTHORIZED", "message": exc.detail}}
     if isinstance(exc, ValidationError):
@@ -1065,7 +1076,7 @@ def _sse_messages(payloads: list[dict[str, Any]]) -> Iterator[str]:
         yield f"event: message\ndata: {json.dumps(item, ensure_ascii=False)}\n\n"
 
 
-def _observe_mcp_call(msg: dict, state: GatewayState, customer: str, client: str):
+def _observe_mcp_call(msg: dict, state: GatewayState, customer: str, client: str, session: str | None = None):
     params = msg.get("params")
     tool_name = params.get("name") if isinstance(params, dict) else None
     tool = _TOOLS_BY_NAME.get(tool_name) if isinstance(tool_name, str) else None
@@ -1075,10 +1086,11 @@ def _observe_mcp_call(msg: dict, state: GatewayState, customer: str, client: str
     activity = state.gateway.log.agent_activity
     call = AgentCall(
         operation=tool_name if tool or forbidden else "tools/call", access=access, client=client,
-        customer=customer, started=perf_counter(), activity=activity,
+        customer=customer, started=perf_counter(), activity=activity, session=session,
     )
     try:
-        response, session = _handle_rpc_message(msg, state, customer, activity.block(customer, client, access))
+        block = activity.block(customer, session or client, access, utc_now())
+        response, session = _handle_rpc_message(msg, state, customer, block)
     except Exception:
         call.record("ERROR", "Gateway could not complete the call.")
         raise
@@ -1089,7 +1101,7 @@ def _observe_mcp_call(msg: dict, state: GatewayState, customer: str, client: str
         if forbidden and response["error"]["code"] == -32601:
             call.record("REFUSED", f"{tool_name} is restricted to human channels.", count_refusal=True)
         elif tool is None and isinstance(tool_name, str) and response["error"]["message"].startswith("Unknown tool:"):
-            call.record("REFUSED", "Unknown MCP tool.", count_refusal=True)
+            call.record("ERROR", "Unknown MCP tool.")  # like a 404: never counts toward suspension
         else:
             call.record("ERROR", "Invalid MCP tool call.")
     else:
@@ -1107,7 +1119,7 @@ def _observe_mcp_call(msg: dict, state: GatewayState, customer: str, client: str
             ):
                 call.record("REFUSED", "Approval fields are forbidden in agent requests.", count_refusal=True)
             elif code == "FORBIDDEN":
-                call.record("REFUSED", "Agent authorization failed.")
+                call.record("REFUSED", "Agent authorization failed.", count_refusal=True)
             elif code in {"AGENTS_PAUSED", "AGENT_SUSPENDED"}:
                 call.record("REFUSED", tool_error["message"])
             elif code == "NO_ORDER":
@@ -1118,7 +1130,13 @@ def _observe_mcp_call(msg: dict, state: GatewayState, customer: str, client: str
                     call.record("REFUSED", "No order could be confirmed.")
             else:
                 call.record("ERROR", code)
-    return response, session
+    if call.warning and response is not None:
+        if "error" in response:
+            data = response["error"].get("data")
+            response["error"]["data"] = {**(data if isinstance(data, dict) else {}), "warning": call.warning}
+        else:
+            response["result"]["_meta"] = {**response["result"].get("_meta", {}), "warning": call.warning}
+    return response, session, call.warning
 
 
 @router.post("/mcp", operation_id="mcpPost", summary="MCP Streamable HTTP endpoint (agent-channel tools only)")
@@ -1155,11 +1173,15 @@ async def mcp_post(request: Request, state: TryState) -> Response:
         )
 
     responses: list[dict[str, Any]] = []
+    warnings: list[str | None] = []
     session_id = incoming_session
     for msg in messages:
         if isinstance(state, GatewayState) and isinstance(msg, dict) and msg.get("method") == "tools/call":
-            client = state.gateway.log.agent_activity.mcp_client(session_id, customer, fallback_client)
-            resp_obj, new_session = _observe_mcp_call(msg, state, customer, client)
+            client = state.gateway.log.agent_activity.mcp_client(
+                session_id, customer, buyer_client_label(state, customer, fallback_client))
+            resp_obj, new_session, warning = _observe_mcp_call(
+                msg, state, customer, client, agent_session(request, session_id))
+            warnings.append(warning)
         else:
             resp_obj, new_session = _handle_rpc_message(msg, state, customer)
         if new_session and not session_id:
@@ -1168,11 +1190,14 @@ async def mcp_post(request: Request, state: TryState) -> Response:
             params = msg.get("params") or {}
             info = params.get("clientInfo")
             name = agent_client_label(info.get("name")) if isinstance(info, dict) else "unknown"
-            activity.remember_mcp_client(session_id, customer, fallback_client if name == "unknown" else name)
+            label = buyer_client_label(state, customer, fallback_client) if name == "unknown" else name
+            activity.remember_mcp_client(session_id, customer, label)
         if resp_obj is not None:
             responses.append(resp_obj)
 
     headers: dict[str, str] = {"Cache-Control": "no-cache"}
+    if warning := next((w for w in reversed(warnings) if w), None):
+        headers[WARNING_HEADER] = warning
     if session_id:
         headers["Mcp-Session-Id"] = session_id
 

@@ -50,6 +50,8 @@ GENESIS_HASH: str = "0" * 64
 AgentAccess = Literal["READ", "WRITE"]
 AgentOutcome = Literal["OK", "REFUSED", "ERROR"]
 _REFUSAL_WINDOW = timedelta(minutes=10)
+_REFUSAL_LIMIT = 3
+SUSPENSION = timedelta(minutes=2)
 _MAX_ACTIVITY_ENTRIES = 50
 _CLIENT_LABEL = re.compile(r"[\w .:/()_+;,-]{1,120}\Z")
 _PRIVATE_LABEL = re.compile(r"bearer\s|demo-(?:agent-|admin)|(?:atk|tk)-[\w-]+|/approve/", re.I)
@@ -76,6 +78,7 @@ class SuspendedAgent(Contract):
     clientId: str
     client: str
     customerId: str
+    until: datetime | None = None
 
 
 class AgentActivitySnapshot(Contract):
@@ -117,10 +120,25 @@ class AgentActivity:
                 self._mcp_clients.move_to_end(key)
             return self._mcp_clients.get(key, fallback)
 
-    def block(self, customer: str | None, client: str, access: AgentAccess) -> tuple[str, str] | None:
+    def block(self, customer: str | None, session: str, access: AgentAccess,
+              now: datetime | None = None) -> tuple[str, str, dict] | tuple[str, str] | None:
+        """Suspension is per agent key (customer) and session; it lifts on its own after two minutes."""
         with self._lock:
-            if customer and self._client_id(customer, client) in self._suspended:
-                return "AGENT_SUSPENDED", "This agent client is suspended. Ask the Valio admin to resume it."
+            client_id = self._client_id(customer, session) if customer else None
+            suspended = self._suspended.get(client_id) if client_id else None
+            if suspended is not None and now is not None and suspended.until is not None and now >= suspended.until:
+                self._suspended.pop(client_id, None)
+                self._append(now, suspended.client, "Agent suspension lifted", "WRITE", "OK",
+                             reason="Two minutes passed.")
+                suspended = None
+            if suspended is not None:
+                until = suspended.until
+                when = f"until {until:%H:%M:%S} UTC" if until else "for two minutes"
+                return ("AGENT_SUSPENDED",
+                        f"This agent session is suspended {when} after {_REFUSAL_LIMIT} refused calls "
+                        "(approval attempts, mandate writes or acting for another buyer). It lifts on its own; "
+                        "Valio can resume it at once on /valio.",
+                        {"suspendedUntil": until.isoformat() if until else None})
             if access == "WRITE" and self._paused:
                 return "AGENTS_PAUSED", "Agent writes are paused by the Valio admin."
         return None
@@ -135,24 +153,31 @@ class AgentActivity:
 
     def record(self, *, customer: str | None, client: str, operation: str, access: AgentAccess,
                outcome: AgentOutcome, timestamp: datetime, duration_ms: int,
-               reason: str | None = None, count_refusal: bool = False) -> None:
+               reason: str | None = None, count_refusal: bool = False, session: str | None = None) -> str | None:
+        """Append to the feed. Counted refusals (policy refusals only) return a warning before the suspending one."""
         with self._lock:
             self._append(timestamp, client, operation, access, outcome, duration_ms, reason)
             if outcome != "REFUSED" or not count_refusal or customer is None:
-                return
-            client_id = self._client_id(customer, client)
+                return None
+            client_id = self._client_id(customer, client if session is None else session)
             if client_id in self._suspended:
-                return
+                return None
             cutoff = timestamp - _REFUSAL_WINDOW
             self._refusals = {key: times for key, times in self._refusals.items() if max(times) > cutoff}
             times = [time for time in self._refusals.get(client_id, ()) if time > cutoff]
             times.append(timestamp)
-            if len(times) < 3:
+            if len(times) < _REFUSAL_LIMIT:
                 self._refusals[client_id] = times
-                return
+                if len(times) == _REFUSAL_LIMIT - 1:
+                    return "1 more refused call within 10 minutes suspends this agent session for 2 minutes."
+                return None
             self._refusals.pop(client_id, None)
-            self._suspended[client_id] = SuspendedAgent(clientId=client_id, client=client, customerId=customer)
-            self._append(timestamp, client, "Agent suspended", "WRITE", "OK", reason="3 refusals within 10 minutes.")
+            self._suspended[client_id] = SuspendedAgent(
+                clientId=client_id, client=client, customerId=customer, until=timestamp + SUSPENSION,
+            )
+            self._append(timestamp, client, "Agent suspended", "WRITE", "OK",
+                         reason=f"{_REFUSAL_LIMIT} refused calls within 10 minutes; lifts after 2 minutes.")
+            return None
 
     def set_paused(self, paused: bool, timestamp: datetime) -> None:
         with self._lock:
@@ -169,8 +194,14 @@ class AgentActivity:
             self._append(timestamp, "Valio admin", "Agent resumed", "WRITE", "OK", reason=suspended.client)
             return True
 
-    def snapshot(self) -> AgentActivitySnapshot:
+    def snapshot(self, now: datetime | None = None) -> AgentActivitySnapshot:
         with self._lock:
+            if now is not None:
+                for client_id, suspended in list(self._suspended.items()):
+                    if suspended.until is not None and now >= suspended.until:
+                        del self._suspended[client_id]
+                        self._append(now, suspended.client, "Agent suspension lifted", "WRITE", "OK",
+                                     reason="Two minutes passed.")
             return AgentActivitySnapshot(
                 paused=self._paused, suspended=list(self._suspended.values()), entries=list(self._entries),
             )

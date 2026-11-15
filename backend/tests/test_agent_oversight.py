@@ -58,8 +58,12 @@ def test_mcp_refusals_are_named_and_suspend_only_the_matching_buyer_and_client(c
     assert tool(client, invented, headers=headers)["error"]["code"] == -32602
     invalid = tool(client, "createProposal", {"approvalToken": "synthetic-private-value"}, headers=headers)
     assert invalid["result"]["isError"] is True
+    # The unknown tool is like a 404 and does not count; the second counted refusal carries the warning.
+    assert "suspends this agent session for 2 minutes" in invalid["result"]["_meta"]["warning"]
+    cross = tool(client, "getMandate", {"customerId": M2.customerId}, headers=headers)["result"]
+    assert cross["structuredContent"]["error"]["code"] == "FORBIDDEN"
     trail = client.get(ACTIVITY, headers=ADMIN).json()
-    assert [row["outcome"] for row in trail["entries"][:4]] == ["OK", "REFUSED", "REFUSED", "REFUSED"]
+    assert [row["outcome"] for row in trail["entries"][:5]] == ["OK", "REFUSED", "REFUSED", "ERROR", "REFUSED"]
     assert trail["entries"][0]["operation"] == "Agent suspended"
     assert invented not in str(trail)
     assert "synthetic-private-value" not in str(trail)
@@ -68,6 +72,8 @@ def test_mcp_refusals_are_named_and_suspend_only_the_matching_buyer_and_client(c
     blocked = tool(client, "getMandate", headers=headers)["result"]
     assert blocked["structuredContent"]["error"]["code"] == "AGENT_SUSPENDED"
     assert "suspended" in blocked["structuredContent"]["error"]["message"]
+    assert "/valio" in blocked["structuredContent"]["error"]["message"]
+    assert blocked["structuredContent"]["error"]["details"]["suspendedUntil"] == suspended["until"].replace("Z", "+00:00")
     assert tool(client, "getMandate")["result"]["isError"] is False
     other_buyer = {**headers, "Authorization": f"Bearer demo-agent-{M2.customerId}"}
     assert tool(client, "getMandate", headers=other_buyer)["result"]["isError"] is False
@@ -98,7 +104,7 @@ def test_pause_blocks_rest_and_mcp_writes_but_allows_search_and_resets_with_the_
         "searchProducts", "searchProducts", "getOffer", "createProposal", "Agent writes paused",
     ]
     assert trail["entries"][0]["access"] == "READ"
-    assert trail["entries"][0]["client"] == "Synthetic REST client"
+    assert trail["entries"][0]["client"] == f"Agent for {M1.organisationName} (Synthetic REST client)"
     assert trail["suspended"] == []
 
     released = client.patch(ACTIVITY, headers=ADMIN, json={"paused": False}).json()
@@ -136,3 +142,60 @@ def test_rest_stream_records_the_refused_instruction_without_retaining_request_t
     assert entries[0]["operation"] == "runAgent"
     assert entries[0]["outcome"] == "REFUSED"
     assert text not in str(entries)
+
+
+def test_suspension_is_per_session_and_lifts_after_two_minutes():
+    oversight = AgentActivity()
+    start = datetime(2030, 1, 1, tzinfo=UTC)
+    warnings = [
+        oversight.record(
+            customer=M1.customerId, client="Agent", operation="decideApproval", access="WRITE", outcome="REFUSED",
+            timestamp=start, duration_ms=1, count_refusal=True, session="mcp:one",
+        )
+        for _ in range(3)
+    ]
+    assert warnings[0] is None and "1 more refused call" in warnings[1]
+    blocked = oversight.block(M1.customerId, "mcp:one", "READ", start + timedelta(seconds=119))
+    assert blocked is not None and blocked[0] == "AGENT_SUSPENDED"
+    assert blocked[2]["suspendedUntil"] == (start + timedelta(minutes=2)).isoformat()
+    assert oversight.block(M1.customerId, "mcp:two", "READ", start) is None
+    assert oversight.block(M2.customerId, "mcp:one", "READ", start) is None
+    assert oversight.block(M1.customerId, "mcp:one", "READ", start + timedelta(minutes=2)) is None
+    snapshot = oversight.snapshot()
+    assert snapshot.suspended == []
+    assert snapshot.entries[0].operation == "Agent suspension lifted"
+
+
+def test_rest_sessions_of_one_key_are_separate_and_only_policy_refusals_count(client):
+    def offer_for_other_buyer(headers):
+        return client.post("/v0.1/offers", headers={**AGENT, **headers},
+                           json={"customerId": M2.customerId, "requestedDate": "2026-11-16", "items": [
+                               {"itemId": "I1", "productId": "464306", "quantity": "1", "unit": "l"}]})
+
+    # 404 and 422 never count toward a suspension.
+    for _ in range(4):
+        assert client.get("/v0.1/proposals/no-such-proposal", headers=AGENT).status_code == 404
+        response = client.post("/v0.1/proposals", headers=AGENT, json={})
+        assert response.status_code == 422
+        assert "x-agent-warning" not in response.headers
+    assert client.get(ACTIVITY, headers=ADMIN).json()["suspended"] == []
+
+    first = {"User-Agent": "Session one"}
+    assert offer_for_other_buyer(first).status_code == 403
+    second = offer_for_other_buyer(first)
+    assert second.status_code == 403
+    assert "1 more refused call" in second.headers["x-agent-warning"]
+    assert offer_for_other_buyer(first).status_code == 403
+    blocked = client.post("/v0.1/products/search", headers={**AGENT, **first}, json={"query": "milk"})
+    assert blocked.status_code == 403
+    assert blocked.json()["error"]["code"] == "AGENT_SUSPENDED"
+    assert "lifts on its own" in blocked.json()["error"]["message"]
+    assert blocked.json()["error"]["details"]["suspendedUntil"]
+
+    # The same key in another session (another caller in this sandbox, or another sandbox) keeps working.
+    other = {**AGENT, "User-Agent": "Session two"}
+    assert client.post("/v0.1/products/search", headers=other, json={"query": "milk"}).status_code == 200
+    other_sandbox = {**AGENT, **first, "X-Demo-Sandbox": "oversight-two"}
+    assert client.post("/v0.1/products/search", headers=other_sandbox, json={"query": "milk"}).status_code == 200
+    suspended = client.get(ACTIVITY, headers=ADMIN).json()["suspended"]
+    assert [entry["client"] for entry in suspended] == [f"Agent for {M1.organisationName} (Session one)"]

@@ -4,6 +4,7 @@ Agent responses never carry an approval token, URL or QR payload (P3, AC15): tho
 approver channel. The server alone decides AUTO / ASK / BLOCK and confirms after a live re-check.
 """
 
+import hashlib
 from dataclasses import dataclass
 from inspect import isawaitable
 from time import perf_counter
@@ -47,7 +48,7 @@ from .auth import (
     proposal_read_scope,
     require_admin,
 )
-from .errors import ERROR_RESPONSES, error
+from .errors import ERROR_RESPONSES, ErrorResponse, error
 from .state import (
     GatewayState,
     GatewayUnavailable,
@@ -80,14 +81,16 @@ class AgentCall:
     activity: AgentActivity | None = None
     stream_failed: bool = False
     instruction_refused: bool = False
+    session: str | None = None
+    warning: str | None = None
 
     def record(self, outcome: AgentOutcome, reason: str | None = None, *, count_refusal: bool = False) -> None:
         if self.activity is not None:
-            self.activity.record(
+            self.warning = self.activity.record(
                 customer=self.customer, client=self.client, operation=self.operation, access=self.access,
                 outcome=outcome, reason=reason, count_refusal=count_refusal, timestamp=utc_now(),
-                duration_ms=round((perf_counter() - self.started) * 1000),
-            )
+                duration_ms=round((perf_counter() - self.started) * 1000), session=self.session,
+            ) or self.warning
 
     def record_success(self) -> None:
         if self.instruction_refused:
@@ -97,9 +100,38 @@ class AgentCall:
 
 
 class AgentControlError(Exception):
-    def __init__(self, code: str, message: str):
+    def __init__(self, code: str, message: str, details: dict | None = None):
         super().__init__(message)
         self.code = code
+        self.details = details
+
+
+WARNING_HEADER = "X-Agent-Warning"
+
+
+def agent_session(request: Request, mcp_session: str | None = None) -> str:
+    """The session half of an agent's suspension identity (the key's customer is the other half).
+
+    MCP clients are told apart by their Mcp-Session-Id. Cookieless REST callers share the `shared` sandbox, so they
+    are told apart by caller address and User-Agent (hashed, never stored or shown)."""
+    session = mcp_session or getattr(request.state, "mcp_session_id", None) or request.headers.get("mcp-session-id")
+    if session:
+        return "mcp:" + session[:90]
+    address = request.headers.get("cf-connecting-ip") or (request.client.host if request.client else "")
+    agent = request.headers.get("user-agent") or ""
+    return "rest:" + hashlib.sha256(f"{address}\0{agent}".encode()).hexdigest()[:32]
+
+
+def buyer_client_label(state: GatewayState, customer: str | None, fallback: str) -> str:
+    """Feed label for a caller without its own MCP client name: the buyer that owns the key."""
+    if not customer:
+        return fallback
+    try:
+        organisation = state.gateway.mandates.get(customer).organisationName
+    except Exception:  # an unknown buyer keeps the plain label
+        return fallback
+    label = f"Agent for {organisation}"
+    return label if fallback in {"", "unknown"} else f"{label} ({fallback})"
 
 
 async def _attach_activity(request: Request, state: State) -> None:
@@ -107,7 +139,9 @@ async def _attach_activity(request: Request, state: State) -> None:
     if call is None:
         return
     call.activity = state.gateway.log.agent_activity
-    if call.customer and (block := call.activity.block(call.customer, call.client, call.access)):
+    call.client = buyer_client_label(state, call.customer, call.client)
+    if call.customer and (block := call.activity.block(call.customer, call.session or call.client, call.access,
+                                                       utc_now())):
         raise AgentControlError(*block)
 
 
@@ -137,69 +171,90 @@ class AgentRoute(APIRoute):
             call = AgentCall(
                 operation=operation, access="WRITE" if operation in _AGENT_WRITES else "READ",
                 client=agent_client_label(request.headers.get("user-agent")),
-                customer=customer, started=perf_counter(),
+                customer=customer, started=perf_counter(), session=agent_session(request),
             )
             request.state.agent_call = call
             try:
-                response = await handler(request)
-            except AgentControlError as exc:
-                call.record("REFUSED", str(exc))
-                return error(403, exc.code, str(exc))
-            except RequestValidationError as exc:
-                if call.activity is None:
-                    # Invalid JSON fails before dependency resolution. Try the same sandbox for the record.
-                    overrides = getattr(self.dependency_overrides_provider, "dependency_overrides", {})
-                    loader = overrides.get(get_state, get_state)
-                    try:
-                        state = loader(request) if loader is get_state else loader()
-                        if isawaitable(state):
-                            state = await state
-                        call.activity = state.gateway.log.agent_activity
-                    except (GatewayUnavailable, HTTPException):
-                        pass
-                if has_approval_field_error(exc.errors()):
-                    call.record("REFUSED", "Approval fields are forbidden in agent requests.", count_refusal=True)
-                else:
-                    call.record("ERROR", "Request validation failed.")
-                raise
-            except HTTPException as exc:
-                if exc.status_code in (401, 403):
-                    call.record("REFUSED", "Agent authorization failed.")
-                else:
-                    call.record("ERROR", f"HTTP {exc.status_code}.")
-                raise
-            except NoOrderError:
-                call.record("REFUSED", "No order could be confirmed.")
-                raise
-            except Exception:
-                call.record("ERROR", "Gateway could not complete the call.")
-                raise
-            if isinstance(response, StreamingResponse):
-                iterator = response.body_iterator
-
-                async def observed_stream():
-                    complete = False
-                    try:
-                        async for chunk in iterator:
-                            yield chunk
-                        complete = True
-                    finally:
-                        if complete and not call.stream_failed:
-                            call.record_success()
-                        else:
-                            call.record("ERROR", "Agent stream did not complete successfully.")
-
-                response.body_iterator = observed_stream()
-            elif response.status_code < 400:
-                call.record_success()
-            else:
-                call.record("ERROR")
+                response = await self._observed(handler, request, call)
+            finally:
+                if call.warning:
+                    request.state.agent_warning = call.warning
+            if call.warning and not isinstance(response, StreamingResponse):
+                response.headers[WARNING_HEADER] = call.warning
             return response
 
         return observe
 
+    async def _observed(self, handler, request: Request, call: AgentCall):
+        try:
+            response = await handler(request)
+        except AgentControlError as exc:
+            call.record("REFUSED", str(exc))
+            return error(403, exc.code, str(exc), exc.details)
+        except RequestValidationError as exc:
+            if call.activity is None:
+                # Invalid JSON fails before dependency resolution. Try the same sandbox for the record.
+                overrides = getattr(self.dependency_overrides_provider, "dependency_overrides", {})
+                loader = overrides.get(get_state, get_state)
+                try:
+                    state = loader(request) if loader is get_state else loader()
+                    if isawaitable(state):
+                        state = await state
+                    call.activity = state.gateway.log.agent_activity
+                except (GatewayUnavailable, HTTPException):
+                    pass
+            if has_approval_field_error(exc.errors()):
+                call.record("REFUSED", "Approval fields are forbidden in agent requests.", count_refusal=True)
+            else:
+                call.record("ERROR", "Request validation failed.")
+            raise
+        except HTTPException as exc:
+            if exc.status_code == 403 and call.customer:
+                # Acting for another buyer is a policy refusal; 404/409/422 never count.
+                call.record("REFUSED", "Agent authorization failed.", count_refusal=True)
+            elif exc.status_code in (401, 403):
+                call.record("REFUSED", "Agent authorization failed.")
+            else:
+                call.record("ERROR", f"HTTP {exc.status_code}.")
+            raise
+        except NoOrderError:
+            call.record("REFUSED", "No order could be confirmed.")
+            raise
+        except Exception:
+            call.record("ERROR", "Gateway could not complete the call.")
+            raise
+        if isinstance(response, StreamingResponse):
+            iterator = response.body_iterator
 
-router = APIRouter(prefix="/v0.1", tags=["Agent channel"], responses=ERROR_RESPONSES,
+            async def observed_stream():
+                complete = False
+                try:
+                    async for chunk in iterator:
+                        yield chunk
+                    complete = True
+                finally:
+                    if complete and not call.stream_failed:
+                        call.record_success()
+                    else:
+                        call.record("ERROR", "Agent stream did not complete successfully.")
+
+            response.body_iterator = observed_stream()
+        elif response.status_code < 400:
+            call.record_success()
+        else:
+            call.record("ERROR")
+        return response
+
+
+SUSPENSION_RULE = (
+    "Wrong buyer for the key (`FORBIDDEN`), agent writes paused by Valio (`AGENTS_PAUSED`), or this agent session "
+    "suspended (`AGENT_SUSPENDED`). Suspension is per agent key and session: the second policy refusal within 10 "
+    "minutes (an approve/decide attempt, a mandate write, or acting for another buyer) carries an `X-Agent-Warning` "
+    "header and the third suspends the session for 2 minutes (`details.suspendedUntil`). 404, 409 and other 422 "
+    "errors never count. It lifts on its own; Valio can resume it at once on /valio."
+)
+router = APIRouter(prefix="/v0.1", tags=["Agent channel"],
+                   responses={**ERROR_RESPONSES, 403: {"model": ErrorResponse, "description": SUSPENSION_RULE}},
                    route_class=AgentRoute, dependencies=[Depends(_attach_activity)])
 
 
@@ -215,7 +270,7 @@ class ResumeAgentRequest(Contract):
             tags=["Buyer admin"], dependencies=[Depends(require_admin)],
             openapi_extra={"security": [{"demoAdmin": []}]})
 def get_agent_activity(state: State) -> AgentActivitySnapshot:
-    return state.gateway.log.agent_activity.snapshot()
+    return state.gateway.log.agent_activity.snapshot(utc_now())
 
 
 @router.patch("/admin/agent-activity", response_model=AgentActivitySnapshot,
@@ -223,7 +278,7 @@ def get_agent_activity(state: State) -> AgentActivitySnapshot:
 def pause_agent_activity(body: AgentPauseRequest, state: State) -> AgentActivitySnapshot:
     activity = state.gateway.log.agent_activity
     activity.set_paused(body.paused, utc_now())
-    return activity.snapshot()
+    return activity.snapshot(utc_now())
 
 
 @router.post("/admin/agent-activity/resume", response_model=AgentActivitySnapshot,
@@ -232,7 +287,7 @@ def resume_agent_activity(body: ResumeAgentRequest, state: State) -> AgentActivi
     activity = state.gateway.log.agent_activity
     if not activity.resume(body.clientId, utc_now()):
         raise HTTPException(404, "No suspended agent with that ID in this session.")
-    return activity.snapshot()
+    return activity.snapshot(utc_now())
 
 SCHOOL_DELIVERY = "2026-11-16"
 SCHOOL_CUSTOMER = "northbay-school-kitchen"

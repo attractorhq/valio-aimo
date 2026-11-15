@@ -128,6 +128,9 @@ async def demo_session_cookie(request: Request, call_next):
                             max_age=6 * 60 * 60)
     if request.url.path.startswith(("/v0.1/", "/mcp", "/health", "/.well-known/")):
         response.headers["Cache-Control"] = "no-store"
+    # T111: the refusal before the suspending one carries a warning, also on error responses.
+    if (warning := getattr(request.state, "agent_warning", None)) and "x-agent-warning" not in response.headers:
+        response.headers["X-Agent-Warning"] = warning
     return response
 
 

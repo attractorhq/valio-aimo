@@ -156,7 +156,8 @@ def test_mcp_enforces_http_keys_and_binds_customer_independently_of_arguments(ac
         result = client.post("/mcp", headers=SCHOOL, json=rpc(name, arguments)).json()["result"]
         assert result["isError"] is True
         assert result["structuredContent"]["error"]["code"] == "FORBIDDEN"
-    own_log = client.post("/mcp", headers=SCHOOL,
+    # T111: repeated cross-buyer calls suspend that agent session; another session of the same key still reads.
+    own_log = client.post("/mcp", headers={**SCHOOL, "User-Agent": "Another session"},
                           json=rpc("getAuditTrail", {"proposalId": school["proposalId"]})).json()["result"]
     assert own_log["isError"] is False
     assert {e["customerId"] for e in own_log["structuredContent"]["entries"]} == {M2.customerId}
