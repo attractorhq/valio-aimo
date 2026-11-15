@@ -10,7 +10,14 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 
-from app.agent.parse import _OCCASION_EN_RE, _OCCASION_FI_RE, _find_dates, _is_finnish, parse_request
+from app.agent.parse import (
+    _OCCASION_EN_RE,
+    _OCCASION_FI_RE,
+    _find_dates,
+    _is_finnish,
+    parse_request,
+    product_type_choices,
+)
 from app.agent.plan import requirement_display_name
 from app.catalog.vocab import extract_inline_requirements
 from app.contracts.common import Contract
@@ -167,6 +174,17 @@ def clarification_options(text: str, now: datetime, *, limit: int = 3) -> list[C
     one is dropped, never offered.
     """
     finnish = _is_finnish(text)
+    # T114: an ambiguous product type ("kermaa", "kermajuusto") gets one chip per type, in the buyer's own words.
+    if (choice := product_type_choices(text)) is not None:
+        typed = []
+        for label, rewritten in choice[2]:
+            parsed = parse_request(rewritten, now)
+            if parsed.request is not None and parsed.clarificationQuestion is None:
+                typed.append(ClarificationOption(label=label, requestText=rewritten))
+            elif product_type_choices(rewritten) is None and (more := clarification_options(rewritten, now, limit=1)):
+                typed.append(more[0])  # the type is settled; the first option also fills in the missing amount
+        if typed:
+            return typed[:limit]
     context = _context(text, now, finnish)
     _, stated_requirements = extract_inline_requirements(text)
     wanted = _codes(stated_requirements)

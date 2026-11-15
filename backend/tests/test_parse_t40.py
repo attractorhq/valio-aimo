@@ -32,7 +32,6 @@ def items_of(text: str, now: datetime = MORNING) -> list[tuple[str, Decimal, str
     ("Tarvitsen 40 kg voita huomiseksi", "butter"),  # the judge's live check
     ("40 kg voi huomiseksi", "butter"),
     ("40 kg Valio voita huomiseksi", "Valio butter"),
-    ("5 litraa kermaa huomiseksi", "cream"),
     ("5 litraa kermavaahtoa huomiseksi", "whipping cream"),
     ("5 litraa kuohukermaa huomiseksi", "whipping cream"),
     ("2 kg kermaviiliä huomiseksi", "sour cream"),  # not cream
