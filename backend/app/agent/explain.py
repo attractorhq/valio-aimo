@@ -489,23 +489,29 @@ def template_explanation(
         if held_clauses:
             ask_parts.extend(held_clauses)
         else:
-            ln0 = proposal.lines[0]
-            req0 = next((i for i in proposal.request.items if i.itemId == ln0.itemId), proposal.request.items[0])
-            ask_parts.append(
-                f"only {format(ln0.deliveredQuantity.value.normalize(), 'f')} {ln0.deliveredQuantity.unit} "
-                f"of {format(req0.quantity.normalize(), 'f')} {req0.unit} is available in verified stock"
-            )
+            # T117: name the items that are short, not the first line ("only 12 kg of 12 kg" when the eggs are missing).
+            for item in proposal.request.items:
+                delivered = sum((ln.deliveredQuantity.value for ln in proposal.lines if ln.itemId == item.itemId),
+                                Decimal(0))
+                asked = f"{format(item.quantity.normalize(), 'f')} {item.unit} {item.what}"
+                if delivered <= 0:
+                    ask_parts.append(f"none of the {asked} is available in verified stock")
+                elif delivered < item.quantity:
+                    ask_parts.append(
+                        f"only {format(delivered.normalize(), 'f')} {item.unit} of the {asked} is available "
+                        "in verified stock"
+                    )
 
+    # T117: name the line that actually is the substitute, not the first line of the order.
     if ReasonCode.AGENT_SUBSTITUTE in active_reasons and proposal.lines:
-        ln0 = proposal.lines[0]
+        ln0 = next((ln for ln in proposal.lines if ReasonCode.AGENT_SUBSTITUTE in ln.reasons
+                    or ln.substitutionSource == "AGENT"), proposal.lines[0])
         req0 = next((i for i in proposal.request.items if i.itemId == ln0.itemId), proposal.request.items[0])
-        orig = req0.productId or req0.what
-        ask_parts.append(
-            f"{ln0.productId} ({ln0.name}) is proposed as a compliant substitute for {orig}"
-        )
+        ask_parts.append(f"{ln0.productId} ({ln0.name}) is proposed as a compliant substitute for {req0.what}")
 
     if ReasonCode.VALIO_SUBSTITUTE in active_reasons and proposal.lines:
-        ln0 = proposal.lines[0]
+        ln0 = next((ln for ln in proposal.lines if ReasonCode.VALIO_SUBSTITUTE in ln.reasons
+                    or ln.substitutionSource == "VALIO"), proposal.lines[0])
         ask_parts.append(f"{ln0.productId} ({ln0.name}) is a compliant Valio-listed substitute")
 
     if ReasonCode.SUPPLIER_STOCK_UNKNOWN in active_reasons:

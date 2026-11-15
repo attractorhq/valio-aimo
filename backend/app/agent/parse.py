@@ -1709,6 +1709,15 @@ def _deadline_note(deadline: _Deadline, requested: date, today: date) -> str:
     return f"Needed {day} {deadline.phrase}: a later delivery does not meet this request"
 
 
+# T117: a number right before a countable product ("300 eggs", "300 kananmunaa") is a count of pieces, so the item is
+# never merged into the previous one ("12 kg gouda and 300 eggs" is two items).
+_COUNT_NOUN_RE = re.compile(
+    _NUMBER + r"\s+(?=(?:eggs?|kananmun\w*|munaa|munia|ägg|lemons?|limes?|oranges?|apples?|bananas?|avocados?|"
+    r"buns?|rolls?|croissants?|baguettes?|sämpylä\w*|sitruun\w*|appelsiin\w*|omen\w*|banaan\w*)\b)",
+    re.IGNORECASE,
+)
+
+
 def _fallback(
     text: str,
     today: date,
@@ -1720,6 +1729,7 @@ def _fallback(
     # Request text is data: instruction-like spans and clauses are cut out before anything else reads the text (T87).
     clean = _cut_instruction_clauses(text, ignored)
     clean = _normalise_words(clean)
+    clean = _COUNT_NOUN_RE.sub(r"\g<num> pcs ", clean)
     deadline, clean = _take_deadline(clean)
 
     dates = _find_dates(clean, today)

@@ -65,7 +65,8 @@ def test_butter_with_both_salt_variants_gets_an_editable_salt_chip():
     choices = variant_choices(item, ranked, PRODUCTS)
     chips = [c.chip for c in choices]
     assert "Salt: unsalted" in chips
-    assert "Lactose: regular" in chips  # facts from the product data: only the salted one claims lactose-free
+    # T117: lactose is never stated as an assumption the buyer did not make.
+    assert not any(chip.startswith(("Lactose", "Organic")) for chip in chips)
     salt = next(c for c in choices if c.label == "Salt")
     assert salt.restricts and salt.others == ["salted"]
     assert [rc.productId for rc in keep_chosen_variants(ranked, choices, PRODUCTS)] == ["SYN-BUT-U"]

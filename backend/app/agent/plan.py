@@ -20,7 +20,7 @@ from pydantic import Field
 
 from app.agent.parse import LARGE_PACKS
 from app.catalog.categories import (
-    DAIRY_CONCEPTS,
+    DESCRIPTIVE_QUERY_WORDS,
     VARIANT_CHOICE_LABELS,
     TypeMatch,
     missing_family_nouns,
@@ -1046,6 +1046,19 @@ def _unrequested_special_variant(product: Product, item: RequestItem) -> bool:
     return bool(set(product.claims) & _SPECIAL_VARIANT_CLAIMS) or is_organic(product)
 
 
+_OTHER_USE_CHEESE_TERMS = (
+    "leipäjuust", "bread cheese", "brödost", "juustoleip", "tuorejuust", "cream cheese", "creamy", "färskost",
+    "cottage", "raejuust", "halloumi", "grillijuust", "grilling cheese", "feta", "fetajuust", "salaattijuust",
+    "salad cheese", "levite", "spread",
+)
+
+
+def _other_use_cheese(product: Product) -> bool:
+    """A cheese made for another use than grating or slicing (T117)."""
+    text = " ".join(n for n in (product.name, *product.names.values()) if n).lower()
+    return any(term in text for term in _OTHER_USE_CHEESE_TERMS)
+
+
 def rank_candidates(
     candidates: Sequence[Product],
     *,
@@ -1079,8 +1092,15 @@ def rank_candidates(
         tuple[tuple, Product, CandidateObservation | None, SubstitutionKind | None, str | None, tuple[str, ...], bool]
     ] = []
 
+    # T117: a stated cut (grated, sliced) is a requirement. A block can still be cut in the kitchen, so another form
+    # stays an agent substitute that names the difference (T87); a cheese made for another use (bread cheese, cream
+    # cheese, cottage, feta, halloumi) is never offered for it, not even as a substitute: a clear no-order is.
+    requested_form = extract_requested_form(item.what, item.preferences, include_bases=False)
+    uncuttable = requested_form is not None and requested_form.form_id in ("grated", "sliced")
     for prod in candidates:
         named = target_id is not None and prod.productId == target_id
+        if uncuttable and not named and _other_use_cheese(prod):
+            continue
         # T51 product family guard: a candidate may be offered (even as AGENT_SUBSTITUTE) only if it is
         # in the same product family as the item (or any of its 'X or Y' / 'X tai Y' alternatives, T87).
         if not named and not _item_same_product_family(
@@ -1411,7 +1431,8 @@ def _find_named_product_in_results(
         return None
     primary_concept, parent_concept = _concept_for_item(item)
     concept_terms = _concept_terms(primary_concept) | _concept_terms(parent_concept)
-    brand_tokens = [t for t in tokens if not any(t.startswith(ct) or ct.startswith(t) for ct in concept_terms)]
+    brand_tokens = [t for t in tokens if not any(t.startswith(ct) or ct.startswith(t) for ct in concept_terms)
+                    and t not in DESCRIPTIVE_QUERY_WORDS]  # T117: "sliced" names no product
     if not brand_tokens:
         return None
     for ex in search_result.excluded:
@@ -1713,7 +1734,7 @@ def variant_choices(
 
     Values come only from product data (names in every language, claims, labels, declared pack content).
     Cream type, fresh/frozen and salt are material use choices: the item is kept to the recommended value.
-    Lactose, organic and a ≥5× pack-size spread are stated so the buyer can see and change them.
+    A ≥5× pack-size spread is stated so the buyer can see and change it.
     """
     exact = [products_by_id[rc.productId] for rc in ranked if rc.exactType and rc.productId in products_by_id]
     if len(exact) < 2:
@@ -1733,17 +1754,8 @@ def variant_choices(
         chosen = values[0] or "unknown"
         choices.append(VariantChoice(label=label, value=chosen, others=sorted(distinct - {chosen}), restricts=True))
 
-    codes = {r.code for r in item.requirements}
-    if concept_id in DAIRY_CONCEPTS and "FREE_FROM_LACTOSE" not in codes:
-        lactose = ["lactose-free" if "FREE_FROM_LACTOSE" in p.claims else "regular" for p in exact]
-        if len(set(lactose)) > 1:
-            choices.append(VariantChoice(label="Lactose", value=lactose[0],
-                                         others=sorted(set(lactose) - {lactose[0]})))
-    if not any(p.kind == "ORGANIC" for p in item.preferences):
-        organic = ["organic" if is_organic(p) else "not organic" for p in exact]
-        if len(set(organic)) > 1:
-            choices.append(VariantChoice(label="Organic", value="yes" if organic[0] == "organic" else "no",
-                                         others=["yes" if organic[0] != "organic" else "no"]))
+    # T117: lactose and organic are never stated as an assumption the buyer did not make ("Lactose: lactose-free" on a
+    # gouda request read as an unrequested requirement). They are requirements or preferences only when stated.
     if not any(p.kind == "PACK_SIZE" for p in item.preferences):
         packs = [p.contentPerSalesUnit for p in exact]
         known = [c for c in packs if c is not None and c.unit == item.unit]
