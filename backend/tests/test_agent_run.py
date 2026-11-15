@@ -808,9 +808,10 @@ def test_compact_agent_run_matches_full_proposal_without_facts_or_capabilities(s
     assert response.status_code == 200, response.text
     compact = response.json()
     assert set(compact) == {
-        "customerId", "mode", "recordedAt", "proposalId", "decision", "state", "reasons", "totals",
-        "lines", "approverRole", "clarificationQuestion", "links",
+        "summary", "customerId", "mode", "recordedAt", "proposalId", "decision", "state", "reasons",
+        "reasonTexts", "totals", "lines", "approverRole", "clarificationQuestion", "noOrder", "links",
     }
+    assert [reason["code"] for reason in compact["reasonTexts"]] == compact["reasons"]
     proposal_response = client.get(compact["links"]["proposal"])
     assert proposal_response.status_code == 200
     proposal = proposal_response.json()

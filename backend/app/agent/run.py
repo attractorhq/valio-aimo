@@ -637,6 +637,56 @@ def _compliant_offer_lines(
     ]
 
 
+def coverage_dates(
+    *,
+    channel: AgentChannel,
+    request: StructuredRequest,
+    products: Mapping[str, Product],
+    mandate: Mandate,
+    excluded: Sequence[ExcludedProduct],
+    offer: Offer | None,
+    offer_request: GetOfferRequest | None,
+    now: datetime,
+) -> tuple[list[date | None], date | None]:
+    """Per-item date on which compliant offer lines cover the full quantity, and the earliest day covering all items.
+
+    A failed cut-off or empty schedule is not evidence of a later delivery: one subsequent date on the same
+    shortlist is quoted and only a date confirmed by that quote is suggested.
+    """
+    deadline = request.requestedDate
+    effective_lines = _compliant_offer_lines(offer, request, products, mandate) if offer else []
+    dates = [_coverage_date(effective_lines, item) for item in request.items]
+    earliest = max(day for day in dates if day is not None) if all(dates) else None
+    timing_codes = {ReasonCode.CUTOFF_PASSED, ReasonCode.NOT_AVAILABLE}
+    timing_exclusions = [entry for entry in excluded if timing_codes.intersection(entry.reasons)]
+    if earliest is None and timing_exclusions and offer_request and offer_request.lookupDate is None:
+        expired_dates = [
+            date.fromisoformat(f.value)
+            for entry in timing_exclusions if ReasonCode.CUTOFF_PASSED in entry.reasons
+            for f in entry.facts if f.fact == "delivery.date" and isinstance(f.value, str)
+        ]
+        next_day = max(deadline + timedelta(days=1), now.astimezone(HELSINKI).date(),
+                       *(day + timedelta(days=1) for day in expired_dates))
+        try:
+            later = channel.probe_offer(offer_request.model_copy(update={"lookupDate": next_day}))
+        except IntegrationError:
+            later = None  # The original result is still usable if a later quote is unavailable.
+        if later is not None:
+            verified_lines = _compliant_offer_lines(later, request, products, mandate)
+            later_dates = [_coverage_date(verified_lines, item) for item in request.items]
+            dates = [before or after for before, after in zip(dates, later_dates, strict=True)]
+            if all(later_dates):
+                earliest = max(day for day in later_dates if day is not None)
+    return dates, earliest
+
+
+def closest_matches(
+    channel: AgentChannel, customer_id: str, search: SearchProductsRequest, mandate: Mandate,
+) -> list[ClosestMatch]:
+    """Public alias of the type-checked closest-match search (T105) for other channels (MCP)."""
+    return _closest_matches(channel, customer_id, search, mandate)
+
+
 CANNOT_FULFIL_SHARE = Decimal("0.10")
 
 
@@ -684,31 +734,10 @@ def _no_order_step(
     cannot_fulfil: Mapping[str, str] | None = None,
 ) -> AgentStepEvent:
     deadline = request.requestedDate
-    effective_lines = _compliant_offer_lines(offer, request, products, mandate) if offer else []
-    dates = [_coverage_date(effective_lines, item) for item in request.items]
-    earliest = max(day for day in dates if day is not None) if all(dates) else None
-    timing_codes = {ReasonCode.CUTOFF_PASSED, ReasonCode.NOT_AVAILABLE}
-    timing_exclusions = [entry for entry in excluded if timing_codes.intersection(entry.reasons)]
-    # A failed cut-off or empty schedule is not evidence of a later delivery. Check one
-    # subsequent date on the same shortlist and only suggest a date confirmed by that quote.
-    if earliest is None and timing_exclusions and offer_request and offer_request.lookupDate is None:
-        expired_dates = [
-            date.fromisoformat(f.value)
-            for entry in timing_exclusions if ReasonCode.CUTOFF_PASSED in entry.reasons
-            for f in entry.facts if f.fact == "delivery.date" and isinstance(f.value, str)
-        ]
-        next_day = max(deadline + timedelta(days=1), now.astimezone(HELSINKI).date(),
-                       *(day + timedelta(days=1) for day in expired_dates))
-        try:
-            later = channel.probe_offer(offer_request.model_copy(update={"lookupDate": next_day}))
-        except IntegrationError:
-            later = None  # The original result is still usable if a later quote is unavailable.
-        if later is not None:
-            verified_lines = _compliant_offer_lines(later, request, products, mandate)
-            later_dates = [_coverage_date(verified_lines, item) for item in request.items]
-            dates = [before or after for before, after in zip(dates, later_dates, strict=True)]
-            if all(later_dates):
-                earliest = max(day for day in later_dates if day is not None)
+    dates, earliest = coverage_dates(
+        channel=channel, request=request, products=products, mandate=mandate, excluded=excluded,
+        offer=offer, offer_request=offer_request, now=now,
+    )
 
     items = []
     for plan, delivery in zip(item_plans, dates, strict=True):
