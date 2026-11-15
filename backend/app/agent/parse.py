@@ -1381,6 +1381,13 @@ def _has_order_content(span_text: str) -> bool:
     return bool(excl)
 
 
+_TRAILING_INSTRUCTION_CONNECTOR_RE = re.compile(
+    r"(?:[\s,;]+\b(?:so|and|then|please|pls|therefore|thus|because|as|since|just|"
+    r"ja|sekä|joten|koska|eli|niin|och|så)\b\s*)$",
+    re.IGNORECASE,
+)
+
+
 def _cut_instruction_clauses(text: str, ignored: list[IgnoredInstruction]) -> str:
     """Cut every instruction span (and its surrounding non-item clause) out of `text` before item extraction (T87)."""
     if not ignored:
@@ -1408,6 +1415,10 @@ def _cut_instruction_clauses(text: str, ignored: list[IgnoredInstruction]) -> st
         lead = text[clause_start:s]
         if lead and not _has_order_content(lead) and _INSTRUCTION_LEAD_ONLY_RE.fullmatch(lead):
             s = clause_start
+        elif lead:
+            m_conn = _TRAILING_INSTRUCTION_CONNECTOR_RE.search(lead)
+            if m_conn:
+                s = clause_start + m_conn.start()
         expanded.append((s, e))
 
     clean = text
