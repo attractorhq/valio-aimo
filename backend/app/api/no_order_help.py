@@ -32,18 +32,20 @@ def no_candidate_details(
 ) -> dict[str, Any]:
     """The same no-order help the buyer UI shows: per item why, type-checked closest matches (never ordered),
     the earliest date the full request can be delivered, and how to retry with it."""
-    from app.agent.run import GatewayAgentChannel, closest_matches, coverage_dates
+    from app.agent.run import GatewayAgentChannel, closest_matches, coverage_dates, excluded_closest_matches
+    from app.valio.vendor import HELSINKI
 
     request = prop_req.request
     mandate = state.gateway.mandates.get(prop_req.customerId)
     channel = GatewayAgentChannel(state)
     stored = getattr(state.gateway, "_offers", {}).get((offer.offerId, offer.offerVersion))
     offer_request = getattr(stored, "offer_request", None)
+    now = state.now_for(offer.mode) or offer.createdAt
     try:
         dates, earliest = coverage_dates(
             channel=channel, request=request, products=state.gateway.products, mandate=mandate,
             excluded=exc.excluded, offer=offer, offer_request=offer_request,
-            now=state.now_for(offer.mode) or offer.createdAt,
+            now=now,
         )
     except IntegrationError:
         dates, earliest = [None] * len(request.items), None
@@ -58,6 +60,15 @@ def no_candidate_details(
         item_excluded = [e for e in exc.excluded if e.itemId == item.itemId]
         has_candidates = bool(item_excluded) or any(ln.itemId == item.itemId for ln in offer.lines)
         search = SearchProductsRequest(query=item.what, requirements=item.requirements)
+        # T113: same-type candidates that were all excluded come first, each with its reason; otherwise the
+        # type-checked relaxed search (a modifier such as "skin-on" never zeroes the help).
+        same_type = [
+            *(e.productId for e in item_excluded), *(ln.productId for ln in offer.lines if ln.itemId == item.itemId),
+        ]
+        names = {pid: state.gateway.products[pid].name for pid in same_type if pid in state.gateway.products}
+        matches = excluded_closest_matches(
+            item.itemId, same_type, item_excluded, offer.lines, names, labels, deadline,
+        ) or closest_matches(channel, prop_req.customerId, search, mandate)
         items.append(NoOrderItem(
             itemId=item.itemId,
             searched=item.what + (f" · {', '.join(labels)}" if labels else ""),
@@ -65,8 +76,9 @@ def no_candidate_details(
                 has_candidates=has_candidates, deadline_label=format_date(deadline),
                 delivery_label=format_date(delivery) if delivery and delivery > deadline else None,
                 delivered=False, excluded=item_excluded, requirements=requirements,
+                deadline_is_today=deadline <= now.astimezone(HELSINKI).date(),
             ),
-            closestMatches=closest_matches(channel, prop_req.customerId, search, mandate),
+            closestMatches=matches,
         ).model_dump(mode="json"))
     retry_date = offer_request.lookupDate if offer_request is not None else None
     next_date = earliest if earliest and earliest > deadline and earliest != retry_date else None

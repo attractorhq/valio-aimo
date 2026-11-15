@@ -48,7 +48,10 @@ export function NoOrderBanner({
               </p>
               <ul>
                 {item.closestMatches.map((match) => (
-                  <li key={match.productId}>{match.name}</li>
+                  <li key={match.productId}>
+                    {match.name}
+                    {match.lacks ? ` · ${match.lacks}` : ''}
+                  </li>
                 ))}
               </ul>
             </>

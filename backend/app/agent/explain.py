@@ -12,6 +12,7 @@ import re
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
+from datetime import date
 from decimal import Decimal
 from typing import Literal
 
@@ -54,10 +55,13 @@ def no_order_item_reason(
     delivered: bool,
     excluded: Sequence[ExcludedProduct],
     requirements: Sequence[Requirement],
+    deadline_is_today: bool = False,
 ) -> str:
     if delivered and not delivery_label:
         return "Availability was found by the deadline."
-    if delivery_label:
+    if delivery_label and deadline_is_today:
+        timing = f"Delivery today is not possible; the earliest is {delivery_label}."
+    elif delivery_label:
         timing = f"Available {delivery_label}, after your {deadline_label} deadline."
     else:
         timing = ""
@@ -94,7 +98,16 @@ def no_order_item_reason(
         elif not has_candidates and req_labels:
             lead = f"No product satisfies all requirements ({', '.join(req_labels)})."
         elif ReasonCode.CUTOFF_PASSED in codes:
-            lead = f"Order cut-off has passed for {deadline_label} delivery."
+            cutoff_days = sorted({
+                f.value for entry in excluded if ReasonCode.CUTOFF_PASSED in entry.reasons
+                for f in entry.facts if f.fact == "delivery.date" and isinstance(f.value, str)
+            })
+            lead = ("Delivery today is not possible; " if deadline_is_today else "") + (
+                f"Valio's earliest delivery for these products is "
+                f"{format_date(date.fromisoformat(cutoff_days[0]))}, and its order cut-off has passed."
+                if cutoff_days else "the order cut-off has passed for every candidate."
+            )
+            lead = lead[0].upper() + lead[1:]
         elif ReasonCode.NOT_AVAILABLE in codes:
             lead = f"No stock available for {deadline_label} delivery."
         else:

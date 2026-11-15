@@ -23,8 +23,10 @@ def test_late_delivery_requires_a_retry_then_human_approval(synthetic_api):
     assert [step["name"] for step in first["steps"]] == ["REQUEST", "LOOKUP", "APPROVAL"]
     details = first["steps"][-1]["noOrder"]
     assert "lactose-free" in details["items"][0]["searched"]
-    assert "after your Fri 13 Nov deadline" in details["items"][0]["why"]
+    assert "Delivery today is not possible; the earliest is Mon 16 Nov" in details["items"][0]["why"]
     assert details["earliestDelivery"] == MONDAY.isoformat()
+    matches = details["items"][0]["closestMatches"]
+    assert matches[0]["lacks"] == "earliest delivery Mon 16 Nov"
     assert state.gateway.committed_total(M1.customerId, MONDAY) == 0
 
     second = run(client, text, lookup_date=details["earliestDelivery"])
@@ -68,6 +70,47 @@ def test_passed_cutoff_only_suggests_a_fresh_deliverable_date(synthetic_api):
     assert confirmed.lines[0].deliveryDate == tuesday
 
 
+def test_all_candidates_past_cutoff_list_closest_matches_with_plain_cutoff_text(synthetic_api):
+    """T113: same-type candidates exist but every one is past its cut-off: never ordered, never empty help."""
+    client, state = synthetic_api
+
+    class PastCutoffProvider(SyntheticAgentProvider):
+        def _stock_row(self, code, requested_date):
+            row = super()._stock_row(code, requested_date)
+            row["closingTime"] = f"2026-11-12T14:00:00{HEL}"
+            return row
+
+    state.gateway.provider = PastCutoffProvider()
+    result = run(client, "I need 10 litres of lactose-free milk for Wednesday.")
+    assert result["proposal"] is None
+    details = result["steps"][-1]["noOrder"]
+    (item,) = details["items"]
+    assert "Valio's earliest delivery for these products is Mon 16 Nov, and its order cut-off has passed" in item["why"]
+    assert "delivery." not in item["why"].split(".")[0]
+    assert item["closestMatches"]
+    assert all(m["lacks"].startswith("order cut-off passed for Mon 16 Nov") for m in item["closestMatches"])
+    assert details["earliestDelivery"] is None
+    assert state.gateway.committed_total(M1.customerId, MONDAY) == 0
+
+
+def test_modifier_word_never_zeroes_the_help(synthetic_api):
+    """T113: 'fresh' and 'skin-on' zero the search; closest matches come from the search without them."""
+    client, state = synthetic_api
+    source = state.catalog[0]
+    salmon = source.model_copy(update={
+        "name": "Synthetic salmon fillet C",
+        "names": {"en": "Synthetic salmon fillet C"},
+        "contentPerSalesUnit": ContentPerSalesUnit(value=Decimal(1), unit="kg", level="DECLARED"),
+    })
+    state.catalog = [salmon]
+    result = run(client, "800 kg fresh salmon fillet, skin-on, for Wednesday")
+    assert result["proposal"] is None and result["offer"] is None
+    (item,) = result["steps"][-1]["noOrder"]["items"]
+    assert item["closestMatches"] == [
+        {"productId": salmon.productId, "name": salmon.name, "lacks": "fresh, skin-on not stated"},
+    ]
+
+
 def test_no_order_suggestions_keep_hard_requirements(synthetic_api):
     client, state = synthetic_api
     result = run(client, "I need 5 kg of imaginary gluten-free flounder today.")
@@ -90,7 +133,7 @@ def test_no_order_suggestions_keep_hard_requirements(synthetic_api):
     result = run(client, "I need 5 kg of imaginary gluten-free flounder today.")
     assert result["proposal"] is None
     assert result["steps"][-1]["noOrder"]["items"][0]["closestMatches"] == [
-        {"productId": safe.productId, "name": safe.name},
+        {"productId": safe.productId, "name": safe.name, "lacks": "imaginary not stated"},
     ]
 
 
@@ -100,7 +143,7 @@ def test_unmatched_line_does_not_create_a_partial_order(synthetic_api):
     assert result["offer"] is result["proposal"] is None
     details = result["steps"][-1]["noOrder"]
     assert details["earliestDelivery"] is None
-    assert "after your Fri 13 Nov deadline" in details["items"][0]["why"]
+    assert "Delivery today is not possible; the earliest is Mon 16 Nov" in details["items"][0]["why"]
     assert "No eligible products matched" in details["items"][1]["why"]
 
 

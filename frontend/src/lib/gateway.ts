@@ -77,7 +77,7 @@ export type NoOrderDetails = {
     itemId: string
     searched: string
     why: string
-    closestMatches: { productId: string; name: string }[]
+    closestMatches: { productId: string; name: string; lacks?: string | null }[]
   }[]
   earliestDelivery?: string | null
 }
