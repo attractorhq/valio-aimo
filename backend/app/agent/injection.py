@@ -97,6 +97,11 @@ class IgnoredInstruction:
     end: int
 
 
+def contains_instruction(text: str) -> bool:
+    """True when any pattern matches. Used by the gateway's O4 rule; does not log (the parser logs the spans)."""
+    return any(pattern.search(text) for _, pattern in _COMPILED)
+
+
 def detect_instructions(text: str) -> list[IgnoredInstruction]:
     """Return every instruction-like span in the request text, in text order, without overlaps."""
     found: list[IgnoredInstruction] = []
