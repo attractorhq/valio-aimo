@@ -45,14 +45,43 @@ from app.contracts import (
 from app.contracts.common import Contract
 from app.contracts.requirements import VALID_CLAIM_CODES, validate_allergen_code
 from app.policy.requirements import (
+    CERTIFICATION_ALIASES,
     check_requirements,
     claim_conflicts,
+    claim_requirement_fact,
     conflict_is_decisive,
     hard_requirements,
+    is_label_or_origin_requirement,
 )
+from app.trust.labels import CLAIM_DISPLAY_NAMES, LABEL_DISPLAY_NAMES
 
 _WORD_RE = re.compile(r"[\wåäöÅÄÖ%-]+", re.UNICODE)
 _PRODUCT_ID_IN_QUERY_RE = re.compile(r"\b(\d{6})\b")
+_LUOMU_COMPOUND_RE = re.compile(r"\b(luomu)-?(?=[^\W\d_]{3,})", re.IGNORECASE)
+_INLINE_CERTIFICATION_PATTERNS: tuple[tuple[re.Pattern[str], Requirement], ...] = tuple(
+    (
+        re.compile(
+            r"\b(?:certified\s+)?(?:" + pattern + r")(?:[\s-]+(?:certified|certification|labell?ed|label|"
+            r"sertifioi\w*|merki\w*|alkuperä\w*))?(?!\w)",
+            re.IGNORECASE,
+        ),
+        Requirement(kind="CLAIM", code=code),
+    )
+    for pattern, code in (
+        (r"MSC|Marine\s+Stewardship\s+Council", "MARINE_STEWARDSHIP_COUNCIL_LABEL"),
+        (r"ASC|Aquaculture\s+Stewardship\s+Council", "AQUACULTURE_STEWARDSHIP_COUNCIL"),
+        (
+            r"EU[\s-]+organic|organic(?:ally\s+(?:grown|produced))?|luomu\w*|luonnonmuka\w*|ekologisk\w*",
+            "EU_ORGANIC_FARMING",
+        ),
+        (r"fair[\s-]?trade|reilu(?:n|a)?\s+kaup\w*|reilun?\s*kaupan?", "FAIR_TRADE_MARK"),
+        (
+            r"finnish(?:\s+origin)?|(?:made\s+in|from)\s+finland|domestic|kotimai\w*|suomalai\w*|"
+            r"(?:valmistettu\s+)?suomessa|suomesta(?:\s+peräisin)?|hyvää\s+suomesta|avainlippu\w*|joutsenlippu\w*",
+            "FINNISH_ORIGIN",
+        ),
+    )
+)
 _FAT_PCT_RE = re.compile(r"(?<![\w.,])(\d+(?:[.,]\d+)?)\s*%", re.IGNORECASE)
 _SKIMMED_RE = re.compile(r"\b(?:skimmed|fat[- ]?free|rasvaton\w*|fettfri\w*|skummjölk\w*)\b", re.IGNORECASE)
 _SEMI_SKIMMED_RE = re.compile(r"\b(?:semi[- ]skimmed|low[- ]fat|kevytmaito\w*|lättmjölk\w*)\b", re.IGNORECASE)
@@ -255,15 +284,41 @@ def _get_index(products: Sequence[Product]) -> _CatalogSearchIndex:
 
 def _coerce_requirement(req: Requirement | str) -> Requirement:
     if isinstance(req, Requirement):
+        norm_code = req.code.strip().upper()
+        if req.kind == "CLAIM" and norm_code in CERTIFICATION_ALIASES:
+            return Requirement(kind="CLAIM", code=CERTIFICATION_ALIASES[norm_code])
         return req
     norm = req.strip().upper()
-    if norm.startswith("CLAIM:"):
-        return Requirement(kind="CLAIM", code=norm.split(":", 1)[1].strip())
+    if norm.startswith("CLAIM:") or norm.startswith("LABEL:"):
+        raw_code = norm.split(":", 1)[1].strip()
+        return Requirement(kind="CLAIM", code=CERTIFICATION_ALIASES.get(raw_code, raw_code))
+    if norm.startswith("ORIGIN:"):
+        raw_code = norm.split(":", 1)[1].strip()
+        return Requirement(kind="CLAIM", code=CERTIFICATION_ALIASES.get(raw_code, f"ORIGIN_{raw_code}"))
     if norm.startswith("AVOID_ALLERGEN:") or norm.startswith("ALLERGEN:"):
         return Requirement(kind="AVOID_ALLERGEN", code=norm.split(":", 1)[1].strip())
-    if norm.startswith("FREE_FROM_") or norm in VALID_CLAIM_CODES:
+    if norm in CERTIFICATION_ALIASES:
+        return Requirement(kind="CLAIM", code=CERTIFICATION_ALIASES[norm])
+    if (
+        norm.startswith("FREE_FROM_")
+        or norm in VALID_CLAIM_CODES
+        or norm in CLAIM_DISPLAY_NAMES
+        or norm in LABEL_DISPLAY_NAMES
+    ):
         return Requirement(kind="CLAIM", code=norm)
     return Requirement(kind="AVOID_ALLERGEN", code=norm)
+
+
+def _extract_inline_certification_requirements(query: str) -> tuple[str, list[Requirement]]:
+    cleaned = _LUOMU_COMPOUND_RE.sub(r"\1 ", query)
+    extracted: list[Requirement] = []
+    for pattern, req in _INLINE_CERTIFICATION_PATTERNS:
+        if pattern.search(cleaned):
+            if req not in extracted:
+                extracted.append(req)
+            cleaned = pattern.sub(" ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,;.")
+    return cleaned, extracted
 
 
 def _make_search_mandate(
@@ -326,10 +381,15 @@ def evaluate_product_static_requirements(
             if ReasonCode.DATA_CONFLICT not in reasons:
                 reasons.append(ReasonCode.DATA_CONFLICT)
 
-    # Collect decisive TrustLabels for any exclusion reasons.
+    # Collect decisive TrustLabels for any exclusion reasons or certification/origin requirements.
     if reasons:
         for req in combined_reqs:
             if req.kind == "CLAIM":
+                if is_label_or_origin_requirement(req.code):
+                    cf = claim_requirement_fact(product, req.code)
+                    if cf not in facts:
+                        facts.append(cf)
+                    continue
                 cf = next((f for f in product.facts if f.fact == f"claim.{req.code}"), None)
                 if cf is not None and cf not in facts:
                     facts.append(cf)
@@ -349,6 +409,12 @@ def evaluate_product_static_requirements(
             unk = product_fact(product, "allergen")
             if unk not in facts:
                 facts.append(unk)
+    else:
+        for req in combined_reqs:
+            if req.kind == "CLAIM" and is_label_or_origin_requirement(req.code):
+                cf = claim_requirement_fact(product, req.code)
+                if cf not in facts:
+                    facts.append(cf)
 
     return reasons, facts
 
@@ -433,7 +499,8 @@ def search_products(
     query_without_id = _PRODUCT_ID_IN_QUERY_RE.sub(" ", raw_query).strip() if id_match else raw_query
 
     cleaned_query, inline_reqs = extract_inline_requirements(query_without_id)
-    combined_reqs = list(dict.fromkeys([*explicit_reqs, *inline_reqs]))
+    cleaned_query, cert_reqs = _extract_inline_certification_requirements(cleaned_query)
+    combined_reqs = list(dict.fromkeys([*explicit_reqs, *inline_reqs, *cert_reqs]))
     applied_reqs = list(hard_requirements(combined_reqs, effective_mandate))
     requested_form = extract_requested_form(raw_query, explicit_prefs)
 
@@ -641,6 +708,18 @@ def search_products(
         target_product_id=target_product_id,
     )
     candidates = ordered_compliant[:limit]
+    cert_applied_reqs = [r for r in applied_reqs if r.kind == "CLAIM" and is_label_or_origin_requirement(r.code)]
+    if cert_applied_reqs:
+        enriched_candidates: list[Product] = []
+        for cand in candidates:
+            cert_facts = [claim_requirement_fact(cand, r.code) for r in cert_applied_reqs]
+            cert_keys = {f.fact for f in cert_facts}
+            enriched_candidates.append(
+                cand.model_copy(
+                    update={"facts": [*cert_facts, *(f for f in cand.facts if f.fact not in cert_keys)]}
+                )
+            )
+        candidates = enriched_candidates
 
     # Check Valio-listed substitutes on returned candidates against hard requirements (§7.8, P8 B).
     for cand in candidates:

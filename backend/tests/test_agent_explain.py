@@ -59,7 +59,7 @@ def test_template_explanations_for_a_b_c_are_at_most_two_sentences(proposals):
     assert 1 <= exp_c.sentenceCount <= 2
     assert count_sentences(exp_c.text) <= 2
     assert "€20,200.00" in exp_c.text
-    assert "€5,000.00" in exp_c.text
+    assert "€15,000.00" in exp_c.text
     assert "ignored" in exp_c.text.lower()
     assert [c.code for c in exp_c.reasonChips] == [ReasonCode.OVER_HARD_LIMIT, ReasonCode.INSTRUCTION_IGNORED]
     assert not contains_forbidden_agent_content(exp_c.text)

@@ -32,7 +32,11 @@ Set the `Authorization` header to `Bearer demo-agent-northbay-school-kitchen` (s
 
 The Approver panel asks you to choose **Head Chef** (school) or **Purchasing Manager** (hotel) and sends `X-Demo-Approver-Role`; only that buyer's queue is visible and only the proposal's named role can decide. Signed phone links carry their issued role and remain single-use. Buyer-admin writes require `X-Demo-Admin-Key: demo-admin`; `/admin` shows the public key and an **Enter demo admin key** button. Global audit access also requires that admin key. Customer/proposal audit access uses the owning buyer's agent key; a key cannot read another buyer's trail, export, or chain. These are demonstration gates, not production identity or secret credentials.
 
-Expected reference walkthrough: **A AUTO** (€1,010.00) → **B ASK** (€506.16, only `OVER_AUTO_LIMIT`) → **C BLOCK** (€20,200.00, with `INSTRUCTION_IGNORED`). These are checks, not hardcoded decisions or guarantees about today's live data. Run pre-flight before presenting.
+Expected reference walkthrough: **A AUTO** (€1,010.00) → **B ASK** (€506.16, only `OVER_AUTO_LIMIT`) → **C BLOCK** (€20,200.00, with `INSTRUCTION_IGNORED` and `14,851 l` shown as feasible within the €15,000.00 hard limit). These are checks, not hardcoded decisions or guarantees about today's live data. Run pre-flight before presenting.
+
+**Per-delivery-day mandate limits and wholesale sizing (T62, T91).** Both auto-approve and hard limits apply to everything a buyer has committed (confirmed or pending approval) for the **same delivery day**, preventing split-order bypasses while keeping autonomous spend deliberately low:
+- **M1 Nordic Harbour Hotels** (hotel chain): **€2,500.00** auto-approve / **€15,000.00** hard limit. A single 200-room hotel (~250 breakfast guests at €4–8/guest ingredient cost) spends €1,000–2,000/day on breakfast alone and €4,000–10,000 per broadline delivery (2–3 deliveries/week), so a multi-hotel chain routinely places €6,000–12,000 delivery-day orders for Purchasing Manager sign-off (`ASK`) while 20,000 l of milk (`€20,200.00`) remains `BLOCK`.
+- **M2 Northbay School Kitchen** (school kitchen): **€500.00** auto-approve / **€6,000.00** hard limit. At ~€1/meal in raw ingredients (~one third of the ~€2.90 Finnish school-meal cost), a 500-pupil school spends ~€500/day and €2,000–4,000 on a weekly dry-goods + dairy delivery, so anything above a day's spend goes to the Head Chef (`ASK`) without blocking normal weekly deliveries.
 
 ## Run locally
 

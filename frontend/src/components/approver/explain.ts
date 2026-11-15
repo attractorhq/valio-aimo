@@ -26,23 +26,23 @@ const DEFAULT_MANDATE_LIMITS: Record<
   { autoApproveLimitEur: string; hardLimitEur: string; minReliability: string }
 > = {
   'nordic-harbour-hotels': {
-    autoApproveLimitEur: '1500.00',
-    hardLimitEur: '5000.00',
+    autoApproveLimitEur: '2500.00',
+    hardLimitEur: '15000.00',
     minReliability: '0.80',
   },
   'mock-hotels': {
-    autoApproveLimitEur: '1500.00',
-    hardLimitEur: '5000.00',
+    autoApproveLimitEur: '2500.00',
+    hardLimitEur: '15000.00',
     minReliability: '0.80',
   },
   'northbay-school-kitchen': {
     autoApproveLimitEur: '500.00',
-    hardLimitEur: '3000.00',
+    hardLimitEur: '6000.00',
     minReliability: '0.80',
   },
   'mock-school': {
     autoApproveLimitEur: '500.00',
-    hardLimitEur: '3000.00',
+    hardLimitEur: '6000.00',
     minReliability: '0.80',
   },
 }

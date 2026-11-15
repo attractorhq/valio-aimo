@@ -467,17 +467,17 @@ uvicorn.run(app, host="127.0.0.1", port=${backendPort}, log_level="warning")
     await expect(step(page, 'Approval')).toContainText('Instruction ignored')
 
     // 4. Finnish free text: "Tarvitsen tuhat litraa laktoositonta maitoa maanantaiksi" -> the same order.
-    // T62 split-order guard: the same buyer already has €1,010.00 confirmed for Mon 16 Nov (step 1), so this
-    // repeat order takes the day over the €1,500.00 auto-approve limit: ASK, and the text says why.
+    // T62 split-order guard: the same buyer already has €2,020.00 confirmed for Mon 16 Nov (steps 1 and 1b), so this
+    // repeat order takes the day over the €2,500.00 auto-approve limit: ASK, and the text says why.
     await page
       .getByLabel('What do you need, and by when?')
       .fill('Tarvitsen tuhat litraa laktoositonta maitoa maanantaiksi')
     await page.getByRole('button', { name: 'Run request' }).click()
     await expect(step(page, 'Approval')).toContainText(
-      '€1,010.00 excl. VAT plus the orders already committed for delivery on Mon 16 Nov exceeds your €1,500.00 auto-approve limit.',
+      '€1,010.00 excl. VAT plus the orders already committed for delivery on Mon 16 Nov exceeds your €2,500.00 auto-approve limit.',
     )
     await expect(page.getByTestId('result-why')).toContainText(
-      'This order plus the orders already committed for delivery on Mon 16 Nov exceeds your €1,500.00 auto-approve limit',
+      'This order plus the orders already committed for delivery on Mon 16 Nov exceeds your €2,500.00 auto-approve limit',
     )
     await expect(step(page, 'Order')).toContainText('€1,010.00 excl. VAT')
 

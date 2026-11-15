@@ -141,9 +141,12 @@ def test_grams_are_converted_visibly():
 def test_preferences_are_soft():
     result = parse_request("100 l of organic Finnish milk 1.5 % by Monday", FRIDAY)
     (item,) = result.request.items
-    assert item.requirements == []
+    assert item.requirements == [
+        Requirement(kind="CLAIM", code="EU_ORGANIC_FARMING"),
+        Requirement(kind="CLAIM", code="FINNISH_ORIGIN"),
+    ]
     assert {(p.kind, p.value) for p in item.preferences} == {
-        ("ORGANIC", "organic"), ("ORIGIN", "FI"), ("FAT_PERCENT", "1.5"),
+        ("FAT_PERCENT", "1.5"),
     }
     assert "Any fat %" not in result.request.assumptions
 

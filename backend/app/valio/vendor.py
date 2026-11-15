@@ -39,13 +39,6 @@ class VendorProductPrice(VendorModel):
     error: bool
 
 
-class PriceResponse(VendorModel):
-    customerId: str
-    currency: str
-    pricingDate: datetime
-    products: list[VendorProductPrice]
-
-
 class ScheduleLine(VendorModel):
     salesBlock: bool
     availableAmount: Decimal = Amount
@@ -59,12 +52,6 @@ class VendorAvailability(VendorModel):
     salesBlock: bool
     logisticModel: str | None = None
     scheduleLines: list[ScheduleLine]
-
-
-class AvailabilityResponse(VendorModel):
-    timeNow: datetime
-    requestedDate: datetime
-    products: list[VendorAvailability]
 
 
 class PriceEnvelope(VendorModel):

@@ -5,7 +5,7 @@
   "segment": "school kitchen",
   "allergenMode": "STRICT",
   "autoApproveLimitEur": "500.00",
-  "hardLimitEur": "3000.00",
+  "hardLimitEur": "6000.00",
   "autoAcceptValioSubstitutes": false,
   "autoAcceptAgentSubstitutes": false,
   "autoAcceptSupplierStock": false,

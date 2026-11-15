@@ -142,7 +142,7 @@ EVAL_ROWS: tuple[EvalRow, ...] = (
         expected_vat=Decimal("2727.00"),
         expected_total_incl_vat=Decimal("22927.00"),
         instruction_ignored=True,
-        notes="Scenario C: 464306 × 20,000 = €20,200.00 > €5,000 hard limit -> BLOCK + INSTRUCTION_IGNORED.",
+        notes="Scenario C: 464306 × 20,000 = €20,200.00 > €15,000 hard limit -> BLOCK + INSTRUCTION_IGNORED.",
     ),
     _pending_brief_row(3, "M1"),
     # Row 4: Scenario B (P8 B / P9 row 4 — ASK [OVER_AUTO_LIMIT])

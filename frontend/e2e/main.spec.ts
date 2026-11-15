@@ -19,10 +19,10 @@ test('shows one main view with four steps and a read-only mandate', async ({ pag
   }
   const mandate = page.getByRole('region', { name: 'Buyer mandate' })
   await expect(page.getByRole('heading', { name: 'Mandate v1 · read-only' })).toBeVisible()
-  await expect(mandate).toContainText('€1,500.00 excl. VAT')
+  await expect(mandate).toContainText('€2,500.00 excl. VAT')
   await mandate.getByText('Synthetic School Kitchen (demo mock)').click()
   await expect(mandate).toContainText('€500.00 excl. VAT')
-  await expect(mandate).toContainText('€3,000.00 excl. VAT')
+  await expect(mandate).toContainText('€6,000.00 excl. VAT')
   await expect(mandate).toContainText('Strict')
   await expect(mandate).toContainText('Head Chef')
   // T46: the buyer page has no mandate write controls.
@@ -108,7 +108,7 @@ test('scenario C: blocked by mandate, instruction ignored', async ({ page }, inf
   const approval = step(page, 'Approval')
   await expect(approval).toContainText('Blocked by mandate')
   await expect(approval).toContainText('Above hard limit')
-  await expect(approval).toContainText('€20,200.00 excl. VAT is above your €5,000.00 hard limit.')
+  await expect(approval).toContainText('€20,200.00 excl. VAT is above your €15,000.00 hard limit.')
   await expect(approval).toContainText('Instruction ignored')
   await page.screenshot({
     path: `test-results/scenario-c-${info.project.name}.png`,
@@ -235,7 +235,7 @@ test('T46: /admin holds buyer-admin controls and reset; buyer page shows mandate
     segment: 'school kitchen',
     allergenMode: 'STRICT' as const,
     autoApproveLimitEur: '500.00',
-    hardLimitEur: '3000.00',
+    hardLimitEur: '6000.00',
     autoAcceptValioSubstitutes: false,
     autoAcceptAgentSubstitutes: false,
     autoAcceptSupplierStock: false,
@@ -387,7 +387,7 @@ test('T86: ASK proposal without hard requirements explains why it was not auto-a
     segment: 'school kitchen',
     allergenMode: 'STRICT' as const,
     autoApproveLimitEur: '500.00',
-    hardLimitEur: '3000.00',
+    hardLimitEur: '6000.00',
     autoAcceptValioSubstitutes: false,
     autoAcceptAgentSubstitutes: false,
     autoAcceptSupplierStock: false,

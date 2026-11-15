@@ -15,11 +15,11 @@ ADMIN = "human:Buyer admin"
 
 def test_demo_mandates_match_the_brief():
     assert (M1.organisationName, M1.allergenMode, M1.autoApproveLimitEur, M1.hardLimitEur) == (
-        "Nordic Harbour Hotels", "STANDARD", Decimal("1500.00"), Decimal("5000.00"))
+        "Nordic Harbour Hotels", "STANDARD", Decimal("2500.00"), Decimal("15000.00"))
     assert (M1.autoAcceptValioSubstitutes, M1.autoAcceptSupplierStock, M1.approver.role) == (
         True, False, "Purchasing Manager")
     assert (M2.organisationName, M2.allergenMode, M2.autoApproveLimitEur, M2.hardLimitEur) == (
-        "Northbay School Kitchen", "STRICT", Decimal("500.00"), Decimal("3000.00"))
+        "Northbay School Kitchen", "STRICT", Decimal("500.00"), Decimal("6000.00"))
     assert (M2.autoAcceptValioSubstitutes, M2.autoAcceptSupplierStock, M2.approver.role) == (
         False, False, "Head Chef")
     for mandate in DEMO_MANDATES:
@@ -65,7 +65,7 @@ def test_change_summary_formats_non_money_fields():
         ({"autoAcceptAgentSubstitutes": True}, ADMIN, ValueError),
         ({"budget": "1"}, ADMIN, ValueError),
         ({"autoApproveLimitEur": "500"}, ADMIN, ValueError),  # no actual change
-        ({"autoApproveLimitEur": "3000.01"}, ADMIN, ValueError),  # above the hard limit
+        ({"autoApproveLimitEur": "6000.01"}, ADMIN, ValueError),  # above the hard limit
         ({"minReliability": "1.5"}, ADMIN, ValidationError),
     ],
 )
