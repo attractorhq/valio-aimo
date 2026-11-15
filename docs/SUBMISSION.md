@@ -55,6 +55,7 @@ A trusted trade gateway for Valio Aimo plus a demo purchasing agent. It separate
   - An MCP endpoint at `/mcp` exposes the purchasing-agent tools, buyer-scoped resources (playbook, mandate, trust labels) and an order-request prompt. Approval is not an agent tool and is refused if called.
   - A proposal must describe its offer truthfully: request items that contradict the bound offer lines are rejected.
   - Agents identify their buyer with a public key, `Authorization: Bearer demo-agent-<customerId>`, and can act only for that buyer. Approvers sign in by role and see only their buyer's queue, and can enrol a passkey on their phone so that approving requires it; buyer-admin changes need the public admin key shown on `/admin`.
+  - A confirmed order downloads as a Peppol BIS Order (UBL 2.1) from its decision log, and `/spec` maps the order states to the Peppol Order Response codes.
   - A second, independent client gets the same decision and offer hash.
 - **Valio Aimo readiness view** (`/valio`): computed from the 17,546-product catalogue.
   - An agent activity feed lists every agent call, refused ones included. Valio can pause all agents. An agent session that keeps making refused calls (approval attempts, acting for another buyer) is warned, then suspended for two minutes; Valio can resume it at once. A rogue-agent run shows this live.
