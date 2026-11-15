@@ -19,7 +19,7 @@ A trusted trade gateway for Valio Aimo plus a demo purchasing agent. It separate
 - **One interface, three outcomes:**
   - "1,000 litres of lactose-free milk by Monday" is confirmed automatically at €1,010.00, inside the hotel's €2,500.00 auto-approve limit.
   - A €506.16 gluten-free school order above its €500.00 auto-approve limit waits for the Head Chef.
-  - €20,200.00 above a €15,000.00 hard limit is blocked, and the attempted "ignore the hard limit" instruction is logged as ignored. The block also shows what would fit within the limit (14,851 l for €14,999.51), as information only.
+  - €20,200.00 above a €15,000.00 hard limit is blocked, and the attempted "ignore the hard limit" instruction is logged as ignored. A request that tries to skip approval is never ordered automatically: a person checks it. The block also shows what would fit within the limit (14,851 l for €14,999.51), as information only.
   - The figures come from the live API at request time.
 - **Evidence with provenance:**
   - Every decisive fact shows Verified, Declared, Estimate or Unknown, together with its source and retrieval time.
@@ -35,6 +35,7 @@ A trusted trade gateway for Valio Aimo plus a demo purchasing agent. It separate
   - Unknown allergens and passed cut-offs cannot be waived.
   - When nothing qualifies, the result says what was searched, offers the earliest deliverable date as a one-click retry, and lists the closest compliant products (nothing is ordered from them).
   - Partial stock becomes its own proposal version with its own approval.
+  - When one line of a multi-item request cannot be met, the deliverable lines become their own proposal for a person, who sees which line is not ordered and why. The missing line is never ordered.
   - When another compliant product has the missing stock, it tops up the rest as a split order. A top-up of the same product type can complete automatically within the limits; any other top-up goes to a person, and a price rise of more than 10 % per kg or litre is stated.
 - **Alternatives and editable assumptions:**
   - Each line shows Good / Better / Best alternatives with a one-line trade-off (price per litre or kilo, pack, brand, stock certainty, labels and CO₂ estimate). Only compliant products are listed.
@@ -44,13 +45,15 @@ A trusted trade gateway for Valio Aimo plus a demo purchasing agent. It separate
   - Each browser gets its own private session, so one visitor's changes never affect another's.
 - **Inspectable and tamper-evident decisions:**
   - The decision log shows actors, rules and evidence for every state change. `/log` lists recent proposals per buyer.
-  - A SHA-256 hash chain over the log can be verified at `/v0.1/audit/verify`.
+  - A SHA-256 hash chain over the log can be verified at `/v0.1/audit/verify`; a buyer's agent key verifies that buyer's own chain.
+  - Offers, decisions and confirmations carry Ed25519 signatures. The public key is published at `/.well-known/aimo-connect-keys.json`, and an exported log can be verified offline (signatures and hash chain).
   - The log downloads as JSON or CSV from the log page, and it shows the result of the final re-check.
 - **Open interface:**
-  - OpenAPI 3.1, JSON Schemas and a human-readable specification of the trust labels and reason codes at `/spec`.
+  - OpenAPI 3.1, JSON Schemas and a human-readable specification of the trust labels and reason codes at `/spec`, including how the labels map to GS1 product data and W3C Verifiable Credentials concepts.
+  - Agents can ask for a compact response (`?view=compact`): a one-line summary, every reason with its plain-language text, and, when nothing can be ordered, the closest matches, the earliest deliverable date and a ready retry request.
   - An MCP endpoint at `/mcp` exposes the purchasing-agent tools, buyer-scoped resources (playbook, mandate, trust labels) and an order-request prompt. Approval is not an agent tool and is refused if called.
   - A proposal must describe its offer truthfully: request items that contradict the bound offer lines are rejected.
-  - Agents identify their buyer with a public key, `Authorization: Bearer demo-agent-<customerId>`, and can act only for that buyer. Approvers sign in by role and see only their buyer's queue; buyer-admin changes need the public admin key shown on `/admin`.
+  - Agents identify their buyer with a public key, `Authorization: Bearer demo-agent-<customerId>`, and can act only for that buyer. Approvers sign in by role and see only their buyer's queue, and can enrol a passkey on their phone so that approving requires it; buyer-admin changes need the public admin key shown on `/admin`.
   - A second, independent client gets the same decision and offer hash.
 - **Valio Aimo readiness view** (`/valio`): computed from the 17,546-product catalogue.
   - An agent activity feed lists every agent call, refused ones included. Valio can pause all agents, and an agent with repeated refused calls is suspended; a rogue-agent run shows the refusals live.
