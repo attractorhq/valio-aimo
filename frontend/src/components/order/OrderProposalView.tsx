@@ -7,22 +7,12 @@ import {
   formatQuantity,
   formatTime,
 } from '../../lib/format'
+import { earlyDeliverySentence, overshootNotes } from '../../lib/clarity'
 import { ProposalRefText } from '../trust/ProposalRefText'
 import { TrustBadge } from '../trust/TrustBadge'
 import { TrustCard } from '../trust/TrustCard'
 import { SplitProposalSummary } from '../proposal/SplitProposalSummary'
 import { Alternatives } from './Alternatives'
-
-function dayNumber(value: string): number {
-  const [year, month, day] = value.slice(0, 10).split('-').map(Number)
-  return Date.UTC(year, month - 1, day) / 86_400_000
-}
-
-function earlyLineNote(deliveryDate: string, requestedDate: string): string | null {
-  const days = dayNumber(requestedDate) - dayNumber(deliveryDate)
-  if (days <= 0) return null
-  return `Arrives ${formatDate(deliveryDate)}, ${days} ${days === 1 ? 'day' : 'days'} before your ${formatDate(requestedDate)}`
-}
 
 /**
  * Step 3 Order proposal at fixed price + per-line Agent Trust Labels v0.1 cards (P6 P0-2) + Good/Better/Best alternatives (T22).
@@ -50,6 +40,7 @@ export function OrderProposalView({
   const itemsById = new Map((req?.items ?? []).map((item) => [item.itemId, item]))
   const excluded = source.excluded ?? []
   const resolvedMandateVer = proposal?.mandateVersion ?? mandateVersion ?? 1
+  const quantityNotes = overshootNotes(source.lines, req)
 
   return (
     <div>
@@ -98,6 +89,11 @@ export function OrderProposalView({
                         ={' '}
                         {formatQuantity(line.deliveredQuantity.value, line.deliveredQuantity.unit)}
                       </small>
+                      {quantityNotes.get(line.lineId) && (
+                        <small className="muted block" data-testid="quantity-note">
+                          {quantityNotes.get(line.lineId)}
+                        </small>
+                      )}
                     </span>
                   </td>
                   <td className="num" data-label="Unit price">
@@ -115,8 +111,8 @@ export function OrderProposalView({
                         </span>
                       )}
                       {line.deliveryDate < source.requestedDate && (
-                        <span className="muted block text-xs">
-                          {earlyLineNote(line.deliveryDate, source.requestedDate)}
+                        <span className="muted block text-xs" data-testid="early-delivery-note">
+                          {earlyDeliverySentence([line], source.requestedDate)}
                         </span>
                       )}
                       {line.closingTime && (
@@ -168,6 +164,9 @@ export function OrderProposalView({
               forbiddenAllergens={forbiddenAllergens}
               excludedSubstitutes={excludedSubstitutes}
               showEvidence={showEvidence}
+              mode={source.mode}
+              requestedDate={source.requestedDate}
+              excluded={excluded}
             />
           )
         })}

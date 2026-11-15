@@ -139,7 +139,7 @@ test('collapsible trust cards keep step 4 reachable within one viewport scroll a
   await page.getByRole('button', { name: 'Order details' }).click()
 
   // Trust cards start collapsed, showing summary counts, hard requirements and the Valio-substitute check.
-  const toggles = page.getByRole('button', { name: /Show facts/ })
+  const toggles = page.getByRole('button', { name: /Show all facts/ })
   await expect(toggles).toHaveCount(2)
   await expect(toggles.first()).toHaveAttribute('aria-expanded', 'false')
   await expect(page.getByRole('note', { name: 'Valio-substitute check' })).toBeVisible()

@@ -13,8 +13,8 @@ import {
 } from 'lucide-react'
 import type { Mandate } from '../../lib/contracts'
 import { approverChannel, GatewayError, type ApproverItem } from '../../lib/gateway'
+import { earlyDeliverySentence, overshootNotes } from '../../lib/clarity'
 import {
-  earlyDeliveryNote,
   formatClock,
   formatDate,
   formatMoney,
@@ -24,6 +24,7 @@ import {
 } from '../../lib/format'
 import { approvalReasons, contextReasons, formatApprovalStatement, plainReason } from './explain'
 import { QrCode } from './QrCode'
+import { splitReasonLines } from '../proposal/SplitProposalSummary'
 import { logPath } from '../log/logData'
 import { LoadingSection } from '../Loading'
 import { EvidenceChip } from '../trust/EvidenceChip'
@@ -153,7 +154,10 @@ export function ApprovalCard({
     return <LoadingSection label="approval details" variant="approval" className="panel" />
   }
 
-  const earlyNote = earlyDeliveryNote(proposal.lines, proposal.requestedDate)
+  const earlyNote = earlyDeliverySentence(proposal.lines, proposal.requestedDate)
+  const quantityNotes = overshootNotes(proposal.lines, proposal.request)
+  // The SPLIT context row already says why; otherwise the split reason gets its own row (T109).
+  const splitWhy = context.includes('SPLIT') ? [] : splitReasonLines(proposal)
 
   const lineTable = (
     <div className="table-scroll">
@@ -196,6 +200,11 @@ export function ApprovalCard({
                     <small className="muted block">
                       = {formatQuantity(line.deliveredQuantity.value, line.deliveredQuantity.unit)}
                     </small>
+                    {quantityNotes.get(line.lineId) && (
+                      <small className="muted block" data-testid="quantity-note">
+                        {quantityNotes.get(line.lineId)}
+                      </small>
+                    )}
                   </span>
                 </td>
                 <td className="num" data-label="Unit price">
@@ -265,6 +274,17 @@ export function ApprovalCard({
             <span>{earlyNote}</span>
           </p>
         )}
+        {splitWhy.length > 0 && (
+          <p className="approval-reason approval-reason-info" data-testid="split-reason">
+            <span className="chip">
+              <Info size={13} aria-hidden />
+              {reasonChip('SPLIT')}
+            </span>
+            <span>
+              <ProposalRefText text={splitWhy.join(' ')} />
+            </span>
+          </p>
+        )}
         {context.map((code) => {
           const text = plainReason(code, proposal, mandate)
           return (
@@ -293,6 +313,11 @@ export function ApprovalCard({
               <span className="approval-line-meta">
                 {formatMoney(line.lineTotalExclVat)} · {formatDate(line.deliveryDate)}
               </span>
+              {quantityNotes.get(line.lineId) && (
+                <span className="approval-line-note" data-testid="quantity-note">
+                  {quantityNotes.get(line.lineId)}
+                </span>
+              )}
             </li>
           ))}
         </ul>

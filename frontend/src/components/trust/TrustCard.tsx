@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useId, useState, type ReactNode } from 'react'
 import { AlertTriangle, ChevronDown, ChevronUp, ShieldAlert } from 'lucide-react'
 import type {
   ExcludedProduct,
@@ -7,6 +7,7 @@ import type {
   TrustLabel,
   TrustLevel,
 } from '../../lib/contracts'
+import { liveCheckPhrase, requirementPhrase, substituteWhySentence } from '../../lib/clarity'
 import { formatQuantity, reasonChip, requirementLabel } from '../../lib/format'
 import { requirementChecks } from '../../lib/requirements'
 import { ProposalRefText } from './ProposalRefText'
@@ -73,6 +74,9 @@ export function TrustCard({
   forbiddenAllergens = [],
   excludedSubstitutes = [],
   showEvidence = false,
+  mode,
+  requestedDate,
+  excluded = [],
 }: {
   line: OfferLine
   item?: RequestItem
@@ -80,6 +84,11 @@ export function TrustCard({
   forbiddenAllergens?: readonly string[]
   excludedSubstitutes?: ExcludedProduct[]
   showEvidence?: boolean
+  mode?: 'LIVE' | 'RECORDED'
+  /** The order's requested date, for the substitute line's "arrives by" clause. */
+  requestedDate?: string
+  /** Every excluded candidate of the order; the substitute line counts those for its own item. */
+  excluded?: readonly ExcludedProduct[]
 }) {
   const [expanded, setExpanded] = useState(false)
   const factsOpen = expanded || showEvidence
@@ -110,47 +119,90 @@ export function TrustCard({
   const displayedFacts = hasContentFact ? regularFacts : [syntheticContentFact, ...regularFacts]
   const ToggleIcon = expanded ? ChevronUp : ChevronDown
 
+  const live = liveCheckPhrase(line, mode)
+  const conflicts = line.facts.filter((f) => f.conflict).length
+  const summaryParts: Array<{ key: string; node: ReactNode }> = [
+    ...checks.map((check) => ({
+      key: `req-${check.requirement.kind}-${check.requirement.code}`,
+      node: (
+        <span
+          data-requirement={`${check.requirement.kind}:${check.requirement.code}`}
+          data-proven={check.proven ? 'true' : 'false'}
+          title={
+            check.fact
+              ? `Source: ${sourceShort(check.fact)} · ${sourceText(check.fact)}`
+              : 'No evidence on this line'
+          }
+          className={check.proven ? 'font-semibold' : 'font-semibold text-[var(--block)]'}
+        >
+          {requirementPhrase(check)}
+        </span>
+      ),
+    })),
+    ...(live ? [{ key: 'live', node: <span>{live}</span> }] : []),
+    ...(conflicts > 0
+      ? [
+          {
+            key: 'conflict',
+            node: (
+              <span className="font-semibold text-[var(--block)]">
+                {conflicts === 1 ? '1 fact disagrees' : `${conflicts} facts disagree`} between
+                sources: see all facts
+              </span>
+            ),
+          },
+        ]
+      : []),
+  ]
+  const substituteWhy = requestedDate
+    ? substituteWhySentence(line, item, { requestedDate, excluded, forbiddenAllergens })
+    : null
+
   return (
     <article
       className="mt-2 border-t border-[var(--line)] pt-2.5"
       aria-label={`Trust card for ${line.name}`}
     >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
           <h3 className="text-xs font-bold text-[var(--ink)]" title={line.name}>
             Trust card · {line.productId}
           </h3>
-          {checks.map(({ requirement: req, fact, fromMandate, proven }) => {
-            // T83: "Gluten-free: Gluten-free … supplier claim" said once; the source is in the tooltip.
-            const label = requirementLabel(req)
-            const value = formatFactDisplay(fact)
-            const same = value.trim().toLowerCase() === label.trim().toLowerCase()
-            return (
-              <span
-                key={`${req.kind}-${req.code}`}
-                data-requirement={`${req.kind}:${req.code}`}
-                data-proven={proven ? 'true' : 'false'}
-                title={
-                  fact
-                    ? `Source: ${sourceShort(fact)} · ${sourceText(fact)}`
-                    : 'No evidence on this line'
-                }
-                className="inline-flex flex-wrap items-center gap-1 text-xs"
-              >
-                <strong className="text-[var(--ink)]">
-                  {label}
-                  {fromMandate ? ' (mandate)' : ''}
-                  {same ? '' : ':'}
-                </strong>
-                {!same && <span>{value}</span>}
-                <TrustBadge level={fact?.level ?? 'UNKNOWN'} conflict={fact?.conflict} />
-              </span>
-            )
-          })}
+          {/* T109: one plain line for the buyer; levels, sources and conflict codes stay in the full fact list. */}
+          {summaryParts.length > 0 && (
+            <p className="mt-0.5 text-xs text-[var(--ink)]" data-testid="evidence-summary">
+              {summaryParts.map((part, idx) => (
+                <span key={part.key}>
+                  {idx > 0 && ' · '}
+                  {part.node}
+                </span>
+              ))}
+            </p>
+          )}
+          {substituteWhy && (
+            <p className="mt-0.5 text-xs text-[var(--ink)]" data-testid="substitute-why">
+              <ProposalRefText text={substituteWhy} />
+            </p>
+          )}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        {!showEvidence && (
+          <button
+            type="button"
+            aria-expanded={expanded}
+            aria-controls={factsId}
+            onClick={() => setExpanded((prev) => !prev)}
+            className="disclosure-btn"
+          >
+            <ToggleIcon size={13} aria-hidden />
+            <span>{expanded ? 'Hide facts' : `Show all facts (${displayedFacts.length})`}</span>
+          </button>
+        )}
+      </div>
+
+      {factsOpen && (
+        <div id={factsId}>
           <ul
-            className="flex flex-wrap items-center gap-2 text-xs font-semibold"
+            className="mt-2 flex flex-wrap items-center gap-2 text-xs font-semibold"
             aria-label={`Trust summary for ${line.name}`}
           >
             <li className="text-[var(--auto)]">{counts.VERIFIED} Verified</li>
@@ -161,48 +213,35 @@ export function TrustCard({
               <li className="text-[var(--block)]">{counts.CONFLICT} Conflict</li>
             )}
           </ul>
-          {!showEvidence && (
-            <button
-              type="button"
-              aria-expanded={expanded}
-              aria-controls={factsId}
-              onClick={() => setExpanded((prev) => !prev)}
-              className="disclosure-btn"
-            >
-              <ToggleIcon size={13} aria-hidden />
-              <span>{expanded ? 'Hide facts' : `Show facts (${displayedFacts.length})`}</span>
-            </button>
-          )}
-        </div>
-      </div>
-
-      {factsOpen && (
-        <dl id={factsId} className="mt-2 grid border-t border-[var(--line)]">
-          {displayedFacts.map((fact, idx) => (
-            <div
-              key={`${fact.fact}-${idx}`}
-              data-fact={fact.fact}
-              className="grid grid-cols-1 items-baseline gap-1 border-b border-[var(--line)] py-1.5 text-sm last:border-b-0 sm:grid-cols-[160px_minmax(0,1fr)_auto]"
-            >
-              <dt className="text-xs font-semibold text-[var(--muted)]">{factLabel(fact.fact)}</dt>
-              <dd className="min-w-0">
-                <div className="font-semibold text-[var(--ink)]">
-                  <ProposalRefText text={formatFactDisplay(fact)} />
+          <dl className="mt-2 grid border-t border-[var(--line)]">
+            {displayedFacts.map((fact, idx) => (
+              <div
+                key={`${fact.fact}-${idx}`}
+                data-fact={fact.fact}
+                className="grid grid-cols-1 items-baseline gap-1 border-b border-[var(--line)] py-1.5 text-sm last:border-b-0 sm:grid-cols-[160px_minmax(0,1fr)_auto]"
+              >
+                <dt className="text-xs font-semibold text-[var(--muted)]">
+                  {factLabel(fact.fact)}
+                </dt>
+                <dd className="min-w-0">
+                  <div className="font-semibold text-[var(--ink)]">
+                    <ProposalRefText text={formatFactDisplay(fact)} />
+                  </div>
+                  <TrustSourceMeta fact={fact} />
+                  {fact.conflict && (
+                    <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-[var(--block)]">
+                      <AlertTriangle size={12} aria-hidden />
+                      <span>{fact.conflict.message}</span>
+                    </p>
+                  )}
+                </dd>
+                <div className="sm:justify-self-end">
+                  <TrustBadge level={fact.level} conflict={fact.conflict} />
                 </div>
-                <TrustSourceMeta fact={fact} />
-                {fact.conflict && (
-                  <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-[var(--block)]">
-                    <AlertTriangle size={12} aria-hidden />
-                    <span>{fact.conflict.message}</span>
-                  </p>
-                )}
-              </dd>
-              <div className="sm:justify-self-end">
-                <TrustBadge level={fact.level} conflict={fact.conflict} />
               </div>
-            </div>
-          ))}
-        </dl>
+            ))}
+          </dl>
+        </div>
       )}
 
       {(subFact || excludedSubstitutes.length > 0) && (

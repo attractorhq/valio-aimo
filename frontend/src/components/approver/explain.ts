@@ -4,6 +4,7 @@ import {
   formatFullSplitApprovalStatement,
   formatSplitDetailLines,
 } from '../proposal/SplitProposalSummary'
+import { substituteWhySentence } from '../../lib/clarity'
 
 /** 'a', 'a and b', 'a, b and c'. */
 function joinAnd(items: string[]): string {
@@ -180,7 +181,7 @@ function partialAvailabilityReasonText(proposal: Proposal): string {
         .join(' + ')
       if (heldNote) {
         parts.push(
-          `${heldNote}; ${formatNumber(item.quantity)} ${item.unit} needed — remainder covered by ${restNames}.`,
+          `${heldNote}; ${formatNumber(item.quantity)} ${item.unit} needed; the rest comes from ${restNames}.`,
         )
       } else {
         parts.push(
@@ -369,6 +370,28 @@ export function overbuyNotes(proposal: Proposal): string[] {
   return notes
 }
 
+/** T109: why each agent-chosen substitute line was chosen and which stated requirements it proves. */
+export function substituteWhy(proposal: Proposal, mandate?: Mandate): string | null {
+  const sentences = proposal.lines
+    .filter(
+      (line) =>
+        line.substitutionSource !== 'VALIO' && !(line.reasons ?? []).includes('VALIO_SUBSTITUTE'),
+    )
+    .map((line) =>
+      substituteWhySentence(
+        line,
+        proposal.request.items.find((item) => item.itemId === line.itemId),
+        {
+          requestedDate: proposal.requestedDate,
+          excluded: proposal.excluded,
+          forbiddenAllergens: mandate?.forbiddenAllergens,
+        },
+      ),
+    )
+    .filter((text): text is string => Boolean(text))
+  return sentences.length ? [...new Set(sentences)].join(' ') : null
+}
+
 export function plainReason(
   code: ReasonCode,
   proposal: Proposal,
@@ -380,7 +403,11 @@ export function plainReason(
       ? details.join(' ')
       : `Covered by ${proposal.lines.length} products that all meet your requirements.`
   }
-  if (code === 'AGENT_SUBSTITUTE') return substituteStatement(proposal)
+  if (code === 'AGENT_SUBSTITUTE') {
+    // T109: what the buyer asked for, then why this line was chosen and what it proves.
+    const why = substituteWhy(proposal, mandate)
+    return [substituteStatement(proposal), why].filter(Boolean).join(' ') || null
+  }
   if (code === 'VALIO_SUBSTITUTE') return valioSubstituteStatement(proposal)
   if (code === 'QUANTITY_BASIS_WEAK') {
     const over = overbuyNotes(proposal)

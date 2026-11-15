@@ -7,12 +7,13 @@ import {
   formatMoney,
   formatQuantity,
   formatTime,
-  earlyDeliveryNote,
   reasonChip,
   requirementLabel,
 } from '../../lib/format'
 import { isProven, proposalRequirementChecks } from '../../lib/requirements'
 import { ProposalRefText } from '../trust/ProposalRefText'
+import { earlyDeliverySentence, overshootNotes } from '../../lib/clarity'
+import { splitReasonLines } from '../proposal/SplitProposalSummary'
 
 export { RequestCard } from '../request/RequestCard'
 export { NoOrderBanner } from './NoOrderBanner'
@@ -53,26 +54,9 @@ function deliverySummary(proposal: Proposal) {
   return dates.map(formatDate).join(', ')
 }
 
-function dayNumber(value: string): number {
-  const [year, month, day] = value.slice(0, 10).split('-').map(Number)
-  return Date.UTC(year, month - 1, day) / 86_400_000
-}
-
-function earlyBeforeNote(proposal: Proposal): string | null {
-  const reqDay = dayNumber(proposal.requestedDate)
-  const early = proposal.lines.map((line) => line.deliveryDate).filter((d) => dayNumber(d) < reqDay)
-  if (early.length === 0) return null
-  const first = early.sort()[0]
-  const days = reqDay - dayNumber(first)
-  const who = early.length === proposal.lines.length ? 'Arrives' : 'Part arrives'
-  return `${who} ${formatDate(first)}, ${days} ${days === 1 ? 'day' : 'days'} before your ${formatDate(proposal.requestedDate)}`
-}
-
-/** "Arrives Mon 16 Nov, 4 days before your Fri 20 Nov" when everything comes early; otherwise the dates, plus a note if part does. */
+/** T109: "Valio offers delivery on Mon 16 Nov for this product; it arrives 3 days before Thursday." */
 function deliveryBullet(delivery: string, early: string | null) {
-  if (!early) return `Delivery ${delivery}`
-  if (early.startsWith('Arrives')) return early
-  return `Delivery ${delivery} · ${early[0].toLowerCase()}${early.slice(1)}`
+  return early ?? `Delivery ${delivery}`
 }
 
 function resultBullets(proposal: Proposal, mandate?: Mandate) {
@@ -107,8 +91,10 @@ function resultBullets(proposal: Proposal, mandate?: Mandate) {
     .flatMap((line) => (line.closingTime ? [line.closingTime] : []))
     .sort((left, right) => Date.parse(left) - Date.parse(right))[0]
   const delivery = deliverySummary(proposal)
-  const early = earlyBeforeNote(proposal) ?? earlyDeliveryNote(proposal.lines, proposal.requestedDate)
-  const orderBy = cutoff ? ` (order by ${formatTime(cutoff)})` : ''
+  const early = earlyDeliverySentence(proposal.lines, proposal.requestedDate)
+  const orderBy = cutoff
+    ? `${early ? ' Order' : ' (order'} by ${formatTime(cutoff)}${early ? '.' : ')'}`
+    : ''
   return [...new Set([...requirements, ...allergens, ...decisionReasons])]
     .slice(0, delivery ? 3 : 4)
     .concat(delivery ? [`${deliveryBullet(delivery, early)}${orderBy}`] : [])
@@ -171,6 +157,11 @@ export function ResultBanner({
       ? plainReason(blockReason, proposal, mandate)
       : null
   const bullets = resultBullets(proposal, mandate)
+  // T109: why the order was split and why the quantity is above the amount asked, when the facts say so.
+  const notes = [
+    ...splitReasonLines(proposal),
+    ...[...overshootNotes(proposal.lines, proposal.request).values()].map((note) => `${note}.`),
+  ]
   const next =
     proposal.state === 'CONFIRMED_SIMULATED'
       ? 'Ordered'
@@ -196,6 +187,11 @@ export function ResultBanner({
       {why && (
         <p className="text-xs text-[var(--ink)]" data-testid="result-why">
           <ProposalRefText text={`${why.charAt(0).toUpperCase() + why.slice(1).replace(/\.$/, '')}.`} />
+        </p>
+      )}
+      {tone !== 'block' && notes.length > 0 && (
+        <p className="text-xs text-[var(--ink)]" data-testid="result-notes">
+          <ProposalRefText text={notes.join(' ')} />
         </p>
       )}
       {bullets.length > 0 && (
