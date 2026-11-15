@@ -732,6 +732,13 @@ _CHEESE_VARIETIES: tuple[tuple[str, str, tuple[str, ...], tuple[str, ...]], ...]
     ("tilsit", "tilsit", (r"\btilsit\w*", r"\bkermajuust\w*"), ("tilsit", "kermajuust")),
 )
 
+# T119: finished whipped cream (spray / aerosol, often sweetened) is not the whipping cream a kitchen whips itself.
+READY_WHIPPED_TERMS = ("whipped cream", "kermavaahto", "cream in spray", "spray", "aerosol", "sokeroitu",
+                       "with sugar", "vispad grädde", "gräddspray")
+_CREAM_USE_QUERY_RE = re.compile(r"whipping|vispi|kuohu|cooking|ruokakerm|coffee|kahvikerm|low[- ]fat|kevytkerm",
+                                 re.IGNORECASE)
+_READY_WHIPPED_QUERY_RE = re.compile(r"\bwhipped\b|kermavaahto|\bspray\b|\baerosol\b|gräddspray", re.IGNORECASE)
+
 TYPE_QUALIFIER_GROUPS: tuple[TypeQualifierGroup, ...] = (
     TypeQualifierGroup(
         group_id="plant_base",
@@ -758,8 +765,17 @@ TYPE_QUALIFIER_GROUPS: tuple[TypeQualifierGroup, ...] = (
         variants=(
             TypeVariant(
                 "whipping", "whipping cream",
-                (r"\bwhipp(ing|ed)\b", r"\b(vispi|kuohu)\w*", r"\bvispgrädde\w*"),
+                (r"\bwhipping\b", r"\b(vispi|kuohu)\w*", r"\bvispgrädde\w*"),
                 product_terms=("whipping", "vispi", "kuohu", "vispgrädde", "whippable", "vaahtoutuva", "vispautuva", "visp "),
+                # T119: ready-whipped (spray, sweetened) cream is a finished product, not the ingredient.
+                forbid_terms=READY_WHIPPED_TERMS,
+                forbid_label="ready-whipped cream",
+            ),
+            TypeVariant(
+                "ready_whipped", "ready-whipped cream",
+                (r"\bwhipped\s+cream\b", r"\bkermavaahto\w*", r"\b(?:cream\s+)?(?:spray|aerosol)\b",
+                 r"\bgräddspray\w*"),
+                product_terms=READY_WHIPPED_TERMS,
             ),
             TypeVariant(
                 "cooking", "cooking cream",
@@ -983,7 +999,10 @@ def product_type_match(
             (v for v in group.variants if v is not variant and v.product_terms and any(t in text for t in v.product_terms)),
             None,
         )
-        if other is not None and proves and variant.product_terms:
+        if disproves and proves and variant.forbid_label and group.group_id == "cream_use":
+            # T119: a forbidden term outweighs a proving one ("Vispad grädde spray" is no whipping cream).
+            differences.append(f"{variant.forbid_label}, not {variant.label}")
+        elif other is not None and proves and variant.product_terms:
             differences.append(f"mixed with {other.label}, not only {variant.label}")
         elif other is not None:
             differences.append(f"{other.label}, not {variant.label}")
@@ -1303,6 +1322,10 @@ def proposal_type_match(
             and not any(term in text for term in ALTERNATIVE_PRODUCT_TERMS)
         ):
             differences.append("not plant-based")
+        # T119: a plain "cream" request never gets a ready-whipped spray as the exact type.
+        if (concept_id == "cream" and any(term in text for term in READY_WHIPPED_TERMS)
+                and not _READY_WHIPPED_QUERY_RE.search(alternative) and not _CREAM_USE_QUERY_RE.search(alternative)):
+            differences.append("ready-whipped cream, not cream")
         # Category-backed generic matches (T89) remain exact, but a named child type must itself match.
         if primary and not match_concept_in_text(primary, text, words, category):
             differences.append(f"not {concept_id.replace('_', ' ')}")
