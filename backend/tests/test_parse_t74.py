@@ -222,7 +222,7 @@ def test_judge_milk_free_cheddar_from_cow_milk_offers_a_cheese_alternative():
     result = parse_request("10 kg milk-free cheddar made from cow milk", MORNING)
     assert ReasonCode.CLARIFICATION_NEEDED in result.reasons
     question = result.clarificationQuestion
-    assert "a milk-free cheese alternative" in question
+    assert "a plant-based cheddar" in question
     assert "oat drink" not in question
     assert question.count("?") == 1
 
@@ -230,7 +230,7 @@ def test_judge_milk_free_cheddar_from_cow_milk_offers_a_cheese_alternative():
 def test_milk_itself_still_offers_oat_drink():
     result = parse_request("10 l milk-free milk tomorrow", MORNING)
     assert result.clarificationQuestion == (
-        "Milk is a dairy product, so it cannot also be milk-free: do you need lactose-free milk, "
+        "Milk is a dairy product, so it cannot be milk-free. Which do you need: lactose-free milk, "
         "or a milk-free alternative such as oat drink?"
     )
 
@@ -243,7 +243,7 @@ def test_a_dairy_product_without_a_known_type_names_no_example():
 
 def test_vegan_yoghurt_made_from_milk_offers_a_vegan_yoghurt_alternative():
     result = parse_request("10 kg vegan yoghurt made from cow's milk tomorrow", MORNING)
-    assert "a vegan yoghurt alternative" in result.clarificationQuestion
+    assert "a plant-based yoghurt" in result.clarificationQuestion
 
 
 def test_milk_free_cheese_alone_is_not_a_contradiction():

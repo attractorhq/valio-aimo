@@ -2145,18 +2145,42 @@ def _contradiction(what: str, requirements: list[Requirement], finnish: bool = F
             f"Maidosta tehty tuote on maitotuote, joten se ei voi olla {label}: tarvitsetteko laktoositonta "
             f"tuotetta vai {other}?"
         )
+    # T115: built from the parsed product type and requirement, never by splicing the buyer's words.
+    product = _contradiction_product(what, kind) if made_from_milk else base
     label = _REQUIREMENT_LABELS[conflict.code]
-    subject = f"{base} made from milk" if made_from_milk else base
-    if plain_milk:
-        other = "a milk-free alternative such as oat drink"
-    elif kind is not None:
-        other = f"a {label} {kind[1]} alternative"
+    if made_from_milk:
+        animal = _MILK_ANIMAL_RE.search(what)
+        source = f"{_MILK_ANIMALS[animal.group(1).lower()]}'s milk" if animal else "milk"
+        opening = f"{label[:1].upper()}{label[1:]} and made from {source} cannot both hold."
     else:
-        other = f"a {label} alternative"
-    return (
-        f"{subject[:1].upper()}{subject[1:]} is a dairy product, so it cannot also be {label}: "
-        f"do you need lactose-free {base}, or {other}?"
-    )
+        opening = f"{product[:1].upper()}{product[1:]} is a dairy product, so it cannot be {label}."
+    if plain_milk:
+        options = "lactose-free milk, or a milk-free alternative such as oat drink"
+    elif kind is not None:
+        options = f"a plant-based {product}, or a lactose-free dairy {product}"
+    else:
+        options = f"lactose-free {product}, or a {label} alternative"
+    return f"{opening} Which do you need: {options}?"
+
+
+_MILK_ANIMAL_RE = re.compile(r"\b(cow|cows|goat|goats|sheep)\b", re.IGNORECASE)
+_MILK_ANIMALS = {"cow": "cow", "cows": "cow", "goat": "goat", "goats": "goat", "sheep": "sheep"}
+# Where the product name ends and the "made from (real) cow milk" description begins.
+_MADE_FROM_START_RE = re.compile(r"\b(?:made|from|of|with|cow|cows|goat|goats|sheep|milk)\b", re.IGNORECASE)
+_FILLER_WORDS = {"real", "genuine", "pure", "proper", "actual", "true", "authentic", "natural"}
+
+
+def _contradiction_product(what: str, kind: tuple[re.Pattern, str, str] | None) -> str:
+    """The product the buyer asked for, without the "made from milk" description or filler words.
+
+    "whipping cream made real cow milk" → "whipping cream"; "milk chocolate" → "milk chocolate".
+    """
+    lead = _MADE_FROM_START_RE.search(what)
+    head = what[: lead.start()] if lead and lead.start() > 0 else what
+    if kind is not None and (found := list(kind[0].finditer(head))):
+        head = head[: found[-1].end()]  # "whipping cream", "goat cheese", never "cream extra"
+    name = " ".join(w for w in head.split() if w.lower() not in _FILLER_WORDS).strip(" ,;-.")
+    return name or (kind[1] if kind else what)
 
 
 def _one_question(text: str) -> str:

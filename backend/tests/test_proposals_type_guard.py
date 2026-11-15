@@ -127,7 +127,7 @@ def test_a_type_changing_valio_substitute_cannot_bypass_the_agent_substitute_gat
     )
     assert verdict.reasons == (ReasonCode.AGENT_SUBSTITUTE,)
     assert verdict.line.substitution == "AGENT"
-    assert "Contains soy" in verdict.findings[0].detail
+    assert "contains soy" in verdict.findings[0].detail
     assert state.gateway.mandates.get(M1.customerId).autoAcceptValioSubstitutes
 
 

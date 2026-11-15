@@ -12,12 +12,13 @@ from app.contracts import (
     Product,
     Quantity,
     RequestItem,
+    Requirement,
     TrustLabel,
     TrustSource,
     format_date,
     format_money,
 )
-from app.trust.labels import EU14_ALLERGEN_CODES, allergen_name
+from app.trust.labels import CLAIM_DISPLAY_NAMES, EU14_ALLERGEN_CODES, LABEL_DISPLAY_NAMES, allergen_name
 
 from .findings import Finding, ordered_codes
 from .mandates import category_allowed
@@ -68,6 +69,60 @@ def split_price_guard_detail(
         f"({format_money(top_up_price_per_unit)}/{unit} vs {format_money(primary_price_per_unit)}/{unit}, "
         f"+{format_money(diff)}/{unit})"
     )
+
+
+def _requirement_text(requirement: Requirement) -> str:
+    if requirement.kind == "AVOID_ALLERGEN":
+        return "milk-free" if requirement.code == "AM" else f"{allergen_name(requirement.code).lower()}-free"
+    if requirement.code in CLAIM_DISPLAY_NAMES:  # "Lactose-free" reads "lactose-free" inside a sentence
+        display = CLAIM_DISPLAY_NAMES[requirement.code]
+        return display if display[:2].isupper() else display[:1].lower() + display[1:]
+    return LABEL_DISPLAY_NAMES.get(requirement.code, requirement.code.replace("_", " ").capitalize())
+
+
+def _fat_text(value: Decimal) -> str:
+    return format(value.normalize(), "f")
+
+
+def substitute_detail(
+    product: Product,
+    item: RequestItem,
+    *,
+    type_differences: tuple[str, ...] = (),
+    guard_detail: str | None = None,
+    allergens: tuple[str, ...] = (),
+    requirements_proven: bool = True,
+) -> str:
+    """T115: one sentence for AGENT_SUBSTITUTE that names how the product differs from what was asked and what
+    it proves ("Valio whipping cream 38 %: 38 % fat instead of 35 %; proves lactose-free; contains milk").
+
+    Detail text only: it never changes a decision. A declared allergen is never the whole reason."""
+    from app.catalog.search import product_fat_percents, requested_fat_percent  # lazy: catalog imports policy
+
+    differences = list(type_differences)
+    target_fat = requested_fat_percent(item.preferences, item.what)
+    if target_fat is not None:
+        fats = product_fat_percents(product)
+        if not fats:
+            differences.append(f"fat % not stated ({_fat_text(target_fat)} % asked)")
+        elif target_fat not in fats:
+            shown = " / ".join(_fat_text(fat) for fat in sorted(fats))
+            differences.append(f"{shown} % fat instead of {_fat_text(target_fat)} %")
+    if item.productId is not None and item.productId != product.productId:
+        differences.append(f"instead of the named product {item.productId}")
+    if guard_detail:
+        differences.append(guard_detail)
+    if not differences:
+        differences.append(f"closest compliant product, not an exact match for the {item.what} asked")
+    parts = ["; ".join(differences)]
+    proven = list(dict.fromkeys(_requirement_text(r) for r in item.requirements))
+    if proven and requirements_proven:
+        parts.append("proves " + ", ".join(proven))
+    if allergens:
+        parts.append("contains " + ", ".join(allergens))
+    sentence = "; ".join(parts)
+    name = (product.name or "").strip()
+    return f"{name}: {sentence}" if name else sentence[:1].upper() + sentence[1:]
 
 
 class StockKind(StrEnum):
@@ -299,8 +354,17 @@ def evaluate_line(
 
     # L10–L11: substitutes must prove every hard requirement.
     if substitution == "AGENT":
-        details = [detail for detail in (type_detail, guard_detail, *allergen_details) if detail]
-        add("AGENT_SUBSTITUTE", "ASK", "L10", "; ".join(details) or None)
+        detail_differences = type_differences
+        if type_match is None:  # detail only: the decision never depends on this re-check
+            detail_differences = proposal_type_match(
+                item.what, (product.name, *product.names.values()), category=product.category,
+                requirement_codes=tuple(requirement.code for requirement in item.requirements),
+            ).differences
+        add("AGENT_SUBSTITUTE", "ASK", "L10", substitute_detail(
+            product, item, type_differences=detail_differences, guard_detail=guard_detail,
+            allergens=tuple(detail.removeprefix("Contains ").lower() for detail in allergen_details),
+            requirements_proven=not requirement_findings,
+        ))
     if substitution == "VALIO":
         if requirement_findings:
             add("SUBSTITUTE_REJECTED", "EXCLUDE", "L11", requirement_findings[0].detail)

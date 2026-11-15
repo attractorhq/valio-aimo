@@ -41,6 +41,7 @@ from app.catalog.search import (
 from app.catalog.vocab import (
     CONCEPTS_BY_ID,
     ProductConcept,
+    ProductForm,
     extract_inline_requirements,
     extract_requested_form,
     match_concept_in_text,
@@ -945,6 +946,17 @@ def _single_requested_type_match(product: Product, item: RequestItem, query_what
     return TypeMatch(exact=not differences, differences=tuple(differences))
 
 
+def _form_rank(product: Product, requested_form: ProductForm | None) -> int:
+    """0 = the requested form is proven (or none was asked), 1 = the product states no form, 2 = another form."""
+    if requested_form is None:
+        return 0
+    names = (product.name, *product.names.values())
+    difference = product_form_difference(names, product.category, requested_form)
+    if difference is None:
+        return 0
+    return 1 if difference.startswith("not ") else 2
+
+
 def requested_type_match(product: Product, item: RequestItem) -> TypeMatch:
     """Is `product` exactly the product type the buyer asked for (e.g. whipping, not cooking cream)? (T34, T22, T87)"""
     alts = _item_alternatives(item)
@@ -1059,6 +1071,7 @@ def rank_candidates(
     )
     target_fat = requested_fat_percent(item.preferences, item.what)
     wants_large_packs = any(p.kind == "OTHER" and p.value == LARGE_PACKS for p in item.preferences)
+    requested_form = extract_requested_form(item.what, item.preferences)
 
     scored: list[
         tuple[tuple, Product, CandidateObservation | None, SubstitutionKind | None, str | None, tuple[str, ...], bool]
@@ -1143,6 +1156,9 @@ def rank_candidates(
                 sub_source = "AGENT"
 
         type_diff_count = 0 if exact_type else len(type_match.differences)
+        # T115: a substitute in the requested form (grated cheese for grated cheese) ranks before one whose form
+        # is unstated, and a different form (a pizza block for grated cheese) after every same-form candidate.
+        form_rank = _form_rank(prod, requested_form)
 
         # When live/recorded observations exist for this item, any candidate with a verified observation
         # ranks ahead of static-only candidates that were not in a partial recorded fixture batch.
@@ -1207,6 +1223,7 @@ def rank_candidates(
         sort_key = (
             has_observation,
             sub_rank,
+            form_rank,
             type_diff_count,
             fat_unknown_rank,
             crit1_declared,
