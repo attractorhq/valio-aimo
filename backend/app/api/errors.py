@@ -130,6 +130,7 @@ def register_error_handlers(app: FastAPI) -> None:
         return error(422, "NO_ORDER", _message(exc), {
             "reasons": list(reasons),
             "excluded": [e.model_dump(mode="json") for e in excluded],
+            **({"noOrder": exc.no_order_details} if getattr(exc, "no_order_details", None) else {}),
         })
 
     for exc_type, status, code in _MAPPING:

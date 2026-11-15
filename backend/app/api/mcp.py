@@ -57,6 +57,7 @@ from app.valio.record import BRIEF_PRODUCT_IDS
 
 from .agent_channel import FORBIDDEN_CAPABILITY_KEYS, AgentCall, AgentControlError
 from .auth import AgentCustomer, agent_customer, bind_customer
+from .no_order_help import attach_no_candidate_details
 from .state import (
     GatewayState,
     GatewayUnavailable,
@@ -409,7 +410,9 @@ AGENT_TOOLS: list[dict[str, Any]] = [
             "Bind the buyer's structured request to an offerId and offerVersion. The gateway deterministically "
             "evaluates policy and returns a Proposal with decision (AUTO | ASK | BLOCK), state "
             "(CONFIRMED_SIMULATED | PENDING_APPROVAL | BLOCKED), reasons[], lines[], excluded[], and totals. "
-            "Agents cannot choose an outcome or pass approval credentials."
+            "Agents cannot choose an outcome or pass approval credentials. If nothing can be ordered the tool "
+            "returns error NO_ORDER; for NO_CANDIDATE, error.details.noOrder lists each unmatched item with why, "
+            "closestMatches (never ordered), earliestDeliverableDate and a retryHint (repeat getOffer with lookupDate)."
         ),
         "inputSchema": {
             "type": "object",
@@ -756,7 +759,11 @@ def _execute_tool(name: str, arguments: dict[str, Any], state: GatewayState,
             args["request"] = req_copy
         prop_req = CreateProposalRequest.model_validate(args)
         offer = state.gateway.get_registered_offer(prop_req.offerId, prop_req.offerVersion)
-        proposal = state.gateway.create_proposal(prop_req, now=state.now_for(offer.mode))
+        try:
+            proposal = state.gateway.create_proposal(prop_req, now=state.now_for(offer.mode))
+        except NoOrderError as exc:
+            attach_no_candidate_details(state, prop_req, offer, exc)  # T108: same help as the buyer UI
+            raise
         state.remember(proposal.proposalId)
         return proposal.model_dump(mode="json")
 
@@ -823,6 +830,7 @@ def _format_domain_error(exc: Exception) -> dict[str, Any]:
                 "details": {
                     "reasons": [str(code) for code in decision.reasons],
                     "excluded": [e.model_dump(mode="json") for e in decision.excluded_products()],
+                    **({"noOrder": exc.no_order_details} if getattr(exc, "no_order_details", None) else {}),
                 },
             }
         }

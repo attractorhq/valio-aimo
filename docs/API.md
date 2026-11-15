@@ -194,13 +194,16 @@ scripts/check
 
 `POST /v0.1/agent/run` accepts `{customerId, requestText, stream?: boolean, lookupDate?: date}`.
 The default `?view=full` returns the existing `AgentRunResult`, including steps, request, plan,
-offer, proposal, explanation and reasons. Existing SSE/NDJSON streams are unchanged.
+offer, proposal, explanation and reasons (often tens of KB). Existing SSE/NDJSON streams are unchanged.
 
-For external clients, `?view=compact` runs the same agent and deterministic gateway, then returns
-only a decision summary (`CompactAgentRunResult`, also described in OpenAPI):
+**External agents should use `?view=compact`.** It runs the same agent and deterministic gateway, then
+returns only a decision summary (`CompactAgentRunResult`, a few KB; Scenario B is under 2 KB). OpenAPI
+documents the `view` parameter, the schema and two response examples (`compact_ask`,
+`compact_no_candidate`), and the `createProposal`/`getProposal` descriptions point here.
 
 ```json
 {
+  "summary": "ASK: €506.16 excl. VAT, 2 lines, waits for Head Chef approval. €506.16 excl. VAT is above your €500.00 auto-approve limit.",
   "customerId": "northbay-school-kitchen",
   "mode": "RECORDED",
   "recordedAt": "2026-11-13T21:52:02+02:00",
@@ -208,6 +211,9 @@ only a decision summary (`CompactAgentRunResult`, also described in OpenAPI):
   "decision": "ASK",
   "state": "PENDING_APPROVAL",
   "reasons": ["OVER_AUTO_LIMIT"],
+  "reasonTexts": [
+    {"code": "OVER_AUTO_LIMIT", "effect": "ASK", "text": "€506.16 excl. VAT is above your €500.00 auto-approve limit."}
+  ],
   "totals": {"exclVat": "506.16", "vat": "68.33", "inclVat": "574.49", "currency": "EUR"},
   "lines": [
     {"productId": "MOCK-PASTA", "name": "Synthetic gluten-free macaroni", "quantitySalesUnits": "18", "salesUnit": "ST", "unitPriceExclVat": "22.92", "lineTotalExclVat": "412.56"},
@@ -215,6 +221,7 @@ only a decision summary (`CompactAgentRunResult`, also described in OpenAPI):
   ],
   "approverRole": "Head Chef",
   "clarificationQuestion": null,
+  "noOrder": null,
   "links": {"proposal": "/v0.1/proposals/PR-EXAMPLE-v1", "audit": "/v0.1/audit?proposalId=PR-EXAMPLE-v1"},
   "notOrdered": []
 }
@@ -227,8 +234,15 @@ from a model-generated summary. `mode` and the snapshot's `recordedAt` preserve 
 agent-channel reads; follow them in the same session to retrieve the full proposal and audit.
 No facts, candidate lists, approval tokens, approval links or QR payloads are included.
 
+- `summary` is one deterministic line (never model-written): the outcome, the total, who must approve
+  and the decisive reason sentence(s); for no order, what is missing and whether a later date works.
+- `reasonTexts` lists every code in `reasons`, in the same order, as `{code, effect, text}`. `text` is the
+  sentence the buyer UI shows for that code with the real values (limit, total, dates, the same-day
+  committed total when that is what crossed the limit, the clarification question). `reasons` stays a
+  plain code list for existing clients.
+
 `notOrdered` (T106) lists requested lines the proposal leaves out because no compliant product was
-found, e.g. `{"itemId": "I2", "what": "oat drink", "quantity": "30", "unit": "l", "reason": "no gluten-free
+found or every candidate failed at the offer stage (cut-off passed, no stock, too late, requirement not declared), e.g. `{"itemId": "I2", "what": "oat drink", "quantity": "30", "unit": "l", "reason": "no gluten-free
 oat drink was found"}`. It mirrors `proposal.notOrdered` in the full view. When a multi-line request has at
 least one deliverable line and at least one line with no compliant candidate, the agent proposes the
 deliverable lines on their own; the gateway decides that version from scratch with `PARTIAL_AVAILABILITY`
@@ -239,8 +253,28 @@ not-ordered lines are never ordered. If no line is deliverable, the result is th
 stricter.
 
 If no proposal is created (clarification or no candidate), `proposalId`, `decision`, `state`,
-`totals`, `approverRole` and `links` are null, and `lines` is empty. `reasons` and any
+`totals`, `approverRole` and `links` are null, and `lines` is empty. `reasons`, `reasonTexts` and any
 `clarificationQuestion` explain what is missing; no policy outcome or zero-priced order is invented.
+For NO_CANDIDATE, `noOrder` carries the same data the UI's no-order banner shows:
+
+```json
+"noOrder": {
+  "items": [{"itemId": "I1", "searched": "milk · lactose-free",
+             "why": "Available Mon 16 Nov, after your Fri 13 Nov deadline. Exclusions include cut-off passed.",
+             "closestMatches": []}],
+  "earliestDeliverableDate": "2026-11-16",
+  "retry": {
+    "hint": "The full request can be delivered on Mon 16 Nov. Send the same requestText with lookupDate 2026-11-16 to get a proposal for that day; the later date needs approval.",
+    "method": "POST", "path": "/v0.1/agent/run?view=compact",
+    "body": {"customerId": "nordic-harbour-hotels", "requestText": "I need 10 litres of lactose-free milk today.", "lookupDate": "2026-11-16"}
+  }
+}
+```
+
+`closestMatches` (at most 3 per item) pass the requested product-type check and every hard requirement
+(T105); they are suggestions, never ordered. `earliestDeliverableDate` is set only when a quote confirms
+the full request on that day; `retry` is then a ready request body. The NO_CANDIDATE reason text names
+the searches, the closest matches and the earliest date, so it is readable on its own.
 
 Compact view is non-streaming JSON only. Combining it with `stream=true` (query or body),
 `Accept: text/event-stream` or `Accept: application/x-ndjson` returns HTTP 422 before any agent
@@ -249,7 +283,9 @@ the existing status codes and error shape.
 
 ## Retrying a delivery date
 
-`POST /v0.1/agent/run` can return `steps[].noOrder` with the search, outcome, and optional catalogue matches for each item. If availability supports the full request on a later day, `earliestDelivery` is an ISO date. The buyer can rerun with the original `requestText` and that date as `lookupDate`.
+`POST /v0.1/agent/run` can return `steps[].noOrder` with the search, outcome, and optional catalogue matches for each item (in the compact view: `noOrder`, see above). If availability supports the full request on a later day, `earliestDelivery` (compact: `earliestDeliverableDate`) is an ISO date. The buyer can rerun with the original `requestText` and that date as `lookupDate`.
+
+Agents that call `createProposal` directly (REST `POST /v0.1/proposals` or the MCP tool) get the same help on a NO_CANDIDATE refusal: the `NO_ORDER` error's `details.noOrder` has `items` (`itemId`, `searched`, `why`, `closestMatches`), `earliestDeliverableDate` and `retryHint` (call `getOffer` again with that `lookupDate`, then `createProposal`). `details.reasons` and `details.excluded` are unchanged.
 
 `POST /v0.1/offers` accepts an optional `lookupDate` later than `requestedDate`. It queries availability and pricing for that later day. The offer and associated request retain `requestedDate` as the original deadline, so the gateway applies `DATE_LATER` and rechecks the later lookup when the approver signs off.
 
