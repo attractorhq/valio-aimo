@@ -13,6 +13,17 @@ import { TrustCard } from '../trust/TrustCard'
 import { SplitProposalSummary } from '../proposal/SplitProposalSummary'
 import { Alternatives } from './Alternatives'
 
+function dayNumber(value: string): number {
+  const [year, month, day] = value.slice(0, 10).split('-').map(Number)
+  return Date.UTC(year, month - 1, day) / 86_400_000
+}
+
+function earlyLineNote(deliveryDate: string, requestedDate: string): string | null {
+  const days = dayNumber(requestedDate) - dayNumber(deliveryDate)
+  if (days <= 0) return null
+  return `Arrives ${formatDate(deliveryDate)}, ${days} ${days === 1 ? 'day' : 'days'} before your ${formatDate(requestedDate)}`
+}
+
 /**
  * Step 3 Order proposal at fixed price + per-line Agent Trust Labels v0.1 cards (P6 P0-2) + Good/Better/Best alternatives (T22).
  */
@@ -101,6 +112,11 @@ export function OrderProposalView({
                       {line.deliveryDate > source.requestedDate && (
                         <span className="block text-xs">
                           After your {formatDate(source.requestedDate)} deadline
+                        </span>
+                      )}
+                      {line.deliveryDate < source.requestedDate && (
+                        <span className="muted block text-xs">
+                          {earlyLineNote(line.deliveryDate, source.requestedDate)}
                         </span>
                       )}
                       {line.closingTime && (

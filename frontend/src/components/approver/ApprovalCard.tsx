@@ -154,10 +154,6 @@ export function ApprovalCard({
   }
 
   const earlyNote = earlyDeliveryNote(proposal.lines, proposal.requestedDate)
-  const isEarlyDateReason =
-    reasons.includes('DATE_LATER') &&
-    (Boolean(proposal.reasonDetails?.DATE_LATER?.startsWith('Arrives')) ||
-      (proposal.lines.length > 0 && proposal.lines.every((l) => l.deliveryDate <= proposal.requestedDate)))
 
   const lineTable = (
     <div className="table-scroll">
@@ -251,18 +247,16 @@ export function ApprovalCard({
       <section aria-label="Why you are asked" className="approval-why">
         {reasons.map((code) => {
           const reasonDetail = limitTradeoff ?? plainReason(code, proposal, mandate)
-          const chipLabel =
-            code === 'DATE_LATER' && isEarlyDateReason ? 'Early delivery' : reasonChip(code)
           return (
             <p key={code} className="approval-reason">
               <EvidenceChip className="chip" detail={<code>{code}</code>}>
-                {chipLabel}
+                {reasonChip(code)}
               </EvidenceChip>
               <span>{reasonDetail ? <ProposalRefText text={reasonDetail} /> : null}</span>
             </p>
           )
         })}
-        {earlyNote && !isEarlyDateReason && (
+        {earlyNote && (
           <p className="approval-reason approval-reason-info">
             <span className="chip">
               <Info size={13} aria-hidden />
