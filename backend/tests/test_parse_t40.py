@@ -185,8 +185,8 @@ def test_the_llm_cannot_move_or_drop_a_same_day_deadline():
      "Mitä tuotetta, kuinka paljon ja mihin mennessä tarvitsette jälkiruoaksi?"),
     ("Tarvitsemme jotain", "Mitä tarvitsette, kuinka paljon ja mihin mennessä?"),
     ("We need something tomorrow", "What do you need, and how much (litres, kilograms, pieces or cases)?"),
-    ("Tarvitsemme voita huomiseksi", "Kuinka paljon voita tarvitsette (litroina, kiloina, kappaleina tai laatikkoina)?"),
-    ("We need butter tomorrow", "How much butter do you need, in litres, kilograms, pieces or cases?"),
+    ("Tarvitsemme voita huomiseksi", "Kuinka paljon voita tarvitsette (kiloina, kappaleina tai laatikkoina)?"),
+    ("We need butter tomorrow", "How much butter do you need, in kilograms, pieces or cases?"),
     ("Tarvitsemme 40 kg huomiseksi", "Mitä tuotetta tarvitsette 40 kg?"),
     ("We need 10 kg of something tomorrow", "Which product do you need 10 kg of?"),
 ])

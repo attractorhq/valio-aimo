@@ -1402,6 +1402,17 @@ button.chip {
 .approver-role strong {
   font-size: 14px;
   font-weight: 700;
+  white-space: nowrap;
+}
+/* T118: on a phone each role is a full-width button, so the role and the whole organisation name fit and the
+   button is one large target. The skeleton keeps the same height, so nothing shifts (T84). */
+@media (max-width: 520px) {
+  .approver-role {
+    flex-basis: 100%;
+  }
+  .skeleton-roles {
+    height: 112px;
+  }
 }
 .approver-role small {
   font-size: 11px;

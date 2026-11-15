@@ -1615,14 +1615,34 @@ def _take_trailing_constraint_clause(sentence: str, finnish: bool) -> tuple[str,
 UNIT_WORDS_FI = "litroina, kiloina, kappaleina tai laatikkoina"
 
 
+# T118: ask in the units the product is sold in, never "cheese in litres".
+_LIQUID_RE = re.compile(
+    r"milk|cream|drink|juice|water|oil|soup|sauce|yog(h)?urt|kefir|buttermilk|maito|kerma|juoma|mehu|vesi|öljy|"
+    r"keitto|kastike|jogurt|piimä|mjölk|grädde|dryck",
+    re.IGNORECASE,
+)
+UNIT_WORDS_SOLID = "kilograms, pieces or cases"
+UNIT_WORDS_LIQUID = "litres, pieces or cases"
+UNIT_WORDS_SOLID_FI = "kiloina, kappaleina tai laatikkoina"
+UNIT_WORDS_LIQUID_FI = "litroina, kappaleina tai laatikkoina"
+
+
+def _unit_words(what: str, finnish: bool) -> str:
+    if not what:
+        return UNIT_WORDS_FI if finnish else UNIT_WORDS
+    if _LIQUID_RE.search(what) and not re.search(r"cheese|juust|butter|voi\b|smör|\bost", what, re.IGNORECASE):
+        return UNIT_WORDS_LIQUID_FI if finnish else UNIT_WORDS_LIQUID
+    return UNIT_WORDS_SOLID_FI if finnish else UNIT_WORDS_SOLID
+
+
 def _how_much_question(what: str, originals: list[str], finnish: bool) -> str:
     if not finnish:
-        return f"How much {what} do you need, in {UNIT_WORDS}?"
+        return f"How much {what} do you need, in {_unit_words(what, False)}?"
     # "Kuinka paljon voita tarvitsette": the buyer's own partitive words read naturally; anything else
     # (a nominative, a brand on its own) would not, so the question then leaves the product out.
     if originals and originals[-1].lower().endswith(("a", "ä")):
-        return f"Kuinka paljon {' '.join(originals)} tarvitsette ({UNIT_WORDS_FI})?"
-    return f"Kuinka paljon tarvitsette ({UNIT_WORDS_FI})?"
+        return f"Kuinka paljon {' '.join(originals)} tarvitsette ({_unit_words(' '.join(originals), True)})?"
+    return f"Kuinka paljon tarvitsette ({_unit_words(what, True)})?"
 
 
 def _how_much_multi_question(named_items: list[tuple[str, list[str]]], finnish: bool) -> str:
@@ -1866,7 +1886,7 @@ def _fallback(
         safety_question = _negation_question(phrase, finnish)
     if safety_question is None:
         for item in items:
-            if item.what and (contradiction := _contradiction(item.what, item.requirements, finnish)):
+            if item.what and (contradiction := _text_contradiction(item.what, item.requirements, clean, finnish)):
                 safety_question = contradiction
                 break
     if safety_question is None:
@@ -2125,6 +2145,20 @@ def _clean_name(what: object) -> object:
         if normalised:
             return normalised
     return cleaned or what
+
+
+# T118: "made from cow milk" in Finnish ("lehmänmaidosta", "maidosta tehtyä").
+_MADE_FROM_MILK_FI_RE = re.compile(r"\b(?:lehmän|vuohen|lampaan)maido\w*|\bmaidosta\s+tehty\w*", re.IGNORECASE)
+
+
+def _text_contradiction(what: str, requirements: list[Requirement], text: str, finnish: bool) -> str | None:
+    """`_contradiction` on the item, and on the item plus "made from cow milk" when the request text says so but
+    the item's name lost the phrase (an LLM reading, or a Finnish "lehmänmaidosta")."""
+    if found := _contradiction(what, requirements, finnish):
+        return found
+    if _MADE_FROM_MILK_RE.search(what) or not (_MADE_FROM_MILK_RE.search(text) or _MADE_FROM_MILK_FI_RE.search(text)):
+        return None
+    return _contradiction(f"{what} made from cow milk", requirements, finnish)
 
 
 def _contradiction(what: str, requirements: list[Requirement], finnish: bool = False) -> str | None:
@@ -2518,7 +2552,8 @@ def parse_request(
         question = fallback.safety_question
     if question is None and request is not None:
         question = next(
-            (q for item in request.items if (q := _contradiction(item.what, item.requirements, finnish))), None
+            (q for item in request.items if (q := _text_contradiction(item.what, item.requirements, text, finnish))),
+            None,
         )
     if question is None and request is not None:
         question = _type_question(request, text, finnish)

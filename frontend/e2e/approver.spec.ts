@@ -98,7 +98,9 @@ test('a used approval link cannot be replayed', async ({ page }) => {
   await runScenarioB(page)
   await page.goto('/approver')
   // T112: the role is chosen with a tap button, not a native select.
-  const role = page.getByRole('group', { name: 'Choose your role' }).getByRole('button', { name: /^Head Chef/ })
+  const role = page
+    .getByRole('group', { name: 'Choose your role' })
+    .getByRole('button', { name: /^Head Chef/ })
   await role.click()
   await expect(role).toHaveAttribute('aria-pressed', 'true')
   await page.getByRole('button', { name: 'Approve €506.16' }).click()
@@ -408,4 +410,25 @@ test('T97: delivery before the requested date is said out loud to the approver',
   await expect(why).toContainText(
     'Valio offers delivery on Mon 16 Nov for these products; they arrive 4 days before Friday.',
   )
+})
+
+test('T118: before sign-in the panel asks for a role; on a phone each role is one full-width target with its buyer', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/approver')
+  const switcher = page.locator('.approver-switch')
+  await expect(switcher).toContainText('Choose your role')
+  await expect(switcher).not.toContainText('Signed in as')
+  const roles = page.getByRole('group', { name: 'Choose your role' }).getByRole('button')
+  await expect(roles).toHaveCount(2)
+  for (const role of await roles.all()) {
+    const box = (await role.boundingBox())!
+    expect(box.width).toBeGreaterThan(300)
+    const org = role.locator('small')
+    // The whole organisation name is visible: nothing is cut off with an ellipsis.
+    expect(await org.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+  }
+  await roles.filter({ hasText: 'Head Chef' }).click()
+  await expect(switcher).toContainText('Signed in as')
 })
