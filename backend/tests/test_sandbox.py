@@ -14,7 +14,7 @@ from app.api import state as state_module
 from app.api.state import GatewayState, SandboxRegistry, fresh_sandbox
 from app.gateway.proposals import ProposalGateway
 from app.main import app
-from app.policy import M1
+from app.policy import M1, M2
 
 
 @pytest.fixture
@@ -100,35 +100,135 @@ def test_cookie_does_not_override_explicit_api_sandbox_and_invalid_headers_fail(
             assert browser.get("/health", headers={"X-Demo-Sandbox": bad}).status_code == 400
 
 
-def test_cookieless_plain_rest_stays_shared_and_legacy_mcp_calls_work(sandboxes):
+def test_cookieless_clients_get_private_sessions_and_stay_in_them_by_echoing_the_header(sandboxes):
+    """T116: two cookieless clients with the same key never share state; echoing X-Demo-Sandbox keeps a session."""
     registry, _ = sandboxes
     with TestClient(app) as one, TestClient(app) as two:
         assert "set-cookie" not in one.get("/health").headers
-        lower_limit(one)
-        assert two.get(f"/v0.1/mandates/{M1.customerId}").json()["autoApproveLimitEur"] == "100.00"
-        response = two.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                                         "params": {"name": "getMandate", "arguments": {"customerId": M1.customerId}}})
+        changed = one.patch(f"/v0.1/admin/mandates/{M1.customerId}", json={"autoApproveLimitEur": "100.00"})
+        session = changed.headers["x-demo-sandbox"]
+        assert session.startswith("api-") and len(session) == 36
+        # The other client (no header) gets its own fresh session: the edit is not visible there.
+        other = two.get(f"/v0.1/mandates/{M1.customerId}")
+        assert other.json()["autoApproveLimitEur"] == format(M1.autoApproveLimitEur, "f")
+        assert other.headers["x-demo-sandbox"] not in (session, "")
+        # Echoing the id returns to the session, over REST and MCP.
+        mine = one.get(f"/v0.1/mandates/{M1.customerId}", headers={"X-Demo-Sandbox": session})
+        assert mine.json()["autoApproveLimitEur"] == "100.00"
+        assert mine.headers["x-demo-sandbox"] == session
+        response = two.post("/mcp", headers={"X-Demo-Sandbox": session}, json={
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "getMandate", "arguments": {"customerId": M1.customerId}}})
         assert response.status_code == 200
         assert response.json()["result"]["structuredContent"]["autoApproveLimitEur"] == "100.00"
-        assert registry.count() == 1
-        assert registry.get("shared").gateway.mandates.get(M1.customerId).autoApproveLimitEur == Decimal("100")
+        assert registry.get(session).gateway.mandates.get(M1.customerId).autoApproveLimitEur == Decimal("100")
 
 
-def test_cookieless_mcp_sessions_share_state_with_rest_so_channels_can_mix(sandboxes):
-    """An external agent may create an offer over REST and the proposal over MCP: both use `shared`."""
+def test_reads_in_a_new_session_do_not_fill_the_registry(sandboxes):
+    registry, _ = sandboxes
+    with TestClient(app) as client:
+        before = registry.count()
+        for _ in range(5):
+            assert client.get("/v0.1/mandates").headers["x-demo-sandbox"].startswith("api-")
+        assert registry.count() == before
+
+
+def _a_offer(client, headers=None):
+    run = client.post("/v0.1/agent/run", json={"customerId": M1.customerId, "requestText": A_TEXT})
+    offer = client.post("/v0.1/offers", json=run.json()["plan"]["offerRequest"], headers=headers or {})
+    assert offer.status_code == 200, offer.text
+    body = {"customerId": M1.customerId, "offerId": offer.json()["offerId"],
+            "offerVersion": offer.json()["offerVersion"], "request": run.json()["request"]}
+    return offer, body
+
+
+def test_offer_then_proposal_works_when_the_session_is_echoed(sandboxes):
+    with TestClient(app) as client:
+        offer, body = _a_offer(client)
+        session = offer.headers["x-demo-sandbox"]
+        created = client.post("/v0.1/proposals", json=body, headers={"X-Demo-Sandbox": session})
+        assert created.status_code == 201, created.text
+        assert created.headers["x-demo-sandbox"] == session
+
+
+def test_header_less_offer_then_proposal_continues_in_the_offers_session(sandboxes):
+    """Generic HTTP helpers never echo custom headers: naming one's own offer/proposal finds its session."""
+    registry, _ = sandboxes
+    with TestClient(app) as client:
+        offer, body = _a_offer(client)
+        session = offer.headers["x-demo-sandbox"]
+        created = client.post("/v0.1/proposals", json=body)  # no header
+        assert created.status_code == 201, created.text
+        assert created.headers["x-demo-sandbox"] == session
+        proposal_id = created.json()["proposalId"]
+        assert registry.get(session).gateway.get_proposal(proposal_id).customerId == M1.customerId
+
+        read = client.get(f"/v0.1/proposals/{proposal_id}")
+        assert read.status_code == 200 and read.headers["x-demo-sandbox"] == session
+        audit = client.get("/v0.1/audit", params={"proposalId": proposal_id})
+        assert audit.status_code == 200 and audit.headers["x-demo-sandbox"] == session
+        verify = client.get("/v0.1/audit/verify", params={"proposalId": proposal_id})
+        assert verify.status_code == 200 and verify.headers["x-demo-sandbox"] == session
+        mcp = client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+            "name": "getProposal", "arguments": {"proposalId": proposal_id}}})
+        assert mcp.json()["result"]["structuredContent"]["proposalId"] == proposal_id
+        assert mcp.headers["x-demo-sandbox"] == session
+
+
+def test_another_buyers_key_never_resolves_a_header_less_offer_or_proposal(sandboxes):
+    with TestClient(app) as client:
+        offer, body = _a_offer(client)
+        created = client.post("/v0.1/proposals", json=body)
+        proposal_id = created.json()["proposalId"]
+        other = {"Authorization": f"Bearer demo-agent-{M2.customerId}"}
+        stolen = client.post("/v0.1/proposals", json={**body, "customerId": M2.customerId}, headers=other)
+        assert stolen.status_code in (403, 404)
+        assert stolen.headers["x-demo-sandbox"] != offer.headers["x-demo-sandbox"]
+        read = client.get(f"/v0.1/proposals/{proposal_id}", headers=other)
+        assert read.status_code in (403, 404)
+        assert read.headers["x-demo-sandbox"] != offer.headers["x-demo-sandbox"]
+
+
+def test_daily_totals_and_suspension_never_cross_cookieless_clients(sandboxes):
+    with TestClient(app) as noisy, TestClient(app) as quiet:
+        first = noisy.post("/v0.1/agent/run", json={"customerId": M1.customerId, "requestText": A_TEXT})
+        session = first.headers["x-demo-sandbox"]
+        for _ in range(2):
+            again = noisy.post("/v0.1/agent/run", headers={"X-Demo-Sandbox": session},
+                               json={"customerId": M1.customerId, "requestText": A_TEXT})
+            assert again.status_code == 200
+        # Three refused approval attempts suspend the noisy session only.
+        for _ in range(3):
+            noisy.post("/v0.1/proposals", headers={"X-Demo-Sandbox": session},
+                       json={"customerId": M1.customerId, "approvalToken": "x"})
+        assert noisy.get("/v0.1/proposals", headers={"X-Demo-Sandbox": session}).status_code == 403
+        # The quiet client's first order is decided on its own: no other client's committed total, no suspension.
+        own = quiet.post("/v0.1/agent/run", json={"customerId": M1.customerId, "requestText": A_TEXT})
+        assert own.status_code == 200, own.text
+        assert (own.json()["proposal"]["decision"], own.json()["proposal"]["reasons"]) == ("AUTO", [])
+
+
+def test_cookieless_mcp_sessions_are_private_and_can_continue_over_rest(sandboxes):
+    """Each MCP session is its own sandbox; sending its Mcp-Session-Id as X-Demo-Sandbox joins it over REST."""
     with TestClient(app) as client:
         initialize = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
         first = client.post("/mcp", json=initialize)
         second = client.post("/mcp", json=initialize)
         assert "set-cookie" not in first.headers
         first_id, second_id = first.headers["mcp-session-id"], second.headers["mcp-session-id"]
-        lower_limit(client)  # plain REST, shared session
+        assert first.headers["x-demo-sandbox"] == first_id
+        changed = client.patch(f"/v0.1/admin/mandates/{M1.customerId}", json={"autoApproveLimitEur": "100.00"},
+                               headers={"X-Demo-Sandbox": first_id})
+        assert changed.status_code == 200
         query = {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
             "name": "getMandate", "arguments": {"customerId": M1.customerId},
         }}
-        for session_id in (first_id, second_id):
-            response = client.post("/mcp", json=query, headers={"Mcp-Session-Id": session_id})
-            assert response.json()["result"]["structuredContent"]["autoApproveLimitEur"] == "100.00"
+        limits = {
+            session_id: client.post("/mcp", json=query, headers={"Mcp-Session-Id": session_id})
+            .json()["result"]["structuredContent"]["autoApproveLimitEur"]
+            for session_id in (first_id, second_id)
+        }
+        assert limits == {first_id: "100.00", second_id: format(M1.autoApproveLimitEur, "f")}
 
 
 def test_signed_approval_routes_without_cookie_and_tampered_sandbox_is_rejected(sandboxes):

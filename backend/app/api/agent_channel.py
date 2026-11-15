@@ -112,8 +112,9 @@ WARNING_HEADER = "X-Agent-Warning"
 def agent_session(request: Request, mcp_session: str | None = None) -> str:
     """The session half of an agent's suspension identity (the key's customer is the other half).
 
-    MCP clients are told apart by their Mcp-Session-Id. Cookieless REST callers share the `shared` sandbox, so they
-    are told apart by caller address and User-Agent (hashed, never stored or shown)."""
+    Suspension state lives in each session's own activity log, so separate sessions (T116: every cookieless client
+    gets one) never affect each other. Inside one session, MCP clients are told apart by their Mcp-Session-Id and
+    REST callers by caller address and User-Agent (hashed, never stored or shown)."""
     session = mcp_session or getattr(request.state, "mcp_session_id", None) or request.headers.get("mcp-session-id")
     if session:
         return "mcp:" + session[:90]
